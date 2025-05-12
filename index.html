@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Micro Front-End Manager</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* Aplica a fonte Fira Code em todo o app */
+    body {
+      font-family: 'Fira Code', monospace;
+      margin: 0;
+      padding: 0;
+      background-color: #f4f4f4; /* Cor de fundo suave */
+      color: #333; /* Cor do texto */
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+      font-weight: 600;
+    }
+
+    input, button {
+      font-family: 'Fira Code', monospace;
+    }
+
+    button {
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>
+    Micro Front-Ends 
+    <span id="node-version" style="font-size: 12px; margin-left: 10px; color: green;"></span>
+    <span id="angular-version" style="font-size: 12px; margin-left: 10px; color: green;"></span>
+  </h1>
+  <div id="node-warning" style="font-size: 12px; color: orange; margin-top: 5px;"></div>
+  <div id="angular-warning" style="font-size: 12px; color: orange; margin-top: 5px;"></div>
+
+  <div id="pinter-status" style="position: fixed; top: 10px; right: 10px; width: 15px; height: 15px; border-radius: 50%; background: red; cursor: pointer;"></div>
+  <div id="status" style="position: fixed; top: 30px; right: 10px; max-width: 100px; height: 15px; font-size: 10px; cursor: pointer;" title="Não logado">
+  </div>
+  <div id="projects"></div>
+  <script>
+  const { ipcRenderer } = require('electron');
+
+  ipcRenderer.send('load-projects');
+
+  ipcRenderer.on('projects-loaded', (event, projects) => {
+    const container = document.getElementById('projects');
+    container.innerHTML = '';
+
+    projects.forEach((project, index) => {
+      const div = document.createElement('div');
+      div.innerHTML = `
+        <div style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+          <p><strong>${project.name}</strong></p>
+          <input id="input-${index}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" style="width: 100%; margin-bottom: 10px;" />
+          <button id="btn-download-${index}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
+          <button id="btn-start-${index}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
+          <button id="btn-stop-${index}" style="display: none;">Parar</button>
+          <button id="btn-delete-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
+          <div id="log-${index}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
+        </div>
+      `;
+      container.appendChild(div);
+
+      const input = document.getElementById(`input-${index}`);
+      const downloadButton = document.getElementById(`btn-download-${index}`);
+      const startButton = document.getElementById(`btn-start-${index}`);
+      const stopButton = document.getElementById(`btn-stop-${index}`);
+      const deleteButton = document.getElementById(`btn-delete-${index}`);
+      const logDiv = document.getElementById(`log-${index}`);
+    
+      input.addEventListener('blur', () => {
+        ipcRenderer.send('update-project-path', { index, path: input.value });
+        // Oculta o botão "Baixar Projeto" se o path for preenchido
+        if (input.value.trim()) {
+            downloadButton.style.display = 'none';
+            startButton.disabled = false;
+            deleteButton.style.display = 'inline-block';
+        }else {
+          deleteButton.style.display = 'none';
+        }
+      });
+    
+      downloadButton.addEventListener('click', () => {
+        ipcRenderer.send('download-project', { name: project.name, index });
+      });
+    
+      startButton.addEventListener('click', () => {
+        startButton.disabled = true;
+        startButton.innerText = 'Executando...';
+        ipcRenderer.send('start-project', { projectPath: input.value, port: project.port });
+      });
+    
+      stopButton.addEventListener('click', () => {
+        ipcRenderer.send('stop-project', { projectPath: input.value, port: project.port });
+      });
+
+      deleteButton.addEventListener('click', () => {
+        if (confirm(`Tem certeza que deseja deletar o projeto ${project.name}?`)) {
+          deleteButton.disabled = true; // Desabilita o botão durante a execução
+          ipcRenderer.send('delete-project', { index, path: input.value });
+        }
+      });
+      
+  ipcRenderer.on('delete-project-log', (event, { path, message, success }) => {
+    const input = document.querySelector(`#projects input[value="${path}"]`);
+    if (input) {
+      const logDiv = input.nextElementSibling.nextElementSibling.nextElementSibling.nextElementSibling;
+      const deleteButton = input.nextElementSibling.nextElementSibling;
+      const startButton = input.nextElementSibling;
+  
+      logDiv.style.display = 'block';
+      logDiv.innerText += `\n${message}`;
+      logDiv.scrollTop = logDiv.scrollHeight;
+  
+      if (success) {
+        input.value = ''; // Limpa o caminho do input
+        window.location.reload();
+      } else {
+        deleteButton.disabled = false; // Reabilita o botão em caso de erro
+      }
+    }
+  });
+    
+      ipcRenderer.on('log', (event, { path, message }) => {
+        if (project.path === path || message.includes(project.name)) {
+            logDiv.style.display = 'block';
+            logDiv.innerText += `\n${message}`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+
+            // Oculta o botão "Baixar Projeto" se o path for definido
+            if (message.includes('Caminho do projeto:')) {
+                downloadButton.style.display = 'none';
+            }
+        }
+      });
+    
+      ipcRenderer.on('status-update', (event, { path, status }) => {
+        const projectIndex = projects.findIndex((project) => project.path === path);
+        if (projectIndex !== -1) {
+            const startButton = document.getElementById(`btn-start-${projectIndex}`);
+            const stopButton = document.getElementById(`btn-stop-${projectIndex}`);
+
+            if (status === 'running') {
+            startButton.innerText = 'Rodando ✓';
+            startButton.disabled = true;
+            stopButton.style.display = 'inline-block';
+            } else if (status === 'stopping') {
+            stopButton.innerText = 'Parando...';
+            stopButton.disabled = true;
+            } else if (status === 'stopped') {
+            startButton.innerText = 'Iniciar';
+            startButton.disabled = false;
+            stopButton.style.display = 'none';
+            stopButton.disabled = false;
+            stopButton.innerText = 'Parar';
+            }
+        }
+      });
+    });
+  });
+  // Atualiza o status de login
+  ipcRenderer.on('log', (event, { message }) => {
+      const statusDiv = document.getElementById('status');
+      if (message.includes('Logado no Nexus com sucesso')) {
+        statusDiv.innerText = 'Logado no Nexus ✓';
+        statusDiv.style.background = 'green';
+      } else if (message.includes('Erro no login')) {
+        statusDiv.innerText = 'Erro no login ✗';
+        statusDiv.style.background = 'red';
+      }
+  });
+
+  ipcRenderer.send('load-login-state');
+
+  ipcRenderer.on('login-state', (event, isLoggedIn) => {
+    const statusDiv = document.getElementById('status');
+    const pinterStatusDiv = document.getElementById('pinter-status');
+    pinterStatusDiv.style.background = isLoggedIn ? 'green' : 'red';
+    if (isLoggedIn) {
+      statusDiv.innerText = 'Logado no Nexus ✓';
+    } else {
+      statusDiv.innerText = 'Não logado';
+    }
+  });
+
+  ipcRenderer.on('log', (event, { message }) => {
+    const statusDiv = document.getElementById('status');
+    if (message.includes('Logado no Nexus com sucesso')) {
+      statusDiv.innerText = 'Logado no Nexus ✓';
+      statusDiv.style.background = 'green';
+    } else if (message.includes('Erro no login')) {
+      statusDiv.innerText = 'Erro no login ✗';
+      statusDiv.style.background = 'red';
+    }
+  });
+
+  ipcRenderer.send('load-node-info');
+  ipcRenderer.send('load-angular-info');
+  ipcRenderer.on('node-info', (event, { version, warning }) => {
+    const nodeVersionSpan = document.getElementById('node-version');
+    const nodeWarningDiv = document.getElementById('node-warning');
+
+    if (version) {
+      nodeVersionSpan.innerText = `Node.js: ${version}`;
+      nodeVersionSpan.style.color = version === 'v16.10.0' ? 'green' : 'orange';
+    } else {
+      nodeVersionSpan.innerHTML = `<a href="https://nodejs.org/" target="_blank" style="color: red; text-decoration: none;">Node.js não instalado (Baixar)</a>`;
+    }
+
+    if (warning) {
+      nodeWarningDiv.innerText = warning;
+    } else {
+      nodeWarningDiv.innerText = '';
+    }
+  });
+
+  ipcRenderer.on('angular-info', (event, { version, warning }) => {
+    const angularVersionSpan = document.getElementById('angular-version');
+    const angularWarningDiv = document.getElementById('angular-warning');
+
+    if (version) {
+      angularVersionSpan.innerText = `Angular CLI: ${version}`;
+      angularVersionSpan.style.color = version === '13.3.11' ? 'green' : 'orange';
+    } else {
+      angularVersionSpan.innerHTML = `<a href="https://angular.io/cli" target="_blank" style="color: red; text-decoration: none;">Angular CLI não instalado (Baixar)</a>`;
+    }
+
+    if (warning) {
+      angularWarningDiv.innerText = warning;
+    } else {
+      angularWarningDiv.innerText = '';
+    }
+  });
+
+  ipcRenderer.on('update-project', (event, { index, path }) => {
+    const input = document.getElementById(`input-${index}`);
+    const deleteButton = document.getElementById(`btn-delete-${index}`);
+    const downloadButton = document.getElementById(`btn-download-${index}`);
+  
+    // Atualiza o valor do input e os botões relacionados ao projeto deletado
+    input.value = path;
+    input.disabled = false;
+    deleteButton.style.display = 'none'; // Oculta o botão "Deletar"
+    downloadButton.style.display = 'inline-block'; // Reexibe o botão "Baixar Projeto"
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #close {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: none;
+      border: none;
+      color: #fff;
+      font-size: 18px;
+      cursor: pointer;
+    }
+
+    #close:hover {
+      color: #ff4d4d;
+    }
+
+    pre {
+      background: #000;
+      color: #0f0;
+      padding: 10px;
+      width: 95%;
+      height: 85%;
+      overflow-y: auto;
+      border-radius: 5px;
+      margin-top: 40px;
+      font-family: monospace;
+    }
+
+    pre:focus {
+      outline: none;
+    }
+  </style>
+</head>
+<body>
+  <button id="close">[x]</button>
+  <pre id="terminal" contenteditable="true"></pre>
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    let isReadyForInput = false;
+    let isPasswordInput = false;
+
+    ipcRenderer.on('start-npm-login', (event, { projectPath, registry }) => {
+      const terminal = document.getElementById('terminal');
+      const closeButton = document.getElementById('close');
+
+      // Inicializa o terminal com os dois primeiros comandos
+      terminal.innerText += `cd ${projectPath}\n`;
+      terminal.innerText += `npm login --registry=${registry}\n`;
+      terminal.scrollTop = terminal.scrollHeight;
+
+      // Envia os dois primeiros comandos para o backend
+      ipcRenderer.send('execute-command', `cd ${projectPath}`);
+      ipcRenderer.send('execute-command', `npm login --registry=${registry}`);
+
+      // Habilita a entrada do usuário após os comandos iniciais
+      isReadyForInput = true;
+
+      // Captura a entrada do usuário
+      terminal.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && isReadyForInput) {
+          e.preventDefault();
+
+          // Captura apenas a última linha digitada
+          const lines = terminal.innerText.split('\n');
+          const lastLine = lines[lines.length - 1].trim();
+
+          // Extrai apenas o texto após o último `:`
+          const input = lastLine.split(':').pop().trim();
+
+          if (input) {
+            if (isPasswordInput) {
+              // Exibe asteriscos no console para a senha
+              terminal.innerText = terminal.innerText.replace(input, '******');
+            }
+
+            ipcRenderer.send('execute-command', input); // Envia o texto digitado para o backend
+            terminal.innerText += '\n'; // Adiciona uma nova linha
+            terminal.scrollTop = terminal.scrollHeight;
+
+            isPasswordInput = false; // Reseta o estado de senha
+          }
+        }
+      });
+
+      // Fecha a janela ao clicar no botão "Fechar"
+      closeButton.addEventListener('click', () => {
+        ipcRenderer.send('close-login-window');
+      });
+
+      // Exibe a saída do terminal no console
+      ipcRenderer.on('command-output', (event, output) => {
+        terminal.innerText += output;
+        terminal.scrollTop = terminal.scrollHeight;
+
+        // Detecta se o próximo input é uma senha
+        if (output.toLowerCase().includes('password:')) {
+          isPasswordInput = true;
+        }
+
+        // Detecta login bem-sucedido
+        if (output.toLowerCase().includes('logged in')) {
+          ipcRenderer.send('login-success');
+        }
+      });
+    });
+  </script>
+</body>
+</html>

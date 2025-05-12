@@ -1,0 +1,52 @@
+[
+  {
+    "name": "mp-pas-root",
+    "path": "D:\\workdir\\front-end\\mp-pas-root",
+    "port": 9000
+  },
+  {
+    "name": "mp-pas-navbar",
+    "path": "D:\\workdir\\front-end\\mp-pas-navbar",
+    "port": 9001
+  },
+  {
+    "name": "mp-pas-home",
+    "path": "",
+    "port": 9002
+  },
+  {
+    "name": "mp-pas-marketplace",
+    "path": "",
+    "port": 9003
+  },
+  {
+    "name": "mp-pas-configuracoes",
+    "path": "D:\\workdir\\front-end\\mp-pas-configuracoes",
+    "port": 9004
+  },
+  {
+    "name": "mp-pas-financeiro",
+    "path": "",
+    "port": 9005
+  },
+  {
+    "name": "mp-pas-vendas",
+    "path": "",
+    "port": 9006
+  },
+  {
+    "name": "mp-pas-catalogo",
+    "path": "",
+    "port": 9007
+  },
+  {
+    "name": "mp-pas-logistica",
+    "path": "",
+    "port": 9008
+  },
+  {
+    "name": "mp-pas-comercial",
+    "path": "",
+    "port": 9009
+  }
+]
