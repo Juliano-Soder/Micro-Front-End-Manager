@@ -50,14 +50,14 @@
    ```
 
 2. Instale as dependências:
-```bash
-npm install
-```
+  ```bash
+  npm install
+  ```
 
 3. Inicie o aplicativo:
-```bash
-npm start
-```
+  ```bash
+  npm start
+  ```
 ### 🖥️ Como Usar
 #### Login no NPM:
 
