@@ -12,5 +12,13 @@ release/
 out/
 *.map
 
+# Ignorar arquivos grandes
+out/micro-front-end-manager-win32-x64/micro-front-end-manager.exe
+out/make/squirrel.windows/x64/MicroFrontEndManagerSetup.exe
+out/make/squirrel.windows/x64/micro_front_end_manager-1.0.0-full.nupkg
+node_modules/electron/dist/electron.exe
+
+
+
 # Logs
 logs
