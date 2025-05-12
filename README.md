@@ -47,7 +47,7 @@
    ```bash
    git clone https://github.com/seu-usuario/micro-front-end-manager.git
    cd micro-front-end-manager
-```
+   ```
 
 2. Instale as dependências:
 ```bash
