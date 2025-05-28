@@ -1,12 +1,12 @@
 [
   {
     "name": "mp-pas-root",
-    "path": "D:\\workdir\\front-end\\mp-pas-root",
+    "path": "",
     "port": 9000
   },
   {
     "name": "mp-pas-navbar",
-    "path": "D:\\workdir\\front-end\\mp-pas-navbar",
+    "path": "",
     "port": 9001
   },
   {
@@ -21,7 +21,7 @@
   },
   {
     "name": "mp-pas-configuracoes",
-    "path": "D:\\workdir\\front-end\\mp-pas-configuracoes",
+    "path": "",
     "port": 9004
   },
   {

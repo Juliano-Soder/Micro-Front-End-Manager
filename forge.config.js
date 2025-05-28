@@ -4,6 +4,16 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
+    win32metadata: {
+      CompanyName: "Grupo Casas Bahia",
+      FileDescription: "Gerenciador de Micro Front-Ends",
+      ProductName: "Micro Front-End Manager",
+    },
+    // Configuração para assinatura automática
+    sign: {
+      certificateFile: "C:\\certificados\\micro-front-end-manager.pfx",
+      certificatePassword: "Via!2022",
+    },
   },
   rebuildConfig: {},
   makers: [

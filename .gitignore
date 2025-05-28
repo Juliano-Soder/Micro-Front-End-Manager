@@ -18,7 +18,5 @@ out/make/squirrel.windows/x64/MicroFrontEndManagerSetup.exe
 out/make/squirrel.windows/x64/micro_front_end_manager-1.0.0-full.nupkg
 node_modules/electron/dist/electron.exe
 
-
-
 # Logs
 logs

@@ -1,10 +1,13 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { exec, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { Menu } = require('electron');
 const { spawn } = require('child_process');
+const userDataPath = app.getPath('userData');
+
+require('events').EventEmitter.defaultMaxListeners = 20;
 
 
 const loginStateFile = path.join(__dirname, 'login-state.json');
@@ -25,12 +28,27 @@ function loadLoginState() {
 
 function handleNpmLogin() {
   const mfePaths = projects
-    .filter((project) => project.path && fs.existsSync(path.join(project.path, '.npmrc')))
+    .filter(
+      (project) =>
+        typeof project.path === 'string' &&
+        project.path.trim() !== "" &&
+        fs.existsSync(project.path) &&
+        fs.existsSync(path.join(project.path, '.npmrc'))
+    )
     .map((project) => project.path);
 
   if (mfePaths.length === 0) {
     console.error('Nenhum projeto com arquivo .npmrc encontrado para login no npm.');
     mainWindow.webContents.send('log', { message: 'Erro: Nenhum projeto com arquivo .npmrc encontrado para login no npm.' });
+
+    // Mostra um alerta nativo para o usuário
+    dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'Atenção',
+      message: 'Você precisa ter pelo menos um projeto salvo e o caminho configurado corretamente antes de fazer login no npm.',
+      buttons: ['OK']
+    });
+
     return;
   }
 
@@ -58,7 +76,8 @@ function handleNpmLogin() {
     titleBarStyle: 'hidden',
   });
 
-  loginWindow.loadFile('login.html');
+  // Corrija aqui: NÃO use mainWindow.loadFile!
+  loginWindow.loadFile(path.join(__dirname, 'login.html'));
 
   loginWindow.webContents.once('did-finish-load', () => {
     loginWindow.webContents.send('start-npm-login', { projectPath, registry });
@@ -91,6 +110,12 @@ const menuTemplate = [
           handleNpmLogin(); // Chama a função handleNpmLogin ao clicar
         },
       },
+      {
+        label: 'Instalar Dependências',
+        click: () => {
+          handleInstallDependencies(); // Chama a função para instalar dependências
+        },
+      },
       { role: 'quit' },
     ],
   },
@@ -100,8 +125,35 @@ const menuTemplate = [
 const menu = Menu.buildFromTemplate(menuTemplate);
 Menu.setApplicationMenu(menu);
 
+// Função para instalar dependências
+function handleInstallDependencies() {
+  const installWindow = new BrowserWindow({
+    width: 600,
+    height: 400,
+    modal: true,
+    parent: mainWindow,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+    autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+  });
+
+  installWindow.loadFile('install.html');
+
+  installWindow.webContents.once('did-finish-load', () => {
+    console.log('A janela de instalação foi carregada.');
+    installWindow.webContents.send('start-installation');
+  });
+
+  ipcMain.on('close-install-window', () => {
+    installWindow.close();
+  });
+}
+
 let mainWindow;
-const projectsFile = path.join(__dirname, 'projects.txt');
+const projectsFile = path.join(userDataPath, 'projects.txt');
 let runningProcesses = {}; // Armazena os processos em execução
 
 function removeAnsiCodes(input) {
@@ -148,6 +200,10 @@ function loadProjects() {
 
 // Função para salvar os projetos
 function saveProjects(projects) {
+  const dir = path.dirname(projectsFile);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
   fs.writeFileSync(projectsFile, JSON.stringify(projects, null, 2), 'utf-8');
 }
 
@@ -511,35 +567,131 @@ ipcMain.on('execute-command', (event, command) => {
   // Envia o comando para o terminal real
   if (terminalProcess) {
     terminalProcess.stdin.write(`${command}\n`);
-  }
-});
-
-ipcMain.on('close-login-window', () => {
-  if (terminalProcess) {
-    terminalProcess.kill();
-    terminalProcess = null;
-  }
-});
-
-ipcMain.on('delete-project', (event, { index, path }) => {
-  console.log(`Deletando projeto no caminho: ${path}`);
-  event.reply('delete-project-log', { path, message: `Iniciando exclusão do projeto em ${path}...`, success: false });
-
-  const deleteCommand = os.platform() === 'win32' ? `rmdir /s /q "${path}"` : `rm -rf "${path}"`;
-
-  exec(deleteCommand, (err, stdout, stderr) => {
-    if (err) {
-      console.error(`Erro ao deletar o projeto: ${err.message}`);
-      event.reply('delete-project-log', { path, message: `Erro ao deletar o projeto: ${err.message}`, success: false });
-      return;
     }
-
-    console.log(`Projeto deletado com sucesso: ${path}`);
-    event.reply('delete-project-log', { path, message: `Projeto deletado com sucesso: ${path}`, success: true });
-
-    projects[index].path = '';
-    saveProjects(projects);
-    event.reply('update-project', { index, path: '' });
   });
-});
+
+  ipcMain.on('close-login-window', () => {
+    if (terminalProcess) {
+      terminalProcess.kill();
+      terminalProcess = null;
+    }
+  });
+
+  ipcMain.on('delete-project', (event, { index, path }) => {
+    console.log(`Deletando projeto no caminho: ${path}`);
+    event.reply('delete-project-log', { path, message: `Iniciando exclusão do projeto em ${path}...`, success: false });
+
+    const deleteCommand = os.platform() === 'win32' ? `rmdir /s /q "${path}"` : `rm -rf "${path}"`;
+
+    exec(deleteCommand, (err, stdout, stderr) => {
+      if (err) {
+        console.error(`Erro ao deletar o projeto: ${err.message}`);
+        event.reply('delete-project-log', { path, message: `Erro ao deletar o projeto: ${err.message}`, success: false });
+        return;
+      }
+
+      console.log(`Projeto deletado com sucesso: ${path}`);
+      event.reply('delete-project-log', { path, message: `Projeto deletado com sucesso: ${path}`, success: true });
+
+      projects[index].path = '';
+      saveProjects(projects);
+      event.reply('update-project', { index, path: '' });
+    });
+  });
+
+  ipcMain.once('start-installation', (event) => {
+
+    console.log('Iniciando instalação do Node.js e Angular CLI...');
+
+    event.reply('installation-log', 'Iniciando instalação do Node.js e Angular CLI...');
+    event.reply('installation-log', 'Passo 1: Verificando Node.js...');
+
+    const sendLog = (message) => {
+      console.log(message); // Log no console para depuração
+      event.reply('installation-log', message); // Envia o log para a janela de instalação
+    };
+  
+    const installNode = () => {
+      sendLog('Passo 1: Verificando Node.js...');
+      try {
+        const nodeVersion = execSync('node -v').toString().trim();
+        if (nodeVersion === 'v16.10.0') {
+          sendLog('Node.js já está instalado na versão 16.10.0.');
+          return Promise.resolve();
+        }
+      } catch {
+        sendLog('Node.js não encontrado. Iniciando instalação...');
+      }
+  
+      if (os.platform() === 'win32') {
+        sendLog('Baixando instalador do Node.js...');
+        const installerUrl = 'https://nodejs.org/dist/v16.10.0/node-v16.10.0-x64.msi';
+        const installerPath = path.join(os.tmpdir(), 'node-v16.10.0-x64.msi');
+        return downloadFile(installerUrl, installerPath)
+          .then(() => {
+            sendLog('Instalador baixado. Iniciando instalação...');
+            return execPromise(`msiexec /i "${installerPath}" /quiet /norestart`);
+          })
+          .then(() => sendLog('Node.js instalado com sucesso.'));
+      } else {
+        sendLog('Instalando Node.js no Linux...');
+        return execPromise('sudo apt-get update && sudo apt-get install -y nodejs');
+      }
+    };
+  
+    const installAngular = () => {
+      sendLog('Passo 2: Verificando Angular CLI...');
+      try {
+        const angularVersion = execSync('ng version').toString();
+        if (angularVersion.includes('13.3.11')) {
+          sendLog('Angular CLI já está instalado na versão 13.3.11.');
+          return Promise.resolve();
+        }
+      } catch {
+        sendLog('Angular CLI não encontrado. Iniciando instalação...');
+      }
+  
+      sendLog('Instalando Angular CLI...');
+      return execPromise('npm install -g @angular/cli@13.3.11');
+    };
+
+    console.log('Iniciando instalação do Node.js e Angular CLI 2...');
+    event.reply('installation-log', 'Iniciando instalação do node.js');	
+  
+    installNode()
+      .then(() => installAngular())
+      .then(() => {
+        sendLog('Passo 3: Todas as dependências foram instaladas com sucesso.');
+        event.reply('installation-complete');
+      })
+      .catch((err) => {
+        sendLog(`Erro durante a instalação: ${err.message}`);
+      });
+  });
+
+  function execPromise(command) {
+    return new Promise((resolve, reject) => {
+      exec(command, (err, stdout, stderr) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(stdout || stderr);
+        }
+      });
+    });
+  }
+
+  function downloadFile(url, dest) {
+    return new Promise((resolve, reject) => {
+      const file = fs.createWriteStream(dest);
+      https.get(url, (response) => {
+        response.pipe(file);
+        file.on('finish', () => {
+          file.close(resolve);
+        });
+      }).on('error', (err) => {
+        fs.unlink(dest, () => reject(err));
+      });
+    });
+  }
 });

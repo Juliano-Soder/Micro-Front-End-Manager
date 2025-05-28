@@ -98,5 +98,48 @@ Este projeto está licenciado sob a licença ISC.
 ### ✨ Autor
 Desenvolvido por Juliano Soder.
 
+------
+### Correção de bugs e fixes
+
+---
+
+## 📝 Funcionamento do Login e Gerenciamento de Projetos
+
+### Como funciona o login no NPM
+
+- Para realizar o login, é necessário que exista pelo menos um projeto MFE (O ROOT NÃO CONTA) salvo e com o caminho configurado corretamente.
+- O aplicativo procura um arquivo `.npmrc` dentro do caminho do projeto para validar se o login pode ser realizado.
+- Se não houver nenhum projeto válido, um alerta será exibido informando que é necessário cadastrar um projeto antes de fazer login.
+
+### O que acontece ao definir ou limpar o caminho do projeto
+
+- **Definir caminho válido:**  
+  O aplicativo verifica se o caminho existe e se contém um arquivo `.npmrc`. Se sim, o projeto é considerado válido para login e outras operações.
+- **Limpar o campo do caminho:**  
+  O campo pode ser limpo sem causar erro. O projeto ficará inativo para operações que dependem de um caminho válido.
+- **Inserir caminho inválido:**  
+  O aplicativo não executa operações e exibe mensagens de erro amigáveis, sem travar ou lançar exceções.
+
+### O que cada botão faz
+
+- **Login:**  
+  Abre uma janela para realizar o login no NPM usando o projeto selecionado. Só funciona se houver um projeto válido com `.npmrc`.
+- **Baixar Projeto:**  
+  Clona o repositório informado no campo de caminho e adiciona à lista de projetos.
+- **Iniciar:**  
+  Executa o servidor local do projeto selecionado, se o caminho for válido.
+- **Parar:**  
+  Interrompe o servidor local do projeto selecionado.
+- **Deletar:**  
+  Remove o projeto da lista e apaga os arquivos do diretório informado no caminho.
+
+### Observações importantes
+
+- O arquivo de projetos (`projects.txt`) é salvo em uma pasta de dados do usuário, garantindo que cada usuário tenha seu próprio ambiente e evitando erros de permissão.
+- O aplicativo faz todas as validações necessárias antes de executar operações críticas, exibindo mensagens claras para o usuário em caso de erro ou configuração incorreta.
+- Todas as operações são feitas de forma segura, evitando tentativas de acesso a caminhos vazios ou inválidos.
+
+---
+
 
 
