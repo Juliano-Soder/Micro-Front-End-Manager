@@ -48,5 +48,10 @@
     "name": "mp-pas-comercial",
     "path": "",
     "port": 9009
+  },
+  {
+    "name": "mp-pas-atendimento",
+    "path": "",
+    "port": 9012
   }
 ]

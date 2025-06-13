@@ -57,9 +57,9 @@
           <p><strong>${project.name}</strong></p>
           <input id="input-${index}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" style="width: 100%; margin-bottom: 10px;" />
           <button id="btn-download-${index}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
-          <button id="btn-start-${index}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
+          <button id="btn-start-${index}" data-index="${index}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
           <button id="btn-stop-${index}" style="display: none;">Parar</button>
-          <button id="btn-delete-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
+          <button id="btn-delete-${index}" data-index="${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
           <div id="log-${index}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
         </div>
       `;
@@ -88,9 +88,12 @@
         ipcRenderer.send('download-project', { name: project.name, index });
       });
     
-      startButton.addEventListener('click', () => {
+      startButton.addEventListener('click', (event) => {
         startButton.disabled = true;
         startButton.innerText = 'Executando...';
+        // Desabilite o botão de delete correspondente
+        const deleteButton = document.getElementById(`btn-delete-${event.currentTarget.getAttribute('data-index')}`);
+        if (deleteButton) deleteButton.disabled = true;      
         ipcRenderer.send('start-project', { projectPath: input.value, port: project.port });
       });
     
@@ -143,20 +146,25 @@
         if (projectIndex !== -1) {
             const startButton = document.getElementById(`btn-start-${projectIndex}`);
             const stopButton = document.getElementById(`btn-stop-${projectIndex}`);
+            const deleteButton = document.getElementById(`btn-delete-${index}`);
 
             if (status === 'running') {
             startButton.innerText = 'Rodando ✓';
             startButton.disabled = true;
+            deleteButton.style.display = 'none';
             stopButton.style.display = 'inline-block';
             } else if (status === 'stopping') {
             stopButton.innerText = 'Parando...';
             stopButton.disabled = true;
+            deleteButton.disabled = true;
             } else if (status === 'stopped') {
             startButton.innerText = 'Iniciar';
             startButton.disabled = false;
             stopButton.style.display = 'none';
             stopButton.disabled = false;
             stopButton.innerText = 'Parar';
+            deleteButton.style.display = 'inline-block';
+            deleteButton.disabled = false;
             }
         }
       });

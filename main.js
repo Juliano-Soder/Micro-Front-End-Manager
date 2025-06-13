@@ -175,6 +175,7 @@ function loadProjects() {
     { name: 'mp-pas-catalogo', path: '', port: 9007 },
     { name: 'mp-pas-logistica', path: '', port: 9008 },
     { name: 'mp-pas-comercial', path: '', port: 9009 },
+    { name: 'mp-pas-atendimento', path: '', port: 9012 }
   ];
 
   if (fs.existsSync(projectsFile)) {
