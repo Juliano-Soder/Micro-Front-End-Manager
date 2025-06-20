@@ -40,13 +40,138 @@
   <div id="pinter-status" style="position: fixed; top: 10px; right: 10px; width: 15px; height: 15px; border-radius: 50%; background: red; cursor: pointer;"></div>
   <div id="status" style="position: fixed; top: 30px; right: 10px; max-width: 100px; height: 15px; font-size: 10px; cursor: pointer;" title="Não logado">
   </div>
+  <button id="toggle-mfes" style="margin-bottom: 10px;">&#9654; Mostrar/Esconder MFEs</button>
+  <button id="toggle-pamp-mfes" style="margin-bottom: 10px;">&#9654; Mostrar MFEs do PAMP</button>
+  <div id="pamp-mfes" style="display: none;"></div>
   <div id="projects"></div>
   <script>
   const { ipcRenderer } = require('electron');
 
+  const togglePampBtn = document.getElementById('toggle-pamp-mfes');
+  const pampContainer = document.getElementById('pamp-mfes');
+  let pampVisible = false;
+  
+  togglePampBtn.addEventListener('click', () => {
+    pampVisible = !pampVisible;
+    pampContainer.style.display = pampVisible ? 'block' : 'none';
+    togglePampBtn.innerHTML = pampVisible ? '&#9660; Recolher MFEs do PAMP' : '&#9654; Mostrar MFEs do PAMP';
+  });
+
+  const toggleBtn = document.getElementById('toggle-mfes');
+  const projectsContainer = document.getElementById('projects');
+  let mfesVisible = true;
+  
+  toggleBtn.addEventListener('click', () => {
+    mfesVisible = !mfesVisible;
+    projectsContainer.style.display = mfesVisible ? 'block' : 'none';
+    toggleBtn.innerHTML = mfesVisible ? '&#9660; Recolher MFEs do PAS' : '&#9654; Mostrar MFEs do PAS';
+  });
+
   ipcRenderer.send('load-projects');
 
   ipcRenderer.on('projects-loaded', (event, projects) => {
+
+    // PAMP
+    const pampProjects = projects.filter(p => p.name && p.name.startsWith('mp-pamp'));
+    const pampContainer = document.getElementById('pamp-mfes');
+    pampContainer.innerHTML = '';
+
+    pampProjects.forEach((project, index) => {
+        // Descubra o índice real no array projects
+      const realIndex = projects.findIndex(p => p.name === project.name);
+      const div = document.createElement('div');
+      div.innerHTML = `
+        <div style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+          <p><strong>${project.name}</strong></p>
+          <input id="pamp-input-${realIndex}" data-path="${project.path}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" style="width: 100%; margin-bottom: 10px;" />
+          <button id="pamp-btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
+          <button id="pamp-btn-start-${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
+          <button id="pamp-btn-stop-${realIndex}" style="display: none;">Parar</button>
+          <button id="pamp-btn-delete-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
+          <div id="pamp-log-${realIndex}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
+        </div>
+      `;
+      pampContainer.appendChild(div);
+
+      const pampInput = document.getElementById(`pamp-input-${realIndex}`);
+      const pampDownloadButton = document.getElementById(`pamp-btn-download-${realIndex}`);
+      const pampStartButton = document.getElementById(`pamp-btn-start-${realIndex}`);
+      const pampStopButton = document.getElementById(`pamp-btn-stop-${realIndex}`);
+      const pampDeleteButton = document.getElementById(`pamp-btn-delete-${realIndex}`);
+      const pampLogDiv = document.getElementById(`pamp-log-${realIndex}`);
+      pampInput.addEventListener('blur', () => {
+        ipcRenderer.send('update-project-path', { index: realIndex, path: pampInput.value });
+        if (pampInput.value.trim()) {
+            pampDownloadButton.style.display = 'none';
+            pampStartButton.disabled = false;
+            pampDeleteButton.style.display = 'inline-block';
+        }else {
+            pampDeleteButton.style.display = 'none';
+            pampDownloadButton.style.display = 'inline-block';
+            pampStartButton.disabled = true;
+        }
+      });
+
+      pampDownloadButton.addEventListener('click', () => {
+        ipcRenderer.send('download-project', { name: project.name, index: realIndex });
+      });
+
+      pampDeleteButton.addEventListener('click', () => {
+        if (confirm(`Tem certeza que deseja deletar o projeto ${project.name}?`)) {
+          pampDeleteButton.disabled = true; // Desabilita o botão durante a execução
+          ipcRenderer.send('delete-project', { index: realIndex, path: pampInput.value });
+        }
+      });
+
+      ipcRenderer.on('delete-project-log', (event, { path, message, success, index }) => {
+        // alert(message)
+        const console = document.getElementById(`pamp-log-${index}`);
+        if(message.includes('pode encontrar o arquivo especificado')) {
+          console.innerText += `\n${message}`;
+          console.style.display = 'block';
+          pampInput.value = '';
+          return;
+        }
+        
+        if (console) {
+          console.style.display = 'block';
+          console.innerText += `\n${message}`;
+
+          if (success) {
+            pampInput.value = '';
+            // window.location.reload();
+          } else {
+            deleteButton.disabled = false;
+          }
+        }
+      });
+
+
+      pampStartButton.addEventListener('click', (event) => {
+        pampStartButton.disabled = true;
+        pampStartButton.innerText = 'Executando...';
+        if (pampDeleteButton) pampDeleteButton.disabled = true;      
+        ipcRenderer.send('start-project', { projectPath: input.value, port: project.port });
+      });
+
+      ipcRenderer.on('log', (event, { path, message }) => {
+        if (project.path === path || message.includes(project.name)) {
+            pampLogDiv.style.display = 'block';
+            pampLogDiv.innerText += `\n${message}`;
+            pampLogDiv.scrollTop = logDiv.scrollHeight;
+
+            // Oculta o botão "Baixar Projeto" se o path for definido
+            if (message.includes('Caminho do projeto:')) {
+                pampDownloadButton.style.display = 'none';
+            }
+        }
+      });  
+    });
+
+    // FIM PAMP Projects
+
+
+
     const container = document.getElementById('projects');
     container.innerHTML = '';
 
@@ -108,25 +233,25 @@
         }
       });
       
-  ipcRenderer.on('delete-project-log', (event, { path, message, success }) => {
-    const input = document.querySelector(`#projects input[value="${path}"]`);
-    if (input) {
-      const logDiv = input.nextElementSibling.nextElementSibling.nextElementSibling.nextElementSibling;
-      const deleteButton = input.nextElementSibling.nextElementSibling;
-      const startButton = input.nextElementSibling;
-  
-      logDiv.style.display = 'block';
-      logDiv.innerText += `\n${message}`;
-      logDiv.scrollTop = logDiv.scrollHeight;
-  
-      if (success) {
-        input.value = ''; // Limpa o caminho do input
-        window.location.reload();
-      } else {
-        deleteButton.disabled = false; // Reabilita o botão em caso de erro
-      }
-    }
-  });
+      ipcRenderer.on('delete-project-log', (event, { path, message, success }) => {
+        const input = document.querySelector(`#projects input[value="${path}"]`);
+        if (input) {
+          const logDiv = input.nextElementSibling.nextElementSibling.nextElementSibling.nextElementSibling;
+          const deleteButton = input.nextElementSibling.nextElementSibling;
+          const startButton = input.nextElementSibling;
+      
+          logDiv.style.display = 'block';
+          logDiv.innerText += `\n${message}`;
+          logDiv.scrollTop = logDiv.scrollHeight;
+      
+          if (success) {
+            input.value = ''; // Limpa o caminho do input
+            window.location.reload();
+          } else {
+            deleteButton.disabled = false; // Reabilita o botão em caso de erro
+          }
+        }
+      });
     
       ipcRenderer.on('log', (event, { path, message }) => {
         if (project.path === path || message.includes(project.name)) {
@@ -245,15 +370,27 @@
   });
 
   ipcRenderer.on('update-project', (event, { index, path }) => {
-    const input = document.getElementById(`input-${index}`);
-    const deleteButton = document.getElementById(`btn-delete-${index}`);
-    const downloadButton = document.getElementById(`btn-download-${index}`);
+    if(path.includes('pamp')) {
+      const pampInput = document.getElementById(`pamp-input-${index}`);
+      const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
+      const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
   
-    // Atualiza o valor do input e os botões relacionados ao projeto deletado
-    input.value = path;
-    input.disabled = false;
-    deleteButton.style.display = 'none'; // Oculta o botão "Deletar"
-    downloadButton.style.display = 'inline-block'; // Reexibe o botão "Baixar Projeto"
+      // Atualiza o valor do input e os botões relacionados ao projeto deletado
+      pampInput.value = path;
+      pampInput.disabled = false;
+      pampDeleteButton.style.display = 'none'; // Oculta o botão "Deletar"
+      pampDownloadButton.style.display = 'inline-block'; // Reexibe o botão "Baixar Projeto"
+    }else {
+      const input = document.getElementById(`input-${index}`);
+      const deleteButton = document.getElementById(`btn-delete-${index}`);
+      const downloadButton = document.getElementById(`btn-download-${index}`);
+    
+      // Atualiza o valor do input e os botões relacionados ao projeto deletado
+      input.value = path;
+      input.disabled = false;
+      deleteButton.style.display = 'none'; // Oculta o botão "Deletar"
+      downloadButton.style.display = 'inline-block'; // Reexibe o botão "Baixar Projeto"
+    }
   });
 </script>
 </body>

@@ -25,7 +25,6 @@ module.exports = {
         exe: 'micro-front-end-manager.exe',
         setupExe: 'MicroFrontEndManagerSetup.exe', // Nome do instalador
         setupIcon: './OIP.ico', // Ícone do instalador
-        noMsi: true, // Evita criar arquivos MSI, usa apenas o Setup.exe
         shortcutName: 'Micro Front-End Manager', // Nome do atalho
         createDesktopShortcut: true, // Garante que o atalho na área de trabalho seja criado
         createStartMenuShortcut: true,

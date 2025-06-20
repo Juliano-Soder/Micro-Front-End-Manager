@@ -175,7 +175,13 @@ function loadProjects() {
     { name: 'mp-pas-catalogo', path: '', port: 9007 },
     { name: 'mp-pas-logistica', path: '', port: 9008 },
     { name: 'mp-pas-comercial', path: '', port: 9009 },
-    { name: 'mp-pas-atendimento', path: '', port: 9012 }
+    { name: 'mp-pas-atendimento', path: '', port: 9012 },
+    { name: 'mp-pamp', path: '', port: 4200 },
+    { name: 'mp-pamp-setup', path: '', port: '' },
+    { name: 'mp-pamp-comercial', path: '', port: '' },
+    { name: 'mp-pamp-vendas', path: '', port: '' },
+    { name: 'mp-pamp-catalogo', path: '', port: '' },
+    { name: 'mp-pamp-marketplace', path: '', port: '' }
   ];
 
   if (fs.existsSync(projectsFile)) {
@@ -354,6 +360,28 @@ app.on('ready', () => {
         startProject(event, projectPath, port);
       }, 10000);
     });
+  });
+
+  ipcMain.on('start-project-pamp', (event, { projectPath, port }) => {
+    console.log(`Iniciando projeto: ${projectPath} na porta: ${port}`);
+    if (!port) {
+        event.reply('log', { path: projectPath, message: 'Porta ainda não definida.' });
+        startProject(event, projectPath, port);
+    }else {
+      // Derruba qualquer processo rodando na porta
+      exec(`npx kill-port ${port}`, (err) => {
+        if (err) {
+          event.reply('log', { path: projectPath, message: `Erro ao liberar a porta ${port}: ${err.message}` });
+          return;
+        }
+        event.reply('log', { path: projectPath, message: `Porta ${port} liberada. Iniciando projeto...` });
+      
+        // Aguarda 10 segundos antes de iniciar o projeto
+        setTimeout(() => {
+          startProject(event, projectPath, port);
+        }, 9000);
+      });
+    }
   });
 
   ipcMain.on('stop-project', (event, { projectPath, port }) => {
@@ -580,19 +608,18 @@ ipcMain.on('execute-command', (event, command) => {
 
   ipcMain.on('delete-project', (event, { index, path }) => {
     console.log(`Deletando projeto no caminho: ${path}`);
-    event.reply('delete-project-log', { path, message: `Iniciando exclusão do projeto em ${path}...`, success: false });
+    event.reply('delete-project-log', { path, message: `Iniciando exclusão do projeto em ${path}...`, success: false, index });
 
     const deleteCommand = os.platform() === 'win32' ? `rmdir /s /q "${path}"` : `rm -rf "${path}"`;
 
     exec(deleteCommand, (err, stdout, stderr) => {
       if (err) {
         console.error(`Erro ao deletar o projeto: ${err.message}`);
-        event.reply('delete-project-log', { path, message: `Erro ao deletar o projeto: ${err.message}`, success: false });
-        return;
+        event.reply('delete-project-log', { path, message: `Erro ao deletar o projeto: ${err.message}`, success: false, index });
       }
 
       console.log(`Projeto deletado com sucesso: ${path}`);
-      event.reply('delete-project-log', { path, message: `Projeto deletado com sucesso: ${path}`, success: true });
+      event.reply('delete-project-log', { path, message: `Projeto deletado com sucesso: ${path}`, success: true, index });
 
       projects[index].path = '';
       saveProjects(projects);
