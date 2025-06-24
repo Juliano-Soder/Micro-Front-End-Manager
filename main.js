@@ -296,7 +296,19 @@ app.on('ready', () => {
     const repoUrl = `https://github.com/viavarejo-internal/${name}.git`;
 
     console.log(`Iniciando download do projeto: ${name}`);
-    event.reply('log', { path: projectPath, message: `Fazendo download do projeto: ${name}` });
+    if (name.startsWith('mp-pamp')) {
+      event.reply('pamp-log', { 
+        path: projectPath, 
+        message: `Fazendo download do projeto: ${name}`,
+        index: index,
+        name: name
+      });
+    } else {
+      event.reply('log', { 
+        path: projectPath, 
+        message: `Fazendo download do projeto: ${name}`
+      });
+    }
 
     if (!fs.existsSync(workdir)) {
         console.log(`Criando diretório base: ${workdir}`);
@@ -305,19 +317,36 @@ app.on('ready', () => {
 
     if (fs.existsSync(projectPath)) {
         console.log(`O projeto ${name} já existe em ${projectPath}.`);
-        event.reply('log', { path: projectPath, message: `O projeto ${name} já existe em ${projectPath}.` });
+        if (name.startsWith('mp-pamp')) {
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: `O projeto pamp ${name} já existe em ${projectPath}.`,
+            index: index,
+            name: name 
+          });
+        } else {
+          event.reply('log', { path: projectPath, message: `O projeto pas ${name} já existe em ${projectPath}.` });
+        }
         return;
     }
 
     exec(`git clone ${repoUrl} ${projectPath}`, (err, stdout, stderr) => {
         if (err) {
         console.error(`Erro ao clonar o repositório ${repoUrl}: ${err.message}`);
-        event.reply('log', { path: projectPath, message: `Erro ao clonar o repositório ${repoUrl}: ${err.message}` });
+        if (name.startsWith('mp-pamp')) {
+          event.reply('pamp-log', { path: projectPath, message: `Erro ao clonar o repositório ${repoUrl}: ${err.message}` });
+        } else {
+          event.reply('log', { path: projectPath, message: `Erro ao clonar o repositório ${repoUrl}: ${err.message}` });
+        }
         return;
         }
 
         console.log(`Projeto ${name} clonado com sucesso em ${projectPath}.`);
-        event.reply('log', { path: projectPath, message: `Projeto baixado e disponível no caminho: ${projectPath}` });
+        if (name.startsWith('mp-pamp')) {
+          event.reply('pamp-log', { path: projectPath, message: `Projeto baixado e disponível no caminho: ${projectPath}` });
+        } else {
+          event.reply('log', { path: projectPath, message: `Projeto baixado e disponível no caminho: ${projectPath}` });
+        }
 
         projects[index].path = projectPath;
         saveProjects(projects); // Atualiza o arquivo `projects.txt`
