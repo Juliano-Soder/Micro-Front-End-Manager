@@ -40,10 +40,10 @@
   <div id="pinter-status" style="position: fixed; top: 10px; right: 10px; width: 15px; height: 15px; border-radius: 50%; background: red; cursor: pointer;"></div>
   <div id="status" style="position: fixed; top: 30px; right: 10px; max-width: 100px; height: 15px; font-size: 10px; cursor: pointer;" title="Não logado">
   </div>
-  <button id="toggle-mfes" style="margin-bottom: 10px;">&#9654; Mostrar/Esconder MFEs</button>
+  <button id="toggle-mfes" style="margin-bottom: 10px;">&#9654; Mostrar MFEs do PAS</button>
   <button id="toggle-pamp-mfes" style="margin-bottom: 10px;">&#9654; Mostrar MFEs do PAMP</button>
   <div id="pamp-mfes" style="display: none;"></div>
-  <div id="projects"></div>
+  <div id="projects" style="display: none;"></div>
   <script>
   const { ipcRenderer } = require('electron');
 
@@ -59,7 +59,7 @@
 
   const toggleBtn = document.getElementById('toggle-mfes');
   const projectsContainer = document.getElementById('projects');
-  let mfesVisible = true;
+  let mfesVisible = false;
   
   toggleBtn.addEventListener('click', () => {
     mfesVisible = !mfesVisible;
@@ -90,25 +90,20 @@
         pampLogDiv.innerText += `\n${message}`;
         pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
         
-        // Verifica se a mensagem indica projeto já existente
         if (message.includes('existe em')) {
           console.log('Mensagem contém "existe em", tentando extrair caminho');
-          // Use uma abordagem mais robusta para extrair o caminho
           try {
-            const existingPath = path; // Use o caminho enviado diretamente do servidor
+            const existingPath = path;
             console.log(`Caminho extraído: ${existingPath}`);
             
-            // Atualiza o input com o caminho extraído
             if (pampInput) {
               pampInput.value = existingPath;
               console.log(`Input atualizado com caminho: ${existingPath}`);
               
-              // Atualiza o estado dos botões
               if (pampDownloadButton) pampDownloadButton.style.display = 'none';
               if (pampStartButton) pampStartButton.disabled = false;
               if (pampDeleteButton) pampDeleteButton.style.display = 'inline-block';
               
-              // Salva o caminho no estado do projeto
               ipcRenderer.send('update-project-path', { index: index, path: existingPath });
             }
           } catch (error) {
@@ -116,7 +111,6 @@
           }
         }
         
-        // Código existente para outros casos
         if (message.includes('Caminho do projeto:') || message.includes('Projeto baixado')) {
           if (pampDownloadButton) pampDownloadButton.style.display = 'none';
         }
@@ -288,7 +282,7 @@
           startButton.innerText = 'Rodando ✓';
           startButton.disabled = true;
           startButton.style.backgroundColor = 'green';
-          stopButton.style.color = 'white';
+          startButton.style.color = 'white';
           deleteButton.style.display = 'none';
           stopButton.style.display = 'inline-block';
           } else if (status === 'stopping') {
@@ -298,6 +292,8 @@
           } else if (status === 'stopped') {
           startButton.innerText = 'Iniciar';
           startButton.disabled = false;
+          startButton.style.backgroundColor = '';
+          startButton.style.color = 'black';
           stopButton.style.display = 'none';
           stopButton.disabled = false;
           stopButton.innerText = 'Parar';
