@@ -107,14 +107,20 @@
     <span id="node-version" style="font-size: 12px; margin-left: 10px; color: green;"></span>
     <span id="angular-version" style="font-size: 12px; margin-left: 10px; color: green;"></span>
   </h1>
-  <div id="node-warning" style="font-size: 12px; color: orange; margin-top: 5px;"></div>
-  <div id="angular-warning" style="font-size: 12px; color: orange; margin-top: 5px;"></div>
-
-  <div id="pinter-status" style="position: fixed; top: 10px; right: 10px; width: 15px; height: 15px; border-radius: 50%; background: red; cursor: pointer;"></div>
-  <div id="status" style="position: fixed; top: 30px; right: 10px; max-width: 100px; height: 15px; font-size: 10px; cursor: pointer;" title="Não logado">
+  
+  <div class="version-info">
+    <div id="node-warning" style="font-size: 12px; color: orange;"></div>
+    <div id="angular-warning" style="font-size: 12px; color: orange;"></div>
   </div>
-  <button id="toggle-mfes" style="margin-bottom: 10px;">&#9654; Mostrar MFEs do PAS</button>
-  <button id="toggle-pamp-mfes" style="margin-bottom: 10px;">&#9654; Mostrar MFEs do PAMP</button>
+
+  <div id="pinter-status"></div>
+  <div id="status" title="Não logado"></div>
+  
+  <div class="main-controls">
+    <button id="toggle-mfes" style="margin-right: 10px;">&#9654; Mostrar MFEs do PAS</button>
+    <button id="toggle-pamp-mfes">&#9654; Mostrar MFEs do PAMP</button>
+  </div>
+  
   <div id="pamp-mfes" style="display: none;"></div>
   <div id="projects" style="display: none;"></div>
   <script>
@@ -149,10 +155,22 @@
     const pampContainer = document.getElementById('pamp-mfes');
     pampContainer.innerHTML = '';
     
-    ipcRenderer.on('pamp-log', (event, { path, message, index, name }) => {
-      console.log(`Recebeu pamp-log: ${message} para índice ${index}`);
-      
+    ipcRenderer.on('pamp-log', (event, { path, message, index, name, error, nodeVersionError }) => {
+      // Evite logs duplicados verificando se a mesma mensagem já foi exibida recentemente
       const pampLogDiv = document.getElementById(`pamp-log-${index}`);
+      
+      // Se for uma linha em branco ou duplicada, ignore
+      if (!message.trim() || (
+        pampLogDiv && 
+        pampLogDiv.innerText.slice(-500).includes(message) && 
+        !message.includes('npm install') &&
+        !message.includes('Compiled successfully')
+      )) {
+        return;
+      }
+
+      console.log(`Recebeu pamp-log: ${message} para índice ${index}`);
+
       const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
       const pampInput = document.getElementById(`pamp-input-${index}`);
       const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
@@ -218,7 +236,7 @@
     const realIndex = projects.findIndex(p => p.name === project.name);
     const div = document.createElement('div');
     div.innerHTML = `
-      <div style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+       <div class="project-card">
         <p><strong>${project.name}</strong></p>
         <input id="pamp-input-${realIndex}" data-path="${project.path}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" style="width: 100%; margin-bottom: 10px;" />
         <button id="pamp-btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
@@ -236,6 +254,7 @@
     const pampStopButton = document.getElementById(`pamp-btn-stop-${realIndex}`);
     const pampDeleteButton = document.getElementById(`pamp-btn-delete-${realIndex}`);
     const pampLogDiv = document.getElementById(`pamp-log-${realIndex}`);
+
     pampInput.addEventListener('blur', () => {
       ipcRenderer.send('update-project-path', { index: realIndex, path: pampInput.value });
       if (pampInput.value.trim()) {
@@ -267,6 +286,10 @@
       ipcRenderer.send('start-project-pamp', { projectPath: pampInput.value, port: project.port });
     });
 
+    pampStopButton.addEventListener('click', () => {
+      ipcRenderer.send('stop-project', { projectPath: pampInput.value, port: project.port });
+    });
+
   });  
     // FIM PAMP Projects
 
@@ -277,7 +300,7 @@
   projects.forEach((project, index) => {
     const div = document.createElement('div');
     div.innerHTML = `
-      <div style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px; border-radius: 5px;">
+      <div class="project-card">
         <p><strong>${project.name}</strong></p>
         <input id="input-${index}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" style="width: 100%; margin-bottom: 10px;" />
         <button id="btn-download-${index}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
@@ -365,40 +388,98 @@
       }
     });
   
-    ipcRenderer.on('status-update', (event, { path, status }) => {
-      const projectIndex = projects.findIndex((project) => project.path === path);
-      if (projectIndex !== -1) {
-          const startButton = document.getElementById(`btn-start-${projectIndex}`);
-          const stopButton = document.getElementById(`btn-stop-${projectIndex}`);
-          const deleteButton = document.getElementById(`btn-delete-${index}`);
-
-          if (status === 'running') {
-          startButton.innerText = 'Rodando ✓';
-          startButton.disabled = true;
-          startButton.style.backgroundColor = 'green';
-          startButton.style.color = 'white';
-          deleteButton.style.display = 'none';
-          stopButton.style.display = 'inline-block';
-          } else if (status === 'stopping') {
-          stopButton.innerText = 'Parando...';
-          stopButton.disabled = true;
-          deleteButton.disabled = true;
-          } else if (status === 'stopped') {
-          startButton.innerText = 'Iniciar';
-          startButton.disabled = false;
-          startButton.style.backgroundColor = '';
-          startButton.style.color = 'black';
-          stopButton.style.display = 'none';
-          stopButton.disabled = false;
-          stopButton.innerText = 'Parar';
-          deleteButton.style.display = 'inline-block';
-          deleteButton.disabled = false;
+    ipcRenderer.on('status-update', (event, { path, status, isPamp, index }) => {
+      if (isPamp) {
+        // Tratamento para projetos PAMP
+        const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
+        const pampStopButton = document.getElementById(`pamp-btn-stop-${index}`);
+        const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
+        
+        console.log(`Atualizando status do projeto PAMP ${index} para ${status}`);
+        
+        if (status === 'running') {
+          if (pampStartButton) {
+            pampStartButton.innerText = 'Rodando ✓';
+            pampStartButton.disabled = true;
+            pampStartButton.style.backgroundColor = 'green';
+            pampStartButton.style.color = 'white';
           }
-      }
+          if (pampDeleteButton) pampDeleteButton.style.display = 'none';
+          if (pampStopButton) pampStopButton.style.display = 'inline-block';
+        } else if (status === 'stopping') {
+          if (pampStopButton) {
+            pampStopButton.innerText = 'Parando...';
+            pampStopButton.disabled = true;
+          }
+          if (pampDeleteButton) pampDeleteButton.disabled = true;
+        } else if (status === 'stopped') {
+          if (pampStartButton) {
+            pampStartButton.innerText = 'Iniciar';
+            pampStartButton.disabled = false;
+            pampStartButton.style.backgroundColor = '';
+            pampStartButton.style.color = '';
+          }
+          if (pampStopButton) {
+            pampStopButton.style.display = 'none';
+            pampStopButton.disabled = false;
+            pampStopButton.innerText = 'Parar';
+          }
+          if (pampDeleteButton) {
+            pampDeleteButton.style.display = 'inline-block';
+            pampDeleteButton.disabled = false;
+          }
+        }
+      } else {
+        const projectIndex = projects.findIndex((project) => project.path === path);
+        if (projectIndex !== -1) {
+            const startButton = document.getElementById(`btn-start-${projectIndex}`);
+            const stopButton = document.getElementById(`btn-stop-${projectIndex}`);
+            const deleteButton = document.getElementById(`btn-delete-${index}`);
+
+            if (status === 'running') {
+            startButton.innerText = 'Rodando ✓';
+            startButton.disabled = true;
+            startButton.style.backgroundColor = 'green';
+            startButton.style.color = 'white';
+            deleteButton.style.display = 'none';
+            stopButton.style.display = 'inline-block';
+            } else if (status === 'stopping') {
+            stopButton.innerText = 'Parando...';
+            stopButton.disabled = true;
+            deleteButton.disabled = true;
+            } else if (status === 'stopped') {
+            startButton.innerText = 'Iniciar';
+            startButton.disabled = false;
+            startButton.style.backgroundColor = '';
+            startButton.style.color = 'black';
+            stopButton.style.display = 'none';
+            stopButton.disabled = false;
+            stopButton.innerText = 'Parar';
+            deleteButton.style.display = 'inline-block';
+            deleteButton.disabled = false;
+            }
+          }
+        }
+      });
     });
   });
-  });
 
+  ipcRenderer.on('show-console', (event, { path, index, isPamp }) => {
+    if (isPamp) {
+      const pampLogDiv = document.getElementById(`pamp-log-${index}`);
+      if (pampLogDiv) {
+        pampLogDiv.style.display = 'block';
+      }
+    } else {
+      const projectIndex = projects.findIndex((project) => project.path === path);
+      if (projectIndex !== -1) {
+        const logDiv = document.getElementById(`log-${projectIndex}`);
+        if (logDiv) {
+          logDiv.style.display = 'block';
+        }
+      }
+    }
+  });
 
   ipcRenderer.on('delete-project-log', (event, { path, message, success, index }) => {
     const console = document.getElementById(`pamp-log-${index}`);

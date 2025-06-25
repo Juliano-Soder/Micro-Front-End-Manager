@@ -415,94 +415,226 @@ app.on('ready', () => {
 
   ipcMain.on('stop-project', (event, { projectPath, port }) => {
     console.log(`Parando projeto: ${projectPath} na porta: ${port}`);
-    event.reply('status-update', { path: projectPath, status: 'stopping' }); // Atualiza para "Parando..."
+
+    // Determine se é um projeto PAMP pelo nome do diretório
+    const projectName = path.basename(projectPath);
+    const isPampProject = projectName.startsWith('mp-pamp');
+    const projectIndex = projects.findIndex(p => p.path === projectPath);
+
+    // Avisa a UI para atualizar o status para "Parando..."
+    event.reply('status-update', { 
+      path: projectPath, 
+      status: 'stopping',
+      isPamp: isPampProject,
+      index: projectIndex
+    });
 
     if (runningProcesses[projectPath]) {
-        console.log(`Encerrando processo para ${projectPath}...`);
-        runningProcesses[projectPath].kill();
-        delete runningProcesses[projectPath];
-        console.log(`Processo para ${projectPath} encerrado.`);
+      console.log(`Encerrando processo para ${projectPath}...`);
+      runningProcesses[projectPath].kill();
+      delete runningProcesses[projectPath];
+      console.log(`Processo para ${projectPath} encerrado.`);
+
+      // Envia o log e atualiza o status para "Parado"
+      if (isPampProject) {
+        event.reply('pamp-log', { 
+          path: projectPath, 
+          message: `Projeto parado.`,
+          index: projectIndex,
+          name: projectName
+        });
+      } else {
         event.reply('log', { path: projectPath, message: `Projeto parado na porta ${port}.` });
-        event.reply('status-update', { path: projectPath, status: 'stopped' }); // Atualiza para "Parado"
+      }
+      
+      // Atualiza a UI para indicar que o processo foi parado
+      event.reply('status-update', { 
+        path: projectPath, 
+        status: 'stopped',
+        isPamp: isPampProject,
+        index: projectIndex
+      });
     } else {
         if (os.platform() === 'win32') {
-        // Localiza todos os processos relacionados à porta
-        exec(`netstat -aon | findstr :${port}`, (err, stdout) => {
+          // Localiza todos os processos relacionados à porta
+          exec(`netstat -aon | findstr :${port}`, (err, stdout) => {
             if (err || !stdout) {
-            event.reply('log', { path: projectPath, message: `Nenhum processo encontrado na porta ${port}.` });
-            return;
-            }
-
-            // Extrai os PIDs dos processos
-            const pids = stdout
-            .split('\n')
-            .map(line => line.trim().split(/\s+/).pop())
-            .filter(pid => pid && !isNaN(pid));
-
-            if (pids.length === 0) {
-            event.reply('log', { path: projectPath, message: `Nenhum processo encontrado na porta ${port}.` });
-            return;
-            }
-
-            // Itera sobre os PIDs e encerra cada processo
-            pids.forEach(pid => {
-            exec(`taskkill /PID ${pid} /F`, (killErr) => {
-                if (killErr) {
-                console.error(`Erro ao encerrar o processo PID ${pid}: ${killErr.message}`);
-                event.reply('log', { path: projectPath, message: `Erro ao encerrar o processo PID ${pid}: ${killErr.message}` });
-                } else {
-                console.log(`Processo PID ${pid} encerrado.`);
-                event.reply('log', { path: projectPath, message: `Processo PID ${pid} encerrado.` });
-                }
-            });
-            });
-
-            // Atualiza o status para "Parado" após encerrar todos os processos
-            event.reply('status-update', { path: projectPath, status: 'stopped' });
-        });
-        } else {
-        // Comandos para Linux/Mac
-        exec(`sudo lsof -i :${port}`, (err, stdout) => {
-            if (err || !stdout) {
-            event.reply('log', { path: projectPath, message: `Nenhum processo encontrado na porta ${port}.` });
-            return;
-            }
-
-            // Extrai os PIDs dos processos
-            const pids = stdout
-            .split('\n')
-            .slice(1) // Ignora o cabeçalho
-            .map(line => line.trim().split(/\s+/)[1])
-            .filter(pid => pid && !isNaN(pid));
-
-            if (pids.length === 0) {
-            event.reply('log', { path: projectPath, message: `Nenhum processo encontrado na porta ${port}.` });
-            return;
-            }
-
-            // Itera sobre os PIDs e encerra cada processo
-            pids.forEach(pid => {
-                exec(`kill -9 ${pid}`, (killErr) => {
-                    if (killErr) {
-                    console.error(`Erro ao encerrar o processo PID ${pid}: ${killErr.message}`);
-                    event.reply('log', { path: projectPath, message: `Erro ao encerrar o processo PID ${pid}: ${killErr.message}` });
-                    } else {
-                    console.log(`Processo PID ${pid} encerrado.`);
-                    event.reply('log', { path: projectPath, message: `Processo PID ${pid} encerrado.` });
-                    }
+              const message = `Nenhum processo encontrado na porta ${port}.`;
+              if (isPampProject) {
+                event.reply('pamp-log', { 
+                  path: projectPath, 
+                  message,
+                  index: projectIndex,
+                  name: projectName
                 });
+              } else {
+                event.reply('log', { path: projectPath, message });
+              }
+              
+              // Mesmo que não tenha encontrado processos, atualiza a UI
+              event.reply('status-update', { 
+                path: projectPath, 
+                status: 'stopped',
+                isPamp: isPampProject,
+                index: projectIndex
+              });
+              return;
+            }
+
+              // Extrai os PIDs dos processos
+              const pids = stdout
+              .split('\n')
+              .map(line => line.trim().split(/\s+/).pop())
+              .filter(pid => pid && !isNaN(pid));
+
+              if (pids.length === 0) {
+                const message = `Nenhum processo encontrado na porta ${port}.`;
+                 if (isPampProject) {
+                  event.reply('pamp-log', { 
+                    path: projectPath, 
+                    message,
+                    index: projectIndex,
+                    name: projectName
+                  });
+                } else {
+                  event.reply('log', { path: projectPath, message });
+                }
+                return;
+              }
+
+            // Itera sobre os PIDs e encerra cada processo
+            pids.forEach(pid => {
+              exec(`taskkill /PID ${pid} /F`, (killErr) => {
+                  if (killErr) {
+                    console.error(`Erro ao encerrar o processo PID ${pid}: ${killErr.message}`);
+                    const message = `Erro ao encerrar o processo PID ${pid}: ${killErr.message}`;
+                    if (isPampProject) {
+                      event.reply('pamp-log', { 
+                        path: projectPath, 
+                        message,
+                        index: projectIndex,
+                        name: projectName
+                      });
+                    } else {
+                      event.reply('log', { path: projectPath, message });
+                    }
+                  } else {
+                    console.log(`Processo PID ${pid} encerrado.`);
+                    const message = `Processo PID ${pid} encerrado.`;
+                    if (isPampProject) {
+                      event.reply('pamp-log', { 
+                        path: projectPath, 
+                        message,
+                        index: projectIndex,
+                        name: projectName
+                      });
+                    } else {
+                      event.reply('log', { path: projectPath, message });
+                    }
+                  }
+              });
             });
 
-            // Atualiza o status para "Parado" após encerrar todos os processos
-            event.reply('status-update', { path: projectPath, status: 'stopped' });
-        });
+            // Após matar os processos, atualiza o status para "Parado"
+            event.reply('status-update', { 
+              path: projectPath, 
+              status: 'stopped',
+              isPamp: isPampProject,
+              index: projectIndex
+            });
+          });
+        } else {
+
+          // Comandos para Linux/Mac
+          exec(`sudo lsof -i :${port}`, (err, stdout) => {
+              if (err || !stdout) {
+                event.reply('log', { path: projectPath, message: `Nenhum processo encontrado na porta ${port}.` });
+                const message = `Nenhum processo encontrado na porta ${port}.`;
+                if (isPampProject) {
+                  event.reply('pamp-log', { 
+                    path: projectPath, 
+                    message,
+                    index: projectIndex,
+                    name: projectName
+                  });
+                } else {
+                  event.reply('log', { path: projectPath, message });
+                }
+                return;
+              }
+
+              // Extrai os PIDs dos processos
+              const pids = stdout
+              .split('\n')
+              .slice(1) // Ignora o cabeçalho
+              .map(line => line.trim().split(/\s+/)[1])
+              .filter(pid => pid && !isNaN(pid));
+
+              if (pids.length === 0) {
+                const message = `Nenhum processo encontrado na porta ${port}.`;
+                if (isPampProject) {
+                  event.reply('pamp-log', { 
+                    path: projectPath, 
+                    message,
+                    index: projectIndex,
+                    name: projectName
+                  });
+                } else {
+                  event.reply('log', { path: projectPath, message });
+                }
+                return;
+              }
+
+              // Itera sobre os PIDs e encerra cada processo
+              pids.forEach(pid => {
+                  exec(`kill -9 ${pid}`, (killErr) => {
+                      if (killErr) {
+                        console.error(`Erro ao encerrar o processo PID ${pid}: ${killErr.message}`);
+                        const message = `Erro ao encerrar o processo PID ${pid}: ${killErr.message}.`;
+                        if (isPampProject) {
+                          event.reply('pamp-log', { 
+                            path: projectPath, 
+                            message,
+                            index: projectIndex,
+                            name: projectName
+                          });
+                        } else {
+                          event.reply('log', { path: projectPath, message });
+                        }
+                      } else {
+                        console.log(`Processo PID ${pid} encerrado.`);
+                        const message = `Processo PID ${pid} encerrado.`;
+                        if (isPampProject) {
+                          event.reply('pamp-log', { 
+                            path: projectPath, 
+                            message,
+                            index: projectIndex,
+                            name: projectName
+                          });
+                        } else {
+                          event.reply('log', { path: projectPath, message });
+                        }
+                      }
+                  });
+              });
+
+              // Atualiza o status para "Parado" após encerrar todos os processos
+              event.reply('status-update', { 
+                path: projectPath, 
+                status: 'stopped',
+                isPamp: isPampProject,
+                index: projectIndex
+              });
+          });
         }
-    }
+      }
   });
 
   function startProject(event, projectPath, port) {
     // Define o comando com base no nome do projeto
     const projectName = path.basename(projectPath); // Extrai o nome do projeto do caminho
+    const isPampProject = projectName.startsWith('mp-pamp');
+    const projectIndex = projects.findIndex(p => p.path === projectPath);
     let command;
 
     // Ajusta o comando para projetos específicos
@@ -513,14 +645,39 @@ app.on('ready', () => {
     } else {
       command = 'npm run start'; // Comando padrão para outros projetos
     }
-
+    
     console.log(`Executando comando: ${command} no caminho: ${projectPath}`);
+
+    if (isPampProject) {
+      event.reply('pamp-log', { 
+        path: projectPath, 
+        message: `Executando comando: ${command} no caminho: ${projectPath}`,
+        index: projectIndex,
+        name: projectName
+      });
+    } else {
+      event.reply('log', { path: projectPath, message: `Executando comando: ${command} no caminho: ${projectPath}` });
+    }
 
     // Verifica se o diretório node_modules existe
     const nodeModulesPath = path.join(projectPath, 'node_modules');
     if (!fs.existsSync(nodeModulesPath)) {
+
       console.log(`Diretório node_modules não encontrado em ${projectPath}. Instalando dependências...`);
-      event.reply('log', { path: projectPath, message: 'Instalando dependências com npm install...' });
+      const installMessage = 'Instalando dependências com npm install...';
+      if (isPampProject) {
+        event.reply('pamp-log', { 
+          path: projectPath, 
+          message: installMessage,
+          index: projectIndex,
+          name: projectName 
+        });
+      } else {
+        event.reply('log', { path: projectPath, message: installMessage });
+      }
+      
+      // Abre o console imediatamente antes de começar a instalação
+      event.reply('show-console', { path: projectPath, index: projectIndex, isPamp: isPampProject });
 
       // Executa npm install
       const installProcess = exec('npm install', { cwd: projectPath });
@@ -533,7 +690,16 @@ app.on('ready', () => {
       installProcess.stderr.on('data', (data) => {
         const cleanData = data.toString().trim();
         console.error(`[npm install] ${cleanData}`);
-        event.reply('log', { path: projectPath, message: `Erro: ${cleanData}` });
+        if (isPampProject) {
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: `[npm install] ${cleanData}`,
+            index: projectIndex,
+            name: projectName
+          });
+        } else {
+          event.reply('log', { path: projectPath, message: `[npm install] ${cleanData}` });
+        }
       });
 
       installProcess.on('close', (code) => {
@@ -563,6 +729,11 @@ app.on('ready', () => {
     const isPampProject = projectName.startsWith('mp-pamp');
     const projectIndex = projects.findIndex(p => p.path === projectPath);
 
+    // Variáveis para rastreamento de porta em uso
+    let portInUseDetected = false;
+    let detectedPort = null;
+    let portInUseTimer = null;
+
     process.stdout.on('data', (data) => {
       let cleanData;
       try {
@@ -573,6 +744,80 @@ app.on('ready', () => {
       }
 
       console.log(`[STDOUT] ${cleanData}`);
+
+      // Detecta se uma porta está em uso
+      const portInUseMatch = cleanData.match(/Port (\d+) is already in use/);
+      if (portInUseMatch) {
+        detectedPort = portInUseMatch[1];
+        console.log(`Detectada porta em uso: ${detectedPort}`);
+        
+        // Evita múltiplas execuções, apenas processa se for a primeira detecção
+        if (!portInUseDetected) {
+          portInUseDetected = true;
+          
+          // Salva a porta detectada no projeto PAMP
+          if (isPampProject && projectIndex !== -1) {
+            projects[projectIndex].port = detectedPort;
+            saveProjects(projects);
+            console.log(`Porta ${detectedPort} salva para o projeto ${projectName}`);
+          }
+          
+          // Informa o usuário
+          const message = `Porta ${detectedPort} em uso. Tentando matar o processo nessa porta...`;
+          if (isPampProject) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message,
+              index: projectIndex,
+              name: projectName
+            });
+          } else {
+            event.reply('log', { path: projectPath, message });
+          }
+          
+          // Encerra o processo atual que está esperando input
+          if (runningProcesses[projectPath]) {
+            runningProcesses[projectPath].kill();
+            delete runningProcesses[projectPath];
+          }
+          
+          // Aguarda para garantir que o processo foi encerrado
+          clearTimeout(portInUseTimer);
+          portInUseTimer = setTimeout(() => {
+            // Mata o processo na porta detectada
+            exec(`npx kill-port ${detectedPort}`, (err) => {
+              let nextMessage;
+              if (err) {
+                nextMessage = `Erro ao liberar a porta ${detectedPort}: ${err.message}`;
+                console.error(nextMessage);
+              } else {
+                nextMessage = `Porta ${detectedPort} liberada. Reiniciando projeto...`;
+                console.log(nextMessage);
+              }
+              
+              // Informa o usuário
+              if (isPampProject) {
+                event.reply('pamp-log', { 
+                  path: projectPath, 
+                  message: nextMessage,
+                  index: projectIndex,
+                  name: projectName
+                });
+              } else {
+                event.reply('log', { path: projectPath, message: nextMessage });
+              }
+              
+              // Inicia o projeto novamente após um breve intervalo
+              setTimeout(() => {
+                console.log(`Reiniciando projeto ${projectName} após liberação de porta`);
+                startProject(event, projectPath, detectedPort);
+              }, 2000);
+            });
+          }, 500);
+          
+          return;
+        }
+      }
 
       if (isPampProject) {
         event.reply('pamp-log', { 
@@ -585,12 +830,21 @@ app.on('ready', () => {
         event.reply('log', { path: projectPath, message: cleanData });
       }
 
-      // Detecta palavras-chave para atualizar o status
+      // Detecta palavras-chave para atualizar o status - ADICIONE MAIS PADRÕES PARA PAMP
       if (
         cleanData.toLowerCase().includes('successfully') || 
-        cleanData.includes('√ Compiled successfully.')
+        cleanData.includes('√ Compiled successfully.') ||
+        cleanData.includes('** Angular Live Development Server is listening on') ||
+        cleanData.includes('✓ Compiled successfully') ||
+        cleanData.includes('ÔêÜ Compiled successfully')
       ) {
-        event.reply('status-update', { path: projectPath, status: 'running' });
+        console.log(`Projeto detectado como rodando: ${projectPath}`);
+        event.reply('status-update', { 
+          path: projectPath, 
+          status: 'running',
+          isPamp: isPampProject,
+          index: projectIndex 
+        });
       }
     });
 
