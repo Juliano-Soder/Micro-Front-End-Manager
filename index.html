@@ -10,13 +10,21 @@
     body {
       font-family: 'Fira Code', monospace;
       margin: 0;
-      padding: 0;
+      padding: 20px;
       background-color: #f4f4f4; /* Cor de fundo suave */
       color: #333; /* Cor do texto */
+      max-width: 1200px; /* Limita a largura máxima */
+      margin: 0 auto;
     }
 
     h1, h2, h3, h4, h5, h6 {
       font-weight: 600;
+      margin-bottom: 20px;
+    }
+
+     h1 {
+      padding-bottom: 10px;
+      border-bottom: 1px solid #ddd;
     }
 
     input, button {
@@ -25,6 +33,71 @@
 
     button {
       cursor: pointer;
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background-color: #f0f0f0;
+      transition: background-color 0.3s;
+    }
+
+    button:hover {
+      background-color: #e0e0e0;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* Container para os controles principais */
+    .main-controls {
+      margin-bottom: 20px;
+    }
+
+    /* Estilos para MFEs containers */
+    #pamp-mfes, #projects {
+      margin-top: 15px;
+    }
+
+    /* Estilos para os cards de projeto */
+    .project-card {
+      margin-bottom: 20px;
+      border: 1px solid #ccc;
+      padding: 15px;
+      border-radius: 5px;
+      background-color: #fff; /* Fundo branco para os cards */
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    /* Status indicators */
+    #pinter-status {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: red;
+      cursor: pointer;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3);
+    }
+
+    #status {
+      position: fixed;
+      top: 30px;
+      right: 10px;
+      max-width: 100px;
+      height: 15px;
+      font-size: 10px;
+      cursor: pointer;
+      padding: 2px 5px;
+      border-radius: 2px;
+    }
+
+    /* Version info */
+    .version-info {
+      margin-top: 10px;
+      margin-bottom: 20px;
     }
   </style>
 </head>
@@ -110,6 +183,27 @@
             console.error('Erro ao extrair caminho:', error);
           }
         }
+
+         if (message.includes('terminou com código') && message.includes('1')) {
+          // Adiciona um aviso sobre a versão do Node.js
+          const nodeVersionSpan = document.getElementById('node-version');
+          const currentNodeVersion = nodeVersionSpan.innerText.replace('Node.js: ', '');
+          
+          const warningMessage = `\n\n⚠️ AVISO: O erro acima pode ser causado pela versão incompatível do Node.js (${currentNodeVersion}).
+          Projetos PAMP requerem Node.js v16.10.0. Por favor, instale a versão correta para evitar erros de sintaxe.`;
+          
+          if (pampLogDiv) {
+            pampLogDiv.style.display = 'block';
+            
+            // Adicionar estilo para destacar o aviso
+            pampLogDiv.innerHTML += `<div style="color: yellow; margin-top: 10px; border-top: 1px solid #444; padding-top: 10px;">${warningMessage}</div>`;
+            pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
+          }
+        } else if (pampLogDiv) {
+          pampLogDiv.style.display = 'block';
+          pampLogDiv.innerText += `\n${message}`;
+          pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
+        }
         
         if (message.includes('Caminho do projeto:') || message.includes('Projeto baixado')) {
           if (pampDownloadButton) pampDownloadButton.style.display = 'none';
@@ -170,7 +264,7 @@
       pampStartButton.disabled = true;
       pampStartButton.innerText = 'Executando...';
       if (pampDeleteButton) pampDeleteButton.disabled = true;      
-      ipcRenderer.send('start-project', { projectPath: pampInput.value, port: project.port });
+      ipcRenderer.send('start-project-pamp', { projectPath: pampInput.value, port: project.port });
     });
 
   });  
@@ -440,6 +534,45 @@
       input.disabled = false;
       deleteButton.style.display = 'none'; // Oculta o botão "Deletar"
       downloadButton.style.display = 'inline-block'; // Reexibe o botão "Baixar Projeto"
+    }
+  });
+  
+  // Para projetos PAMP
+  ipcRenderer.on('pamp-process-error', (event, { path, index }) => {
+    console.log(`Projeto PAMP com erro, resetando botões para índice ${index}`);
+    const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
+    const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
+    
+    if (pampStartButton) {
+      pampStartButton.disabled = false;
+      pampStartButton.innerText = 'Iniciar';
+    }
+    
+    if (pampDeleteButton) {
+      pampDeleteButton.disabled = false;
+      pampDeleteButton.style.display = 'inline-block';
+    }
+  });
+  
+  // Para projetos PAS
+  ipcRenderer.on('process-error', (event, { path }) => {
+    // Encontre o projeto pelo caminho
+    const projectIndex = projects.findIndex(p => p.path === path);
+    if (projectIndex !== -1) {
+      const startButton = document.getElementById(`btn-start-${projectIndex}`);
+      const deleteButton = document.getElementById(`btn-delete-${projectIndex}`);
+      
+      if (startButton) {
+        startButton.disabled = false;
+        startButton.innerText = 'Iniciar';
+        startButton.style.backgroundColor = '';
+        startButton.style.color = 'black';
+      }
+      
+      if (deleteButton) {
+        deleteButton.disabled = false;
+        deleteButton.style.display = 'inline-block';
+      }
     }
   });
 </script>

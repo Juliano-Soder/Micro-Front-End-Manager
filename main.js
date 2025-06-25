@@ -394,16 +394,16 @@ app.on('ready', () => {
   ipcMain.on('start-project-pamp', (event, { projectPath, port }) => {
     console.log(`Iniciando projeto: ${projectPath} na porta: ${port}`);
     if (!port) {
-        event.reply('log', { path: projectPath, message: 'Porta ainda não definida.' });
+        event.reply('pamp-log', { path: projectPath, message: 'Porta ainda não definida.' });
         startProject(event, projectPath, port);
     }else {
       // Derruba qualquer processo rodando na porta
       exec(`npx kill-port ${port}`, (err) => {
         if (err) {
-          event.reply('log', { path: projectPath, message: `Erro ao liberar a porta ${port}: ${err.message}` });
+          event.reply('pamp-log', { path: projectPath, message: `Erro ao liberar a porta ${port}: ${err.message}` });
           return;
         }
-        event.reply('log', { path: projectPath, message: `Porta ${port} liberada. Iniciando projeto...` });
+        event.reply('pamp-log', { path: projectPath, message: `Porta ${port} liberada. Iniciando projeto...` });
       
         // Aguarda 10 segundos antes de iniciar o projeto
         setTimeout(() => {
@@ -558,6 +558,11 @@ app.on('ready', () => {
     const process = exec(command, { cwd: projectPath });
     runningProcesses[projectPath] = process;
 
+    // Determine se é um projeto PAMP pelo nome do diretório
+    const projectName = path.basename(projectPath);
+    const isPampProject = projectName.startsWith('mp-pamp');
+    const projectIndex = projects.findIndex(p => p.path === projectPath);
+
     process.stdout.on('data', (data) => {
       let cleanData;
       try {
@@ -568,7 +573,17 @@ app.on('ready', () => {
       }
 
       console.log(`[STDOUT] ${cleanData}`);
-      event.reply('log', { path: projectPath, message: cleanData });
+
+      if (isPampProject) {
+        event.reply('pamp-log', { 
+          path: projectPath, 
+          message: cleanData,
+          index: projectIndex,
+          name: projectName
+        });
+      } else {
+        event.reply('log', { path: projectPath, message: cleanData });
+      }
 
       // Detecta palavras-chave para atualizar o status
       if (
@@ -588,17 +603,88 @@ app.on('ready', () => {
         cleanData = data.toString().trim();
       }
 
-      event.reply('log', { path: projectPath, message: `Erro: ${cleanData}` });
+      if (isPampProject) {
+        event.reply('pamp-log', { 
+          path: projectPath, 
+          message: `Erro: ${cleanData}`,
+          index: projectIndex,
+          name: projectName
+        });
+      } else {
+        event.reply('log', { path: projectPath, message: `Erro: ${cleanData}` });
+      }
     });
-
+    
     process.on('close', (code) => {
       delete runningProcesses[projectPath];
-      if (code === 0) {
-        event.reply('log', { path: projectPath, message: `Projeto iniciado com sucesso em ${projectPath}` });
-      } else if (code) { // Apenas se houver código de erro
-        event.reply('log', { path: projectPath, message: `O processo terminou com código ${code}` });
+      
+      // Adicione esta verificação para códigos de erro
+      const isError = code !== 0 && code !== null;
+      
+      // Obter a versão atual do Node.js
+      let nodeVersionInfo = '';
+      try {
+        nodeVersionInfo = execSync('node -v').toString().trim();
+      } catch (err) {
+        console.error('Erro ao obter versão do Node.js:', err);
+        nodeVersionInfo = 'desconhecida';
+      }
+      
+      // Verifica se é erro de sintaxe específico do Node.js em projetos PAMP
+      const isNodeVersionError = code === 1 && 
+                                isPampProject && 
+                                nodeVersionInfo !== 'v16.10.0';
+      
+      // Mensagem base
+      let message = code === 0 
+        ? `Projeto iniciado com sucesso em ${projectPath}` 
+        : isError 
+            ? `O processo terminou com código de erro ${code}` 
+            : '';
+            
+      // Adicionar informações detalhadas para erros específicos
+      if (isNodeVersionError) {
+        message += `\n\nProvavelmente devido à incompatibilidade da versão do Node.js (${nodeVersionInfo}).
+        Projetos PAMP requerem Node.js v16.10.0. A versão incompatível pode causar erros de sintaxe em arquivos de configuração.
+        
+        Considere usar o NVM (Node Version Manager) para alternar para a versão correta:
+        1. Instale NVM: https://github.com/nvm-sh/nvm (Linux/Mac) ou https://github.com/coreybutler/nvm-windows (Windows)
+        2. Execute: nvm install 16.10.0
+        3. Execute: nvm use 16.10.0`;
+      }
+      
+      if (isPampProject) {
+        event.reply('pamp-log', { 
+          path: projectPath, 
+          message,
+          index: projectIndex,
+          name: projectName,
+          error: isError // Adicione este flag para indicar erro
+        });
+        
+        // Para projetos PAMP com erro, envie evento específico para resetar os botões
+        if (isError) {
+          event.reply('pamp-process-error', { 
+            path: projectPath,
+            index: projectIndex 
+          });
+        }
       } else {
-        event.reply('status-update', { path: projectPath, status: 'stopped' }); // Atualiza para "Parado"
+        event.reply('log', { 
+          path: projectPath, 
+          message,
+          error: isError // Também para projetos PAS
+        });
+        
+        // Para projetos regulares com erro
+        if (isError) {
+          event.reply('process-error', { path: projectPath });
+        }
+      }
+      
+      // Atualize o status para 'stopped' em caso de erro ou término normal
+      if (code !== 0 || !code) {
+        event.reply('status-update', { path: projectPath, status: 'stopped' }); 
       }
     });
   }
