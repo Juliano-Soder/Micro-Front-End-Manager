@@ -642,6 +642,8 @@ app.on('ready', () => {
       command = 'npm run start'; // Comando específico para o mp-pas-root
     } else if (projectName.startsWith('mp-pas-')) {
       command = `npm run serve:single-spa:${projectName.replace('mp-', '')}`;
+    } else if (isPampProject) {
+      command = 'ng serve';
     } else {
       command = 'npm run start'; // Comando padrão para outros projetos
     }
@@ -733,6 +735,9 @@ app.on('ready', () => {
     let portInUseDetected = false;
     let detectedPort = null;
     let portInUseTimer = null;
+    // Variável para controle de mensagens duplicadas
+    let lastMessage = '';
+    let lastSuccessTime = 0;
 
     process.stdout.on('data', (data) => {
       let cleanData;
@@ -742,6 +747,25 @@ app.on('ready', () => {
         console.error('Erro ao limpar caracteres ANSI:', err);
         cleanData = data.toString().trim();
       }
+
+      // Evitar logs duplicados consecutivos, especialmente "Compiled successfully"
+      if (cleanData === lastMessage) {
+        // Se for uma mensagem de compilação bem-sucedida, verifique o tempo decorrido
+        if (cleanData.includes('Compiled successfully')) {
+          // Se a última mensagem de sucesso foi recebida há menos de 2 segundos, ignore
+          const now = Date.now();
+          if (now - lastSuccessTime < 2000) {
+            return;
+          }
+          lastSuccessTime = now;
+        } else {
+          // Para outras mensagens duplicadas consecutivas, ignore completamente
+          return;
+        }
+      }
+      
+      // Atualiza a última mensagem processada
+      lastMessage = cleanData;
 
       console.log(`[STDOUT] ${cleanData}`);
 

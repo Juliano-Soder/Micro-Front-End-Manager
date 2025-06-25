@@ -207,8 +207,21 @@
           const nodeVersionSpan = document.getElementById('node-version');
           const currentNodeVersion = nodeVersionSpan.innerText.replace('Node.js: ', '');
           
-          const warningMessage = `\n\n⚠️ AVISO: O erro acima pode ser causado pela versão incompatível do Node.js (${currentNodeVersion}).
-          Projetos PAMP requerem Node.js v16.10.0. Por favor, instale a versão correta para evitar erros de sintaxe.`;
+          let warningMessage;
+  
+          if (currentNodeVersion === 'v16.10.0') {
+            // Se a versão é correta, sugere verificar problemas de compilação
+            warningMessage = `\n\n⚠️ AVISO: O projeto apresentou erro de compilação. 
+            Verifique seu código fonte por possíveis problemas como:
+            • Dependências incompatíveis
+            • Erros de sintaxe
+            • Problemas de configuração
+            • Comandos de shell não disponíveis (como 'sed')`;
+          } else {
+            // Se a versão é incorreta, mantém o aviso sobre a versão do Node.js
+            warningMessage = `\n\n⚠️ AVISO: O erro acima pode ser causado pela versão incompatível do Node.js (${currentNodeVersion}).
+            Projetos PAMP requerem Node.js v16.10.0. Por favor, instale a versão correta para evitar erros de sintaxe.`;
+          }
           
           if (pampLogDiv) {
             pampLogDiv.style.display = 'block';
