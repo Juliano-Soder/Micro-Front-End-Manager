@@ -307,33 +307,36 @@
     // FIM PAMP Projects
 
   // Projects PAS
+  const pasProjects = projects.filter(p => p.name && !p.name.startsWith('mp-pamp'));
   const container = document.getElementById('projects');
   container.innerHTML = '';
 
-  projects.forEach((project, index) => {
+  pasProjects.forEach((project, pasIndex) => {
+    // Descubra o índice real no array projects
+    const realIndex = projects.findIndex(p => p.name === project.name);
     const div = document.createElement('div');
     div.innerHTML = `
       <div class="project-card">
         <p><strong>${project.name}</strong></p>
-        <input id="input-${index}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" style="width: 100%; margin-bottom: 10px;" />
-        <button id="btn-download-${index}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
-        <button id="btn-start-${index}" data-index="${index}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
-        <button id="btn-stop-${index}" style="display: none;">Parar</button>
-        <button id="btn-delete-${index}" data-index="${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
-        <div id="log-${index}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
+        <input id="input-${realIndex}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" style="width: 100%; margin-bottom: 10px;" />
+        <button id="btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
+        <button id="btn-start-${realIndex}" data-index="${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
+        <button id="btn-stop-${realIndex}" style="display: none;">Parar</button>
+        <button id="btn-delete-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
+        <div id="log-${realIndex}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
       </div>
     `;
     container.appendChild(div);
 
-    const input = document.getElementById(`input-${index}`);
-    const downloadButton = document.getElementById(`btn-download-${index}`);
-    const startButton = document.getElementById(`btn-start-${index}`);
-    const stopButton = document.getElementById(`btn-stop-${index}`);
-    const deleteButton = document.getElementById(`btn-delete-${index}`);
-    const logDiv = document.getElementById(`log-${index}`);
+    const input = document.getElementById(`input-${realIndex}`);
+    const downloadButton = document.getElementById(`btn-download-${realIndex}`);
+    const startButton = document.getElementById(`btn-start-${realIndex}`);
+    const stopButton = document.getElementById(`btn-stop-${realIndex}`);
+    const deleteButton = document.getElementById(`btn-delete-${realIndex}`);
+    const logDiv = document.getElementById(`log-${realIndex}`);
   
     input.addEventListener('blur', () => {
-      ipcRenderer.send('update-project-path', { index, path: input.value });
+      ipcRenderer.send('update-project-path', { index: realIndex, path: input.value });
       // Oculta o botão "Baixar Projeto" se o path for preenchido
       if (input.value.trim()) {
           downloadButton.style.display = 'none';
@@ -345,7 +348,7 @@
     });
   
     downloadButton.addEventListener('click', () => {
-      ipcRenderer.send('download-project', { name: project.name, index });
+      ipcRenderer.send('download-project', { name: project.name, index: realIndex });
     });
   
     startButton.addEventListener('click', (event) => {
@@ -364,7 +367,7 @@
     deleteButton.addEventListener('click', () => {
       if (confirm(`Tem certeza que deseja deletar o projeto ${project.name}?`)) {
         deleteButton.disabled = true; // Desabilita o botão durante a execução
-        ipcRenderer.send('delete-project', { index, path: input.value });
+        ipcRenderer.send('delete-project', { index: realIndex, path: input.value });
       }
     });
     
@@ -447,7 +450,7 @@
         if (projectIndex !== -1) {
             const startButton = document.getElementById(`btn-start-${projectIndex}`);
             const stopButton = document.getElementById(`btn-stop-${projectIndex}`);
-            const deleteButton = document.getElementById(`btn-delete-${index}`);
+            const deleteButton = document.getElementById(`btn-delete-${projectIndex}`);
 
             if (status === 'running') {
             startButton.innerText = 'Rodando ✓';
@@ -608,7 +611,11 @@
   });
 
   ipcRenderer.on('update-project', (event, { index, path }) => {
-    if(path.includes('pamp')) {
+    // Verifica se é um projeto PAMP pelo índice no array de projetos
+    const project = projects[index];
+    const isPampProject = project && project.name && project.name.startsWith('mp-pamp');
+    
+    if(isPampProject) {
       const pampInput = document.getElementById(`pamp-input-${index}`);
       const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
       const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
