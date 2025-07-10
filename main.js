@@ -7,7 +7,7 @@ const { Menu } = require('electron');
 const { spawn } = require('child_process');
 const userDataPath = app.getPath('userData');
 
-require('events').EventEmitter.defaultMaxListeners = 20;
+require('events').EventEmitter.defaultMaxListeners = 30;
 
 
 const loginStateFile = path.join(__dirname, 'login-state.json');
@@ -1019,6 +1019,302 @@ ipcMain.on('execute-command', (event, command) => {
       event.reply('update-project', { index, path: '' });
     });
   });
+
+  // Handler para mover projeto para nova localização
+  ipcMain.on('move-project', async (event, { index, currentPath, projectName }) => {
+    console.log(`Iniciando processo de mover projeto: ${projectName} de ${currentPath}`);
+    
+    try {
+      // Verifica se o projeto está rodando
+      if (runningProcesses[currentPath]) {
+        event.reply('move-project-log', { 
+          index, 
+          message: `Erro: Não é possível mover o projeto enquanto ele estiver rodando. Pare o projeto primeiro.`, 
+          success: false 
+        });
+        return;
+      }
+
+      // Abre o dialog para selecionar a nova pasta
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: `Selecione o local para mover o projeto ${projectName}`,
+        buttonLabel: 'Mover para este local'
+      });
+
+      if (result.canceled) {
+        console.log('Usuário cancelou a seleção da pasta');
+        event.reply('move-project-log', { 
+          index, 
+          message: `Operação cancelada pelo usuário.`, 
+          success: false 
+        });
+        return;
+      }
+
+      const newBasePath = result.filePaths[0];
+      const newProjectPath = path.join(newBasePath, path.basename(currentPath));
+      
+      console.log(`Movendo projeto de ${currentPath} para ${newProjectPath}`);
+      
+      // Verifica se o destino já existe
+      if (fs.existsSync(newProjectPath)) {
+        // Pergunta ao usuário se deseja substituir
+        const replaceResult = await dialog.showMessageBox(mainWindow, {
+          type: 'question',
+          title: 'Destino já existe',
+          message: `O destino ${newProjectPath} já existe!`,
+          detail: 'Deseja substituir o projeto existente?',
+          buttons: ['Cancelar', 'Substituir'],
+          defaultId: 0,
+          cancelId: 0
+        });
+
+        if (replaceResult.response === 0) {
+          // Usuário escolheu cancelar
+          event.reply('move-project-log', { 
+            index, 
+            message: `Operação cancelada: destino já existe.`, 
+            success: false 
+          });
+          return;
+        }
+
+        // Se chegou aqui, usuário escolheu substituir - remove o destino existente
+        event.reply('move-project-log', { 
+          index, 
+          message: `Removendo projeto existente no destino...`, 
+          success: false 
+        });
+
+        try {
+          await removeDirectoryRecursive(newProjectPath, event, index);
+        } catch (removeError) {
+          event.reply('move-project-log', { 
+            index, 
+            message: `Erro ao remover destino existente: ${removeError.message}`, 
+            success: false 
+          });
+          return;
+        }
+      }
+
+      // Verifica se o caminho de origem existe
+      if (!fs.existsSync(currentPath)) {
+        event.reply('move-project-log', { 
+          index, 
+          message: `Erro: O caminho de origem ${currentPath} não existe!`, 
+          success: false 
+        });
+        return;
+      }
+
+      // Envia log de início
+      event.reply('move-project-log', { 
+        index, 
+        message: `Movendo projeto para ${newProjectPath}...`, 
+        success: false 
+      });
+
+      // Usa fs nativo do Node.js para mover usando rename (mais rápido e confiável)
+      try {
+        await fs.promises.rename(currentPath, newProjectPath);
+        
+        console.log(`Projeto movido com sucesso para: ${newProjectPath}`);
+        event.reply('move-project-log', { 
+          index, 
+          message: `Projeto movido com sucesso para: ${newProjectPath}`, 
+          success: true 
+        });
+
+        // Atualiza o path do projeto no array e salva
+        projects[index].path = newProjectPath;
+        saveProjects(projects);
+        
+        // Notifica o frontend para atualizar o input
+        event.reply('update-project-path', { index, path: newProjectPath });
+        
+      } catch (renameError) {
+        console.log(`Rename falhou, tentando cópia + remoção: ${renameError.message}`);
+        event.reply('move-project-log', { 
+          index, 
+          message: `Rename falhou, tentando método alternativo...`, 
+          success: false 
+        });
+        
+        // Se rename falhar (provavelmente entre discos diferentes), usar cópia + remoção
+        event.reply('move-project-log', { 
+          index, 
+          message: `Movendo entre discos diferentes. Iniciando cópia de arquivos...`, 
+          success: false 
+        });
+        
+        // Adiciona timeout para operações longas
+        const moveTimeout = setTimeout(() => {
+          event.reply('move-project-log', { 
+            index, 
+            message: `Operação de cópia está levando mais tempo que o esperado. Por favor, aguarde...`, 
+            success: false 
+          });
+        }, 30000); // 30 segundos
+        
+        try {
+          await copyDirectoryRecursive(currentPath, newProjectPath, event, index);
+          
+          event.reply('move-project-log', { 
+            index, 
+            message: `Cópia concluída, removendo pasta original...`, 
+            success: false 
+          });
+          
+          // Remove a pasta original após cópia bem-sucedida
+          await removeDirectoryRecursive(currentPath, event, index);
+          
+          clearTimeout(moveTimeout);
+          
+          console.log(`Projeto movido com sucesso para: ${newProjectPath}`);
+          event.reply('move-project-log', { 
+            index, 
+            message: `Projeto movido com sucesso para: ${newProjectPath}`, 
+            success: true 
+          });
+
+          // Atualiza o path do projeto no array e salva
+          projects[index].path = newProjectPath;
+          saveProjects(projects);
+          
+          // Notifica o frontend para atualizar o input
+          event.reply('update-project-path', { index, path: newProjectPath });
+          
+        } catch (copyError) {
+          clearTimeout(moveTimeout);
+          throw copyError;
+        }
+      }
+
+    } catch (error) {
+      console.error('Erro no processo de mover projeto:', error);
+      event.reply('move-project-log', { 
+        index, 
+        message: `Erro inesperado: ${error.message}`, 
+        success: false 
+      });
+    }
+  });
+
+  // Função auxiliar para copiar diretório recursivamente
+  async function copyDirectoryRecursive(src, dest, event = null, index = null) {
+    await fs.promises.mkdir(dest, { recursive: true });
+    const entries = await fs.promises.readdir(src, { withFileTypes: true });
+
+    let fileCount = 0;
+    let totalFiles = 0;
+
+    // Conta total de arquivos para progresso
+    const countFiles = async (dir) => {
+      const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      for (let entry of entries) {
+        if (entry.isDirectory()) {
+          await countFiles(path.join(dir, entry.name));
+        } else {
+          totalFiles++;
+        }
+      }
+    };
+
+    await countFiles(src);
+
+    const copyRecursive = async (srcDir, destDir) => {
+      const entries = await fs.promises.readdir(srcDir, { withFileTypes: true });
+
+      for (let entry of entries) {
+        const srcPath = path.join(srcDir, entry.name);
+        const destPath = path.join(destDir, entry.name);
+
+        if (entry.isDirectory()) {
+          await fs.promises.mkdir(destPath, { recursive: true });
+          await copyRecursive(srcPath, destPath);
+        } else {
+          await fs.promises.copyFile(srcPath, destPath);
+          fileCount++;
+          
+          // Envia progresso a cada 100 arquivos ou no final
+          if (event && index !== null && (fileCount % 100 === 0 || fileCount === totalFiles)) {
+            event.reply('move-project-log', { 
+              index, 
+              message: `Copiando arquivos... ${fileCount}/${totalFiles} (${Math.round((fileCount/totalFiles)*100)}%)`, 
+              success: false 
+            });
+          }
+        }
+      }
+    };
+
+    await copyRecursive(src, dest);
+  }
+
+  // Função auxiliar para remover diretório recursivamente
+  async function removeDirectoryRecursive(dirPath, event = null, index = null) {
+    if (!fs.existsSync(dirPath)) {
+      return;
+    }
+
+    const removeRecursive = async (currentPath) => {
+      const entries = await fs.promises.readdir(currentPath, { withFileTypes: true });
+      
+      for (let entry of entries) {
+        const fullPath = path.join(currentPath, entry.name);
+        
+        if (entry.isDirectory()) {
+          await removeRecursive(fullPath);
+        } else {
+          // Tenta remover atributos readonly antes de deletar
+          try {
+            await fs.promises.chmod(fullPath, 0o666);
+          } catch (chmodError) {
+            // Ignora erros de chmod
+          }
+          
+          try {
+            await fs.promises.unlink(fullPath);
+          } catch (unlinkError) {
+            // Se falhar, tenta forçar a remoção no Windows
+            if (os.platform() === 'win32') {
+              try {
+                require('child_process').execSync(`del /f /q "${fullPath}"`, { stdio: 'ignore' });
+              } catch (delError) {
+                console.error(`Erro ao deletar arquivo ${fullPath}:`, delError.message);
+              }
+            }
+          }
+        }
+      }
+      
+      // Remove o diretório vazio
+      try {
+        await fs.promises.rmdir(currentPath);
+      } catch (rmdirError) {
+        // Se falhar, tenta forçar a remoção no Windows
+        if (os.platform() === 'win32') {
+          try {
+            require('child_process').execSync(`rmdir /s /q "${currentPath}"`, { stdio: 'ignore' });
+          } catch (rmdirForceError) {
+            console.error(`Erro ao deletar diretório ${currentPath}:`, rmdirForceError.message);
+          }
+        }
+      }
+    };
+
+    if (event && index !== null) {
+      event.reply('move-project-log', { 
+        index, 
+        message: `Removendo pasta original...`, 
+        success: false 
+      });
+    }
+
+    await removeRecursive(dirPath);
+  }
 
   ipcMain.once('start-installation', (event) => {
 
