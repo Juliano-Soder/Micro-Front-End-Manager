@@ -193,3 +193,78 @@ Novos recursos:
     
     Feedback visual aprimorado sobre o estado atual de cada projeto (rodando, parado, parando)
     Botões adaptados para refletir ações disponíveis de acordo com o estado do projeto
+
+---
+
+### Atualizações da versão MFEM v0.0.3
+##### 🚀 Changelog - Funcionalidade "Mover para..."
+
+**🎯 Nova Funcionalidade Principal:**
+
+  **Botão "Mover para..." para todos os projetos:**
+    
+    Novo botão adicionado para projetos PAS e PAMP que permite mover pastas de projeto para uma nova localização
+    Interface intuitiva com dialog nativo do sistema operacional para seleção de destino
+    Suporte completo para ambos os tipos de projeto (MP-PAS e MP-PAMP)
+
+**🔧 Funcionalidades Técnicas:**
+
+  **Movimentação inteligente entre discos:**
+    
+    Movimentação rápida no mesmo disco usando operação rename (instantânea)
+    Fallback automático para copy+delete quando movendo entre discos diferentes (C: para D:, etc.)
+    Detecção automática de cross-device moves com feedback adequado ao usuário
+
+  **Feedback de progresso em tempo real:**
+    
+    Progress bar textual durante operações de cópia (ex: "Copiando arquivos... 150/500 (30%)")
+    Atualizações a cada 100 arquivos copiados para manter o usuário informado
+    Timeout warning após 30 segundos para operações longas
+
+  **Tratamento robusto de conflitos:**
+    
+    Dialog de confirmação quando o destino já existe
+    Opções "Cancelar" ou "Substituir" com remoção segura do destino existente
+    Verificação de permissões e tratamento de arquivos readonly
+
+**🛡️ Segurança e Validação:**
+
+  **Validações de segurança:**
+    
+    Impede movimentação de projetos que estão rodando atualmente
+    Verificação de existência do caminho de origem antes da operação
+    Tratamento de erros de permissão com fallback para comandos do sistema
+
+  **Recuperação de estado da interface:**
+    
+    Botão "Mover para..." retorna ao estado normal após cancelamento
+    Re-habilitação automática de botões em caso de erro ou conclusão
+    Atualização automática do campo de caminho após movimentação bem-sucedida
+
+**🎨 Melhorias de UX:**
+
+  **Experiência do usuário aprimorada:**
+    
+    Mensagens claras sobre o tipo de operação sendo executada
+    Logs detalhados de cada etapa do processo de movimentação
+    Estados visuais consistentes entre projetos PAS e PAMP
+    
+  **Operações não-bloqueantes:**
+    
+    Interface permanece responsiva durante operações longas
+    Feedback contínuo sem travamento da aplicação
+    Cancelamento adequado em qualquer momento do processo
+
+**📝 Como Usar:**
+
+1. **Iniciar movimentação:** Clique no botão "Mover para..." ao lado do projeto desejado
+2. **Selecionar destino:** Use o dialog do sistema para escolher a nova pasta de destino
+3. **Confirmar conflitos:** Se o destino existir, escolha entre cancelar ou substituir
+4. **Acompanhar progresso:** Monitore o progresso através dos logs em tempo real
+5. **Verificar resultado:** O campo de caminho será atualizado automaticamente após conclusão
+
+**⚠️ Observações Importantes:**
+- Não é possível mover projetos que estão rodando (pare o projeto primeiro)
+- Movimentações entre discos diferentes levam mais tempo devido à cópia de arquivos
+- Projetos grandes podem levar vários minutos para serem movidos entre discos
+- Sempre verifique se há espaço suficiente no disco de destino antes de mover
