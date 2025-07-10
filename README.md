@@ -207,6 +207,9 @@ Novos recursos:
     Interface intuitiva com dialog nativo do sistema operacional para seleção de destino
     Suporte completo para ambos os tipos de projeto (MP-PAS e MP-PAMP)
 
+  <img width="792" height="599" alt="image" src="https://github.com/user-attachments/assets/1294fcd1-43e4-43ef-92a0-b78f3f59c7cf" />
+
+
 **🔧 Funcionalidades Técnicas:**
 
   **Movimentação inteligente entre discos:**
