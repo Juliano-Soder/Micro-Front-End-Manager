@@ -7,7 +7,16 @@
     "start": "electron-forge start",
     "test": "echo \"Error: no test specified\" && exit 1",
     "package": "electron-forge package",
-    "make": "electron-forge make"
+    "make": "npm run make:win:fresh",
+    "make:win": "electron-forge make --platform=win32",
+    "make:win:fresh": "node build-win-fresh-cert.js",
+    "make:linux": "electron-forge make --platform=linux",
+    "make:linux-deb": "electron-forge make --platform=linux --targets=@electron-forge/maker-deb",
+    "make:linux-rpm": "electron-forge make --platform=linux --targets=@electron-forge/maker-rpm",
+    "make:linux-appimage": "electron-forge make --platform=linux --targets=@electron-forge/maker-appimage",
+    "build:docker-linux": "node docker-build-linux.js",
+    "build:all": "npm run make:win:fresh && npm run build:docker-linux",
+    "cert:regen": "powershell -ExecutionPolicy Bypass -File ./scripts/regenerate-cert.ps1"
   },
   "keywords": ["electron", "micro-front-end", "manager"],
   "author": "Juliano Soder",

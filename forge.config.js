@@ -9,11 +9,17 @@ module.exports = {
       CompanyName: "Grupo Casas Bahia",
       FileDescription: "Gerenciador de Micro Front-Ends",
       ProductName: "Micro Front-End Manager",
+      OriginalFilename: "micro-front-end-manager.exe",
+      InternalName: "micro-front-end-manager",
+      FileVersion: "0.0.3",
+      ProductVersion: "0.0.3",
+      CompanyName: "Grupo Casas Bahia",
+      LegalCopyright: "Copyright © 2025 Juliano Soder",
     },
-    // Configuração para assinatura automática
+    // Configuração para assinatura automática com novo certificado
     sign: {
-      certificateFile: "C:\\certificados\\micro-front-end-manager.pfx",
-      certificatePassword: "Via!2022",
+      certificateFile: "./certs/micro-front-end-manager-new.pfx",
+      certificatePassword: "MicroFE2025!",
     },
   },
   rebuildConfig: {},
@@ -29,6 +35,15 @@ module.exports = {
         shortcutName: 'Micro Front-End Manager', // Nome do atalho
         createDesktopShortcut: true, // Garante que o atalho na área de trabalho seja criado
         createStartMenuShortcut: true,
+        // Configurações adicionais para evitar falsos positivos
+        noMsi: true, // Não criar MSI
+        remoteReleases: false, // Não buscar releases remotos
+        // Certificado para o instalador também
+        certificateFile: './certs/micro-front-end-manager-new.pfx',
+        certificatePassword: 'MicroFE2025!',
+        // Metadados do instalador
+        copyright: 'Copyright © 2025 Juliano Soder',
+        description: 'Instalador do Micro Front-End Manager',
       },
     },
     {
@@ -37,11 +52,50 @@ module.exports = {
     },
     {
       name: '@electron-forge/maker-deb',
-      config: {},
+      config: {
+        options: {
+          maintainer: 'Juliano Soder',
+          homepage: 'https://github.com/Juliano-Soder/Micro-Front-End-Manager',
+          description: 'Gerenciador de Micro Front-Ends para desenvolvimento',
+          productName: 'Micro Front-End Manager',
+          genericName: 'Micro Frontend Manager',
+          categories: ['Development', 'Utility'],
+          icon: './OIP.png', // Para Linux, use PNG
+          section: 'devel',
+          priority: 'optional',
+          depends: [],
+        },
+      },
     },
     {
       name: '@electron-forge/maker-rpm',
-      config: {},
+      config: {
+        options: {
+          maintainer: 'Juliano Soder',
+          homepage: 'https://github.com/Juliano-Soder/Micro-Front-End-Manager',
+          description: 'Gerenciador de Micro Front-Ends para desenvolvimento',
+          productName: 'Micro Front-End Manager',
+          genericName: 'Micro Frontend Manager',
+          categories: ['Development', 'Utility'],
+          icon: './OIP.png', // Para Linux, use PNG
+          license: 'MIT',
+          group: 'Development/Tools',
+        },
+      },
+    },
+    {
+      name: '@electron-forge/maker-appimage',
+      config: {
+        options: {
+          maintainer: 'Juliano Soder',
+          homepage: 'https://github.com/Juliano-Soder/Micro-Front-End-Manager',
+          description: 'Gerenciador de Micro Front-Ends para desenvolvimento',
+          productName: 'Micro Front-End Manager',
+          genericName: 'Micro Frontend Manager',
+          categories: ['Development', 'Utility'],
+          icon: './OIP.png', // Para Linux, use PNG
+        },
+      },
     },
   ],
   plugins: [
