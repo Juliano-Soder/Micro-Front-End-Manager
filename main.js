@@ -10,10 +10,14 @@ const userDataPath = app.getPath('userData');
 require('events').EventEmitter.defaultMaxListeners = 30;
 
 
-const loginStateFile = path.join(__dirname, 'login-state.json');
+const loginStateFile = path.join(userDataPath, 'login-state.json');
 
 // Salva o estado de login
 function saveLoginState(isLoggedIn) {
+  const dir = path.dirname(loginStateFile);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
   fs.writeFileSync(loginStateFile, JSON.stringify({ isLoggedIn }), 'utf-8');
 }
 

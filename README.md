@@ -58,6 +58,167 @@
   ```bash
   npm start
   ```
+
+## 🔧 Sistema de Build Multi-Plataforma
+
+O **Micro Front-End Manager** possui um sistema avançado de build que pode compilar para **Windows** e **Linux** usando diferentes métodos conforme a disponibilidade das ferramentas.
+
+### 📦 Scripts de Build Disponíveis
+
+#### Builds Básicos
+- `npm run make` - Build padrão (Windows apenas)
+- `npm run make:win` - Build específico para Windows
+- `npm run make:linux` - Build específico para Linux (requer ambiente Linux/WSL/Docker)
+
+#### Builds Avançados
+- `npm run make:win:fresh` - Build Windows com **certificado renovado automaticamente**
+- `npm run cert:regen` - Regenera apenas o certificado de assinatura
+
+#### Builds Automatizados
+- `.\build-local.ps1` - **Script PowerShell completo** para build multi-plataforma
+- `.\build-local.bat` - **Script Batch** alternativo para build multi-plataforma
+
+### 🖥️ Build para Windows
+
+#### Funcionalidades do Build Windows:
+- **Assinatura Digital Automática**: Gera certificado auto-assinado válido por 1 ano
+- **Instalador Squirrel**: Cria arquivo `Setup.exe` com auto-atualização
+- **Regeneração Inteligente de Certificados**: 
+  - Verifica se o certificado atual tem mais de 30 dias
+  - Reutiliza certificados válidos para evitar problemas de confiança
+  - Fallback para certificados existentes em caso de erro
+
+#### Como Executar:
+```powershell
+# Opção 1: Build com certificado renovado (recomendado)
+npm run make:win:fresh
+
+# Opção 2: Build padrão (usa certificado existente)
+npm run make:win
+
+# Opção 3: Script automatizado completo
+.\build-local.ps1
+```
+
+#### Arquivos Gerados:
+- `out/make/squirrel.windows/x64/MicroFrontEndManagerSetup.exe` (~118MB)
+- `out/make/squirrel.windows/x64/RELEASES`
+- `out/make/squirrel.windows/x64/*.nupkg`
+
+### 🐧 Build para Linux
+
+O build para Linux funciona através de **3 métodos alternativos**, tentados automaticamente na seguinte ordem:
+
+#### 1. 🐳 **Docker** (Método Preferencial)
+- **Imagem**: `electronuserland/builder:wine`
+- **Vantagens**: Ambiente isolado, reproduzível, sem conflitos
+- **Comandos**:
+  ```bash
+  npm run build:docker-linux
+  # OU usando script automatizado
+  .\build-local.ps1
+  ```
+
+#### 2. 🐧 **WSL2** (Windows Subsystem for Linux)
+- **Requisitos**: WSL2 com distribuição Linux instalada
+- **Vantagens**: Integração nativa com Windows
+- **Comando**: Executado automaticamente pelo `build-local.ps1`
+
+#### 3. ⚙️ **Ambiente Linux Nativo**
+- **Requisitos**: Sistema Linux real ou VM
+- **Comando**: `npm run make:linux`
+
+#### Formatos Linux Gerados:
+- **`.deb`** - Para Ubuntu, Debian e derivados
+- **`.rpm`** - Para RedHat, CentOS, Fedora e derivados  
+- **`.flatpak`** - Formato universal para qualquer distribuição Linux (substitui AppImage)
+
+#### Arquivos Linux Gerados:
+- `out/make/deb/x64/micro-front-end-manager_*.deb`
+- `out/make/rpm/x64/micro-front-end-manager-*.rpm` 
+- `out/make/flatpak/x64/micro-front-end-manager-*.flatpak`
+
+> **📝 Nota**: Este sistema é otimizado para **builds locais** na sua máquina de desenvolvimento. Não requer CI/CD ou servidores externos.
+
+### 🚀 Build Automatizado Completo
+
+#### Script PowerShell (Recomendado)
+```powershell
+.\build-local.ps1
+```
+
+**O que o script faz:**
+1. ✅ **Compila para Windows** com certificado renovado
+2. 🔍 **Detecta automaticamente** Docker ou WSL2  
+3. 🐧 **Compila para Linux** usando método disponível
+4. 📊 **Exibe relatório** de arquivos gerados com tamanhos
+5. 💡 **Orientações** caso Docker/WSL não estejam disponíveis
+
+#### Exemplo de Saída:
+```
+🔥 Micro Front-End Manager - Build Multi-Plataforma
+=================================================
+
+🖥️  Compilando para Windows (com certificado novo)...
+✅ Windows build concluído!
+
+🐧 Verificando opções para Linux...
+🐳 Docker detectado! Compilando para Linux...
+✅ Linux build concluído via Docker!
+
+📁 Arquivos gerados:
+   📦 MicroFrontEndManagerSetup.exe (118.45 MB)
+   📦 micro-front-end-manager_1.0.0_amd64.deb (85.2 MB)
+   📦 micro-front-end-manager-1.0.0.x86_64.rpm (85.8 MB)
+   📦 micro-front-end-manager-1.0.0.flatpak (89.1 MB)
+
+🎉 Build concluído!
+```
+
+### 🛠️ Configuração do Ambiente
+
+#### Para Builds Windows:
+- ✅ **Node.js** e **npm** (já necessários para desenvolvimento)
+- ✅ **PowerShell 5.1+** (incluído no Windows)
+
+#### Para Builds Linux:
+
+**Opção 1 - Docker (Recomendado):**
+```powershell
+# Instalar Docker Desktop
+# https://www.docker.com/products/docker-desktop
+
+# Verificar instalação
+docker --version
+```
+
+**Opção 2 - WSL2:**
+```powershell
+# Instalar WSL2
+wsl --install
+
+# Verificar instalação  
+wsl --list --verbose
+```
+
+### 🔐 Sistema de Certificados
+
+#### Regeneração Automática:
+- **Detecção Inteligente**: Verifica validade do certificado atual
+- **Reutilização**: Mantém certificados válidos por até 30 dias
+- **Fallback**: Em caso de erro, usa certificado existente
+- **Compatibilidade**: Funciona em diferentes versões do PowerShell
+
+#### Arquivos de Certificado:
+- `cert.p12` - Certificado em formato PKCS#12
+- `cert.pvk` - Chave privada  
+- `cert.cer` - Certificado público
+
+#### Problemas Comuns:
+- **"Cert: drive not found"**: Script usa fallback automático
+- **Permissões**: Fallback para certificado existente
+- **PowerShell antigo**: Parâmetros simplificados automaticamente
+
 ### 🖥️ Como Usar
 #### Login no NPM:
 
@@ -79,12 +240,39 @@ Excluir um Projeto:
 Clique no botão "Deletar" para remover o projeto do diretório.
 
 ### 🛠️ Empacotar e Distribuir
-Para criar um instalador do aplicativo, execute:
+
+#### Build Rápido (Windows apenas):
 ```bash
 npm run make
 ```
 
-O instalador será gerado na pasta make. Envie o arquivo Setup.exe para os usuários.
+#### Build Completo Multi-Plataforma (Recomendado):
+```powershell
+# PowerShell - Constrói para Windows e Linux automaticamente
+.\build-local.ps1
+
+# OU Batch - Alternativa para ambientes sem PowerShell
+.\build-local.bat
+```
+
+#### Builds Específicos:
+```bash
+# Windows com certificado renovado
+npm run make:win:fresh
+
+# Apenas Linux (requer Docker/WSL/Linux)
+npm run make:linux
+
+# Apenas regenerar certificado
+npm run cert:regen
+```
+
+Os instaladores serão gerados na pasta `out/make/`. 
+
+**Para Windows**: Distribua o arquivo `MicroFrontEndManagerSetup.exe`  
+**Para Linux**: Distribua o formato apropriado (`.deb`, `.rpm`, ou `.flatpak`)
+
+> **💡 Dica**: Este sistema foi projetado para builds locais. Execute os comandos na sua máquina de desenvolvimento para gerar os instaladores.
 
 ### ⚠️ Notas Importantes
 Certifique-se de que o Node.js e o Angular CLI estão instalados antes de usar o aplicativo.
