@@ -131,12 +131,14 @@ O build para Linux funciona através de **3 métodos alternativos**, tentados au
 #### Formatos Linux Gerados:
 - **`.deb`** - Para Ubuntu, Debian e derivados
 - **`.rpm`** - Para RedHat, CentOS, Fedora e derivados  
-- **`.AppImage`** - Formato universal para qualquer distribuição Linux
+- **`.flatpak`** - Formato universal para qualquer distribuição Linux (substitui AppImage)
 
 #### Arquivos Linux Gerados:
 - `out/make/deb/x64/micro-front-end-manager_*.deb`
 - `out/make/rpm/x64/micro-front-end-manager-*.rpm` 
-- `out/make/appimage/x64/micro-front-end-manager-*.AppImage`
+- `out/make/flatpak/x64/micro-front-end-manager-*.flatpak`
+
+> **📝 Nota**: Este sistema é otimizado para **builds locais** na sua máquina de desenvolvimento. Não requer CI/CD ou servidores externos.
 
 ### 🚀 Build Automatizado Completo
 
@@ -168,7 +170,7 @@ O build para Linux funciona através de **3 métodos alternativos**, tentados au
    📦 MicroFrontEndManagerSetup.exe (118.45 MB)
    📦 micro-front-end-manager_1.0.0_amd64.deb (85.2 MB)
    📦 micro-front-end-manager-1.0.0.x86_64.rpm (85.8 MB)
-   📦 micro-front-end-manager-1.0.0.AppImage (89.1 MB)
+   📦 micro-front-end-manager-1.0.0.flatpak (89.1 MB)
 
 🎉 Build concluído!
 ```
@@ -268,7 +270,9 @@ npm run cert:regen
 Os instaladores serão gerados na pasta `out/make/`. 
 
 **Para Windows**: Distribua o arquivo `MicroFrontEndManagerSetup.exe`  
-**Para Linux**: Distribua o formato apropriado (`.deb`, `.rpm`, ou `.AppImage`)
+**Para Linux**: Distribua o formato apropriado (`.deb`, `.rpm`, ou `.flatpak`)
+
+> **💡 Dica**: Este sistema foi projetado para builds locais. Execute os comandos na sua máquina de desenvolvimento para gerar os instaladores.
 
 ### ⚠️ Notas Importantes
 Certifique-se de que o Node.js e o Angular CLI estão instalados antes de usar o aplicativo.
