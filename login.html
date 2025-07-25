@@ -43,25 +43,32 @@
       border-radius: 5px;
       margin-top: 40px;
       font-family: monospace;
+      cursor: text;
     }
 
     pre:focus {
-      outline: none;
+      outline: 2px solid #0f0;
+      background: #001100;
     }
   </style>
 </head>
 <body>
   <button id="close">[x]</button>
-  <pre id="terminal" contenteditable="true"></pre>
+  <pre id="terminal" tabindex="0"></pre>
   <script>
     const { ipcRenderer } = require('electron');
 
     let isReadyForInput = false;
     let isPasswordInput = false;
+    let currentInput = '';
+    let hiddenPassword = '';
 
     ipcRenderer.on('start-npm-login', (event, { projectPath, registry }) => {
       const terminal = document.getElementById('terminal');
       const closeButton = document.getElementById('close');
+
+      // Foca no terminal para capturar eventos de teclado
+      terminal.focus();
 
       // Inicializa o terminal com os dois primeiros comandos
       terminal.innerText += `cd ${projectPath}\n`;
@@ -76,31 +83,93 @@
       isReadyForInput = true;
 
       // Captura a entrada do usuário
-      terminal.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter' && isReadyForInput) {
+      terminal.addEventListener('keydown', (e) => {
+        if (!isReadyForInput) return;
+
+        if (e.key === 'Enter') {
           e.preventDefault();
-
-          // Captura apenas a última linha digitada
-          const lines = terminal.innerText.split('\n');
-          const lastLine = lines[lines.length - 1].trim();
-
-          // Extrai apenas o texto após o último `:`
-          const input = lastLine.split(':').pop().trim();
-
-          if (input) {
+          
+          // Usa a senha oculta se estivermos em modo de senha
+          const inputToSend = isPasswordInput ? hiddenPassword : currentInput;
+          
+          if (inputToSend) {
             if (isPasswordInput) {
-              // Exibe asteriscos no console para a senha
-              terminal.innerText = terminal.innerText.replace(input, '******');
+              // Exibe asteriscos no terminal para a senha
+              terminal.innerText += '*'.repeat(hiddenPassword.length) + '\n';
+            } else {
+              terminal.innerText += currentInput + '\n';
             }
 
-            ipcRenderer.send('execute-command', input); // Envia o texto digitado para o backend
-            terminal.innerText += '\n'; // Adiciona uma nova linha
+            ipcRenderer.send('execute-command', inputToSend);
             terminal.scrollTop = terminal.scrollHeight;
 
-            isPasswordInput = false; // Reseta o estado de senha
+            // Reseta variáveis
+            currentInput = '';
+            hiddenPassword = '';
+            isPasswordInput = false;
+          }
+        } else if (e.key === 'Backspace') {
+          e.preventDefault();
+          
+          if (isPasswordInput) {
+            // Remove último caractere da senha oculta
+            if (hiddenPassword.length > 0) {
+              hiddenPassword = hiddenPassword.slice(0, -1);
+              // Atualiza a exibição removendo um asterisco
+              updatePasswordDisplay();
+            }
+          } else {
+            // Remove último caractere do input normal
+            if (currentInput.length > 0) {
+              currentInput = currentInput.slice(0, -1);
+              updateInputDisplay();
+            }
+          }
+        } else if (e.key.length === 1) {
+          // Caracteres normais
+          e.preventDefault();
+          
+          if (isPasswordInput) {
+            hiddenPassword += e.key;
+            updatePasswordDisplay();
+          } else {
+            currentInput += e.key;
+            updateInputDisplay();
           }
         }
       });
+
+      function updatePasswordDisplay() {
+        // Remove a última linha e adiciona asteriscos
+        const lines = terminal.innerText.split('\n');
+        const lastLine = lines[lines.length - 1];
+        
+        // Verifica se a última linha contém "password:" ou similar
+        if (lastLine.toLowerCase().includes('password:')) {
+          const prompt = lastLine.split(':')[0] + ': ';
+          lines[lines.length - 1] = prompt + '*'.repeat(hiddenPassword.length);
+          terminal.innerText = lines.join('\n');
+        }
+        terminal.scrollTop = terminal.scrollHeight;
+      }
+
+      function updateInputDisplay() {
+        // Remove a última linha e adiciona o input atual
+        const lines = terminal.innerText.split('\n');
+        const lastLine = lines[lines.length - 1];
+        
+        // Se a última linha contém ":" é um prompt
+        if (lastLine.includes(':') && !lastLine.toLowerCase().includes('password:')) {
+          const promptPart = lastLine.substring(0, lastLine.lastIndexOf(':') + 1) + ' ';
+          lines[lines.length - 1] = promptPart + currentInput;
+          terminal.innerText = lines.join('\n');
+        } else {
+          // Adiciona input na linha atual
+          lines[lines.length - 1] = currentInput;
+          terminal.innerText = lines.join('\n');
+        }
+        terminal.scrollTop = terminal.scrollHeight;
+      }
 
       // Fecha a janela ao clicar no botão "Fechar"
       closeButton.addEventListener('click', () => {
@@ -115,11 +184,23 @@
         // Detecta se o próximo input é uma senha
         if (output.toLowerCase().includes('password:')) {
           isPasswordInput = true;
+          currentInput = '';
+          hiddenPassword = '';
         }
 
         // Detecta login bem-sucedido
         if (output.toLowerCase().includes('logged in')) {
           ipcRenderer.send('login-success');
+          setTimeout(() => {
+            ipcRenderer.send('npm-login-complete', { success: true, message: 'Login realizado com sucesso!' });
+          }, 1000);
+        }
+
+        // Detecta erro de login
+        if (output.toLowerCase().includes('unauthorized') || output.toLowerCase().includes('login failed')) {
+          setTimeout(() => {
+            ipcRenderer.send('npm-login-complete', { success: false, message: 'Falha no login. Verifique suas credenciais.' });
+          }, 1000);
         }
       });
     });

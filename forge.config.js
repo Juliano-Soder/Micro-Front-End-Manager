@@ -84,7 +84,7 @@ module.exports = {
       },
     },
     {
-      name: '@electron-forge/maker-appimage',
+      name: '@electron-forge/maker-flatpak',
       config: {
         options: {
           maintainer: 'Juliano Soder',
