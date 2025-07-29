@@ -5,9 +5,12 @@ const path = require('path');
 const os = require('os');
 const { Menu } = require('electron');
 const { spawn } = require('child_process');
+const https = require('https');
+const http = require('http');
+const url = require('url');
 const userDataPath = app.getPath('userData');
 
-require('events').EventEmitter.defaultMaxListeners = 30;
+require('events').EventEmitter.defaultMaxListeners = 50;
 
 
 const loginStateFile = path.join(userDataPath, 'login-state.json');
@@ -30,7 +33,118 @@ function loadLoginState() {
   return false;
 }
 
+function checkNexusLoginStatus() {
+  return new Promise((resolve) => {
+    const mfePaths = projects
+      .filter(
+        (project) =>
+          typeof project.path === 'string' &&
+          project.path.trim() !== "" &&
+          fs.existsSync(project.path) &&
+          fs.existsSync(path.join(project.path, '.npmrc'))
+      )
+      .map((project) => project.path);
+
+    if (mfePaths.length === 0) {
+      console.log('Nenhum projeto com .npmrc encontrado para verificar login.');
+      resolve({ isLoggedIn: false, reason: 'no-projects', username: null });
+      return;
+    }
+
+    const projectPath = mfePaths[0];
+    const npmrcPath = path.join(projectPath, '.npmrc');
+    let registry = 'http://nexus.viavarejo.com.br/repository/npm-marketplace/';
+    
+    if (fs.existsSync(npmrcPath)) {
+      const npmrcContent = fs.readFileSync(npmrcPath, 'utf-8');
+      if (npmrcContent.includes('https://')) {
+        registry = 'https://nexus.viavarejo.com.br/repository/npm-marketplace/';
+      }
+    }
+
+    console.log(`Verificando status de login no registry: ${registry}`);
+
+    // Primeiro tenta npm whoami
+    exec(`npm whoami --registry=${registry}`, { cwd: projectPath, timeout: 10000 }, (whoamiErr, whoamiStdout, whoamiStderr) => {
+      if (!whoamiErr && whoamiStdout && whoamiStdout.trim()) {
+        const username = whoamiStdout.trim();
+        console.log(`Login verificado via whoami: ${username}`);
+        resolve({ isLoggedIn: true, reason: 'whoami-success', username: username, registry: registry });
+        return;
+      }
+
+      console.log(`npm whoami falhou, tentando npm ping...`);
+      
+      // Se whoami falhar, tenta npm ping
+      exec(`npm ping --registry=${registry}`, { cwd: projectPath, timeout: 10000 }, (pingErr, pingStdout, pingStderr) => {
+        if (!pingErr && pingStdout && pingStdout.includes('PONG')) {
+          console.log('npm ping bem-sucedido, mas usuário pode não estar logado');
+          resolve({ isLoggedIn: false, reason: 'ping-success-no-auth', username: null, registry: registry });
+          return;
+        }
+
+        console.log('Ambos whoami e ping falharam, usuário provavelmente não está logado');
+        resolve({ isLoggedIn: false, reason: 'both-failed', username: null, registry: registry });
+      });
+    });
+  });
+}
+
 function handleNpmLogin() {
+  console.log('Iniciando verificação de status de login no Nexus...');
+  
+  // Mostra uma mensagem de "verificando" para o usuário
+  mainWindow.webContents.send('log', { message: 'Verificando status de login no Nexus...' });
+
+  checkNexusLoginStatus().then(({ isLoggedIn, reason, username, registry }) => {
+    if (isLoggedIn) {
+      // Usuário já está logado
+      console.log(`Usuário já está logado no Nexus: ${username}`);
+      mainWindow.webContents.send('log', { message: `✓ Você já está logado no Nexus como: ${username}` });
+      
+      // Salva o estado de login
+      saveLoginState(true);
+      
+      // Mostra dialog informativo
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Login já realizado',
+        message: `Você já está logado no Nexus!`,
+        detail: `Usuário: ${username}\nRegistry: ${registry}\n\nNão é necessário fazer login novamente.`,
+        buttons: ['OK']
+      });
+      
+      return;
+    }
+
+    // Usuário não está logado, procede com o login
+    console.log(`Login necessário. Motivo: ${reason}`);
+    
+    if (reason === 'no-projects') {
+      mainWindow.webContents.send('log', { message: 'Erro: Nenhum projeto com arquivo .npmrc encontrado para login no npm.' });
+
+      // Mostra um alerta nativo para o usuário
+      dialog.showMessageBox(mainWindow, {
+        type: 'warning',
+        title: 'Atenção',
+        message: 'Você precisa ter pelo menos um projeto salvo e o caminho configurado corretamente antes de fazer login no npm.',
+        buttons: ['OK']
+      });
+      return;
+    }
+
+    // Continua com o processo de login
+    performNpmLogin(registry);
+  }).catch((error) => {
+    console.error('Erro ao verificar status de login:', error);
+    mainWindow.webContents.send('log', { message: `Erro ao verificar login: ${error.message}. Prosseguindo com login...` });
+    
+    // Em caso de erro na verificação, procede com login usando lógica antiga
+    performNpmLoginFallback();
+  });
+}
+
+function performNpmLogin(registry) {
   const mfePaths = projects
     .filter(
       (project) =>
@@ -41,30 +155,10 @@ function handleNpmLogin() {
     )
     .map((project) => project.path);
 
-  if (mfePaths.length === 0) {
-    console.error('Nenhum projeto com arquivo .npmrc encontrado para login no npm.');
-    mainWindow.webContents.send('log', { message: 'Erro: Nenhum projeto com arquivo .npmrc encontrado para login no npm.' });
-
-    // Mostra um alerta nativo para o usuário
-    dialog.showMessageBox(mainWindow, {
-      type: 'warning',
-      title: 'Atenção',
-      message: 'Você precisa ter pelo menos um projeto salvo e o caminho configurado corretamente antes de fazer login no npm.',
-      buttons: ['OK']
-    });
-
-    return;
-  }
-
   const projectPath = mfePaths[0];
-  const npmrcPath = path.join(projectPath, '.npmrc');
-  let registry = 'https://nexus.viavarejo.com.br/repository/npm-marketplace/';
-  if (fs.existsSync(npmrcPath)) {
-    const npmrcContent = fs.readFileSync(npmrcPath, 'utf-8');
-    if (npmrcContent.includes('http://')) {
-      registry = 'http://nexus.viavarejo.com.br/repository/npm-marketplace/';
-    }
-  }
+
+  console.log(`Iniciando processo de login no registry: ${registry}`);
+  mainWindow.webContents.send('log', { message: `Iniciando login no Nexus (${registry})...` });
 
   // Cria uma nova janela para o terminal
   const loginWindow = new BrowserWindow({
@@ -80,7 +174,6 @@ function handleNpmLogin() {
     titleBarStyle: 'hidden',
   });
 
-  // Corrija aqui: NÃO use mainWindow.loadFile!
   loginWindow.loadFile(path.join(__dirname, 'login.html'));
 
   loginWindow.webContents.once('did-finish-load', () => {
@@ -91,6 +184,7 @@ function handleNpmLogin() {
     if (success) {
       console.log('Login no npm realizado com sucesso.');
       mainWindow.webContents.send('log', { message: 'Logado no Nexus com sucesso!' });
+      saveLoginState(true);
     } else {
       console.error('Erro ao realizar login no npm:', message);
       mainWindow.webContents.send('log', { message: `Erro no login: ${message}` });
@@ -103,11 +197,83 @@ function handleNpmLogin() {
   });
 }
 
+function performNpmLoginFallback() {
+  // Lógica de fallback usando a implementação original
+  const mfePaths = projects
+    .filter(
+      (project) =>
+        typeof project.path === 'string' &&
+        project.path.trim() !== "" &&
+        fs.existsSync(project.path) &&
+        fs.existsSync(path.join(project.path, '.npmrc'))
+    )
+    .map((project) => project.path);
+
+  if (mfePaths.length === 0) {
+    console.error('Nenhum projeto com arquivo .npmrc encontrado para login no npm.');
+    mainWindow.webContents.send('log', { message: 'Erro: Nenhum projeto com arquivo .npmrc encontrado para login no npm.' });
+
+    dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'Atenção',
+      message: 'Você precisa ter pelo menos um projeto salvo e o caminho configurado corretamente antes de fazer login no npm.',
+      buttons: ['OK']
+    });
+    return;
+  }
+
+  const projectPath = mfePaths[0];
+  const npmrcPath = path.join(projectPath, '.npmrc');
+  let registry = 'https://nexus.viavarejo.com.br/repository/npm-marketplace/';
+  if (fs.existsSync(npmrcPath)) {
+    const npmrcContent = fs.readFileSync(npmrcPath, 'utf-8');
+    if (npmrcContent.includes('http://')) {
+      registry = 'http://nexus.viavarejo.com.br/repository/npm-marketplace/';
+    }
+  }
+
+  performNpmLogin(registry);
+}
+
 // Cria o menu da aplicação
 const menuTemplate = [
   {
     label: 'File',
     submenu: [
+      {
+        label: 'Reiniciar Aplicativo',
+        accelerator: 'CmdOrCtrl+R',
+        click: () => {
+          // Mostra confirmação antes de reiniciar
+          dialog.showMessageBox(mainWindow, {
+            type: 'question',
+            title: 'Reiniciar Aplicativo',
+            message: 'Deseja reiniciar o aplicativo?',
+            detail: 'Isso irá fechar e reabrir o aplicativo. Todos os processos em execução serão interrompidos.',
+            buttons: ['Cancelar', 'Reiniciar'],
+            defaultId: 1,
+            cancelId: 0
+          }).then((result) => {
+            if (result.response === 1) {
+              console.log('Reiniciando aplicativo...');
+              // Para todos os processos em execução
+              Object.keys(runningProcesses).forEach(processPath => {
+                try {
+                  runningProcesses[processPath].kill();
+                  console.log(`Processo parado: ${processPath}`);
+                } catch (error) {
+                  console.error(`Erro ao parar processo ${processPath}:`, error);
+                }
+              });
+              
+              // Reinicia o aplicativo
+              app.relaunch();
+              app.exit();
+            }
+          });
+        },
+      },
+      { type: 'separator' },
       {
         label: 'Login npm',
         click: () => {
@@ -115,11 +281,21 @@ const menuTemplate = [
         },
       },
       {
+        label: 'Verificar Status Nexus',
+        click: () => {
+          if (mainWindow) {
+            mainWindow.webContents.send('check-nexus-status');
+          }
+        },
+      },
+      { type: 'separator' },
+      {
         label: 'Instalar Dependências',
         click: () => {
           handleInstallDependencies(); // Chama a função para instalar dependências
         },
       },
+      { type: 'separator' },
       { role: 'quit' },
     ],
   },
@@ -219,8 +395,14 @@ function saveProjects(projects) {
 }
 
 let projects = loadProjects();
+let startingProjects = new Set(); // Para controlar projetos que estão sendo iniciados
 
 app.on('ready', () => {
+  // Remove todos os listeners IPC existentes para evitar duplicação em caso de reinício
+  ipcMain.removeAllListeners();
+  
+  // Não precisa remover listeners específicos após removeAllListeners()
+  
   let isLoggedIn = loadLoginState();
   let nodeVersion = null;
   let nodeWarning = null;
@@ -276,6 +458,41 @@ app.on('ready', () => {
 
   mainWindow.loadFile('index.html');
 
+  // Adiciona listener para tecla F5 (Refresh/Restart)
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F5' && !input.alt && !input.control && !input.meta && !input.shift) {
+      event.preventDefault();
+      
+      // Executa a mesma lógica do menu
+      dialog.showMessageBox(mainWindow, {
+        type: 'question',
+        title: 'Reiniciar Aplicativo',
+        message: 'Deseja reiniciar o aplicativo?',
+        detail: 'Tecla F5 pressionada. Isso irá fechar e reabrir o aplicativo. Todos os processos em execução serão interrompidos.',
+        buttons: ['Cancelar', 'Reiniciar'],
+        defaultId: 1,
+        cancelId: 0
+      }).then((result) => {
+        if (result.response === 1) {
+          console.log('Reiniciando aplicativo via F5...');
+          // Para todos os processos em execução
+          Object.keys(runningProcesses).forEach(processPath => {
+            try {
+              runningProcesses[processPath].kill();
+              console.log(`Processo parado: ${processPath}`);
+            } catch (error) {
+              console.error(`Erro ao parar processo ${processPath}:`, error);
+            }
+          });
+          
+          // Reinicia o aplicativo
+          app.relaunch();
+          app.exit();
+        }
+      });
+    }
+  });
+
   ipcMain.on('login-success', () => {
     isLoggedIn = true;
     saveLoginState(isLoggedIn);
@@ -283,7 +500,67 @@ app.on('ready', () => {
   });
 
   ipcMain.on('load-login-state', (event) => {
+    // Primeiro retorna o estado salvo
     event.reply('login-state', isLoggedIn);
+    
+    // Depois faz uma verificação em background para atualizar se necessário
+    checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username }) => {
+      if (actualLoginStatus !== isLoggedIn) {
+        // O status real é diferente do salvo, atualiza
+        isLoggedIn = actualLoginStatus;
+        saveLoginState(isLoggedIn);
+        event.reply('login-state', isLoggedIn);
+        
+        if (actualLoginStatus) {
+          console.log(`Login detectado automaticamente: ${username}`);
+          mainWindow.webContents.send('log', { message: `✓ Login detectado automaticamente: ${username}` });
+        } else {
+          console.log('Status de login atualizado: deslogado');
+        }
+      }
+    }).catch((error) => {
+      console.log('Erro na verificação automática de login:', error.message);
+    });
+  });
+
+  ipcMain.on('check-nexus-status', (event) => {
+    mainWindow.webContents.send('log', { message: 'Verificando status do Nexus...' });
+    
+    checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username, registry, reason }) => {
+      if (actualLoginStatus) {
+        mainWindow.webContents.send('log', { message: `✓ Conectado ao Nexus como: ${username}` });
+        
+        // Atualiza o estado salvo se necessário
+        if (!isLoggedIn) {
+          isLoggedIn = true;
+          saveLoginState(isLoggedIn);
+          event.reply('login-state', isLoggedIn);
+        }
+      } else {
+        let message = '❌ Não conectado ao Nexus';
+        switch (reason) {
+          case 'no-projects':
+            message += ' (nenhum projeto configurado)';
+            break;
+          case 'ping-success-no-auth':
+            message += ' (servidor acessível, mas não autenticado)';
+            break;
+          case 'both-failed':
+            message += ' (falha na comunicação)';
+            break;
+        }
+        mainWindow.webContents.send('log', { message });
+        
+        // Atualiza o estado salvo se necessário
+        if (isLoggedIn) {
+          isLoggedIn = false;
+          saveLoginState(isLoggedIn);
+          event.reply('login-state', isLoggedIn);
+        }
+      }
+    }).catch((error) => {
+      mainWindow.webContents.send('log', { message: `Erro ao verificar Nexus: ${error.message}` });
+    });
   });
 
   ipcMain.on('load-node-info', (event) => {
@@ -338,7 +615,12 @@ app.on('ready', () => {
         if (err) {
         console.error(`Erro ao clonar o repositório ${repoUrl}: ${err.message}`);
         if (name.startsWith('mp-pamp')) {
-          event.reply('pamp-log', { path: projectPath, message: `Erro ao clonar o repositório ${repoUrl}: ${err.message}` });
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: `Erro ao clonar o repositório ${repoUrl}: ${err.message}`,
+            index: index,
+            name: name
+          });
         } else {
           event.reply('log', { path: projectPath, message: `Erro ao clonar o repositório ${repoUrl}: ${err.message}` });
         }
@@ -347,7 +629,12 @@ app.on('ready', () => {
 
         console.log(`Projeto ${name} clonado com sucesso em ${projectPath}.`);
         if (name.startsWith('mp-pamp')) {
-          event.reply('pamp-log', { path: projectPath, message: `Projeto baixado e disponível no caminho: ${projectPath}` });
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: `Projeto baixado e disponível no caminho: ${projectPath}`,
+            index: index,
+            name: name
+          });
         } else {
           event.reply('log', { path: projectPath, message: `Projeto baixado e disponível no caminho: ${projectPath}` });
         }
@@ -376,7 +663,7 @@ app.on('ready', () => {
   ipcMain.on('start-project', (event, { projectPath, port }) => {
     console.log(`Iniciando projeto: ${projectPath} na porta: ${port}`);
     if (!port) {
-        event.reply('log', { path: projectPath, message: 'Erro: Porta não definida.' });
+        event.reply('log', { path: projectPath, message: '- Porta não definida.' });
         return;
     }
 
@@ -667,7 +954,11 @@ app.on('ready', () => {
 
     // Verifica se o diretório node_modules existe
     const nodeModulesPath = path.join(projectPath, 'node_modules');
+    console.log(`[DEBUG] Verificando node_modules em: ${nodeModulesPath}`);
+    console.log(`[DEBUG] node_modules existe: ${fs.existsSync(nodeModulesPath)}`);
+    
     if (!fs.existsSync(nodeModulesPath)) {
+      console.log(`[DEBUG] node_modules NÃO existe, executando npm install`);
 
       console.log(`Diretório node_modules não encontrado em ${projectPath}. Instalando dependências...`);
       const installMessage = 'Instalando dependências com npm install...';
@@ -690,7 +981,16 @@ app.on('ready', () => {
       installProcess.stdout.on('data', (data) => {
         const cleanData = data.toString().trim();
         console.log(`[npm install] ${cleanData}`);
-        event.reply('log', { path: projectPath, message: cleanData });
+        if (isPampProject) {
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: `[npm install] ${cleanData}`,
+            index: projectIndex,
+            name: projectName
+          });
+        } else {
+          event.reply('log', { path: projectPath, message: `[npm install] ${cleanData}` });
+        }
       });
 
       installProcess.stderr.on('data', (data) => {
@@ -711,22 +1011,60 @@ app.on('ready', () => {
       installProcess.on('close', (code) => {
         if (code === 0) {
           console.log(`Dependências instaladas com sucesso em ${projectPath}.`);
-          event.reply('log', { path: projectPath, message: 'Dependências instaladas com sucesso.' });
+          
+          const successMessage = 'Dependências instaladas com sucesso.';
+          if (isPampProject) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: successMessage,
+              index: projectIndex,
+              name: projectName
+            });
+          } else {
+            event.reply('log', { path: projectPath, message: successMessage });
+          }
 
           // Após instalar as dependências, inicia o projeto
-          executeStartCommand(event, projectPath, command);
+          executeStartCommand(event, projectPath, command, port);
         } else {
           console.error(`Erro ao instalar dependências em ${projectPath}. Código: ${code}`);
-          event.reply('log', { path: projectPath, message: `Erro ao instalar dependências. Código: ${code}` });
+          
+          const errorMessage = `Erro ao instalar dependências. Código: ${code}`;
+          
+          if (isPampProject) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: errorMessage,
+              index: projectIndex,
+              name: projectName,
+              error: true
+            });
+            
+            // Resetar botões do projeto PAMP
+            event.reply('pamp-process-error', { 
+              path: projectPath,
+              index: projectIndex 
+            });
+          } else {
+            event.reply('log', { 
+              path: projectPath, 
+              message: errorMessage,
+              error: true
+            });
+            
+            // Resetar botões do projeto PAS
+            event.reply('process-error', { path: projectPath });
+          }
         }
       });
     } else {
-      // Se node_modules já existir, inicia o projeto diretamente
-      executeStartCommand(event, projectPath, command);
+      // Se node_modules já existir, abre o console e inicia o projeto diretamente
+      event.reply('show-console', { path: projectPath, index: projectIndex, isPamp: isPampProject });
+      executeStartCommand(event, projectPath, command, port);
     }
   }
 
-  function executeStartCommand(event, projectPath, command) {
+  function executeStartCommand(event, projectPath, command, port) {
     const process = exec(command, { cwd: projectPath });
     runningProcesses[projectPath] = process;
 
@@ -739,8 +1077,7 @@ app.on('ready', () => {
     let portInUseDetected = false;
     let detectedPort = null;
     let portInUseTimer = null;
-    // Variável para controle de mensagens duplicadas
-    let lastMessage = '';
+    // Variável para controle de mensagens "Compiled successfully" apenas
     let lastSuccessTime = 0;
 
     process.stdout.on('data', (data) => {
@@ -752,24 +1089,14 @@ app.on('ready', () => {
         cleanData = data.toString().trim();
       }
 
-      // Evitar logs duplicados consecutivos, especialmente "Compiled successfully"
-      if (cleanData === lastMessage) {
-        // Se for uma mensagem de compilação bem-sucedida, verifique o tempo decorrido
-        if (cleanData.includes('Compiled successfully')) {
-          // Se a última mensagem de sucesso foi recebida há menos de 2 segundos, ignore
-          const now = Date.now();
-          if (now - lastSuccessTime < 2000) {
-            return;
-          }
-          lastSuccessTime = now;
-        } else {
-          // Para outras mensagens duplicadas consecutivas, ignore completamente
-          return;
+      // Controle especial para mensagens "Compiled successfully" para evitar spam
+      if (cleanData.includes('Compiled successfully')) {
+        const now = Date.now();
+        if (now - lastSuccessTime < 2000) {
+          return; // Ignora se a última mensagem de sucesso foi há menos de 2 segundos
         }
+        lastSuccessTime = now;
       }
-      
-      // Atualiza a última mensagem processada
-      lastMessage = cleanData;
 
       console.log(`[STDOUT] ${cleanData}`);
 
@@ -847,6 +1174,7 @@ app.on('ready', () => {
         }
       }
 
+      // Envia o log para o frontend - SEMPRE envia, removendo a lógica de duplicação problemática
       if (isPampProject) {
         event.reply('pamp-log', { 
           path: projectPath, 
@@ -858,13 +1186,15 @@ app.on('ready', () => {
         event.reply('log', { path: projectPath, message: cleanData });
       }
 
-      // Detecta palavras-chave para atualizar o status - ADICIONE MAIS PADRÕES PARA PAMP
+      // Detecta palavras-chave para atualizar o status 
       if (
         cleanData.toLowerCase().includes('successfully') || 
         cleanData.includes('√ Compiled successfully.') ||
         cleanData.includes('** Angular Live Development Server is listening on') ||
         cleanData.includes('✓ Compiled successfully') ||
-        cleanData.includes('ÔêÜ Compiled successfully')
+        cleanData.includes('ÔêÜ Compiled successfully') ||
+        cleanData.includes('webpack compiled successfully') ||
+        cleanData.includes('webpack') && cleanData.includes('compiled successfully')
       ) {
         console.log(`Projeto detectado como rodando: ${projectPath}`);
         event.reply('status-update', { 
@@ -888,17 +1218,22 @@ app.on('ready', () => {
       if (isPampProject) {
         event.reply('pamp-log', { 
           path: projectPath, 
-          message: `Erro: ${cleanData}`,
+          message: `- ${cleanData}`,
           index: projectIndex,
           name: projectName
         });
       } else {
-        event.reply('log', { path: projectPath, message: `Erro: ${cleanData}` });
+        event.reply('log', { path: projectPath, message: `- ${cleanData}` });
       }
     });
     
     process.on('close', (code) => {
       delete runningProcesses[projectPath];
+      
+      // Remove proteção de início múltiplo
+      const projectKey = `${projectPath}:${port || ''}`;
+      startingProjects.delete(projectKey);
+      console.log(`[DEBUG] Processo terminou, removido ${projectKey} da proteção`);
       
       // Adicione esta verificação para códigos de erro
       const isError = code !== 0 && code !== null;
@@ -982,7 +1317,7 @@ ipcMain.on('execute-command', (event, command) => {
     });
 
     terminalProcess.stderr.on('data', (data) => {
-      event.reply('command-output', `Erro: ${data.toString()}`);
+      event.reply('command-output', `- ${data.toString()}`);
     });
 
     terminalProcess.on('close', () => {
@@ -993,13 +1328,6 @@ ipcMain.on('execute-command', (event, command) => {
   // Envia o comando para o terminal real
   if (terminalProcess) {
     terminalProcess.stdin.write(`${command}\n`);
-    }
-  });
-
-  ipcMain.on('close-login-window', () => {
-    if (terminalProcess) {
-      terminalProcess.kill();
-      terminalProcess = null;
     }
   });
 
@@ -1022,6 +1350,83 @@ ipcMain.on('execute-command', (event, command) => {
       saveProjects(projects);
       event.reply('update-project', { index, path: '' });
     });
+  });
+
+  // Handler para procurar projeto existente na máquina
+  ipcMain.on('browse-project-folder', async (event, { index, projectName }) => {
+    console.log(`Procurando pasta para projeto: ${projectName} (índice: ${index})`);
+    
+    try {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: `Selecione a pasta do projeto ${projectName}`,
+        buttonLabel: 'Selecionar Pasta',
+        defaultPath: path.join('C:', 'projetos') // Sugere o diretório padrão
+      });
+
+      if (result.canceled) {
+        console.log('Usuário cancelou a seleção da pasta');
+        return;
+      }
+
+      const selectedPath = result.filePaths[0];
+      console.log(`Pasta selecionada: ${selectedPath}`);
+      
+      // Valida se a pasta contém arquivos de projeto (package.json, etc)
+      const hasPackageJson = fs.existsSync(path.join(selectedPath, 'package.json'));
+      const folderName = path.basename(selectedPath);
+      const isCorrectName = folderName === projectName;
+      
+      let confirmMessage = '';
+      if (!hasPackageJson) {
+        confirmMessage += '⚠️ Esta pasta não contém um arquivo package.json.\n';
+      }
+      if (!isCorrectName) {
+        confirmMessage += `⚠️ O nome da pasta (${folderName}) é diferente do projeto (${projectName}).\n`;
+      }
+      
+      if (confirmMessage) {
+        confirmMessage += '\nDeseja continuar mesmo assim?';
+        const confirmResult = await dialog.showMessageBox(mainWindow, {
+          type: 'question',
+          title: 'Validação da Pasta',
+          message: 'Pasta selecionada',
+          detail: confirmMessage,
+          buttons: ['Cancelar', 'Continuar'],
+          defaultId: 0,
+          cancelId: 0
+        });
+
+        if (confirmResult.response === 0) {
+          console.log('Usuário cancelou após validação');
+          return;
+        }
+      }
+
+      // Atualiza o projeto com o novo caminho
+      projects[index].path = selectedPath;
+      saveProjects(projects);
+      
+      console.log(`Projeto ${projectName} atualizado com caminho: ${selectedPath}`);
+      
+      // Notifica o frontend para atualizar o input
+      event.reply('project-path-selected', { 
+        index: index, 
+        path: selectedPath,
+        projectName: projectName
+      });
+      
+      // Mostra mensagem de sucesso
+      mainWindow.webContents.send('log', { 
+        message: `📁 Projeto ${projectName} configurado: ${selectedPath}` 
+      });
+      
+    } catch (error) {
+      console.error('Erro ao procurar pasta do projeto:', error);
+      mainWindow.webContents.send('log', { 
+        message: `Erro ao procurar pasta: ${error.message}` 
+      });
+    }
   });
 
   // Handler para mover projeto para nova localização
@@ -1135,8 +1540,15 @@ ipcMain.on('execute-command', (event, command) => {
         projects[index].path = newProjectPath;
         saveProjects(projects);
         
+        console.log(`Notificando frontend para atualizar input: índice ${index}, novo path: ${newProjectPath}`);
+        
         // Notifica o frontend para atualizar o input
         event.reply('update-project-path', { index, path: newProjectPath });
+        
+        // Também força um reload dos projetos para garantir sincronização
+        setTimeout(() => {
+          mainWindow.webContents.send('projects-loaded', projects);
+        }, 500);
         
       } catch (renameError) {
         console.log(`Rename falhou, tentando cópia + remoção: ${renameError.message}`);
@@ -1187,8 +1599,15 @@ ipcMain.on('execute-command', (event, command) => {
           projects[index].path = newProjectPath;
           saveProjects(projects);
           
+          console.log(`Notificando frontend para atualizar input: índice ${index}, novo path: ${newProjectPath}`);
+          
           // Notifica o frontend para atualizar o input
           event.reply('update-project-path', { index, path: newProjectPath });
+          
+          // Também força um reload dos projetos para garantir sincronização
+          setTimeout(() => {
+            mainWindow.webContents.send('projects-loaded', projects);
+          }, 500);
           
         } catch (copyError) {
           clearTimeout(moveTimeout);
@@ -1320,7 +1739,7 @@ ipcMain.on('execute-command', (event, command) => {
     await removeRecursive(dirPath);
   }
 
-  ipcMain.once('start-installation', (event) => {
+  ipcMain.once('start-installation', async (event) => {
 
     console.log('Iniciando instalação do Node.js e Angular CLI...');
 
@@ -1332,62 +1751,304 @@ ipcMain.on('execute-command', (event, command) => {
       event.reply('installation-log', message); // Envia o log para a janela de instalação
     };
   
-    const installNode = () => {
+    const installNodeWindows = async () => {
       sendLog('Passo 1: Verificando Node.js...');
+      
+      // Primeira verificação: Node.js já está na versão correta?
       try {
-        const nodeVersion = execSync('node -v').toString().trim();
+        const nodeVersion = execSync('node -v', { encoding: 'utf8' }).trim();
+        sendLog(`Node.js encontrado: ${nodeVersion}`);
         if (nodeVersion === 'v16.10.0') {
-          sendLog('Node.js já está instalado na versão 16.10.0.');
+          sendLog('✓ Node.js já está instalado na versão 16.10.0.');
+          sendLog('Nenhuma ação necessária para o Node.js.');
+          return Promise.resolve();
+        } else {
+          sendLog(`⚠️ Versão atual: ${nodeVersion} (recomendada: v16.10.0)`);
+          sendLog('IMPORTANTE: Se você já tem projetos funcionando com esta versão,');
+          sendLog('pode não ser necessário fazer upgrade. Prosseguindo com verificações...');
+        }
+      } catch {
+        sendLog('Node.js não encontrado no PATH do sistema.');
+      }
+
+      // Segunda verificação: NVM está instalado?
+      sendLog('Verificando se NVM (Node Version Manager) está disponível...');
+      try {
+        const nvmVersion = execSync('nvm version', { encoding: 'utf8' }).trim();
+        sendLog(`✓ NVM encontrado: ${nvmVersion}`);
+        
+        // Se NVM existe, verifica se Node.js 16.10.0 já está instalado via NVM
+        try {
+          const nvmList = execSync('nvm list', { encoding: 'utf8' });
+          if (nvmList.includes('16.10.0')) {
+            sendLog('✓ Node.js 16.10.0 já está instalado via NVM.');
+            sendLog('Ativando Node.js 16.10.0...');
+            await execPromise('nvm use 16.10.0');
+            sendLog('✓ Node.js 16.10.0 ativado com sucesso.');
+            return Promise.resolve();
+          } else {
+            sendLog('Node.js 16.10.0 não encontrado. Instalando via NVM...');
+            await execPromise('nvm install 16.10.0');
+            await execPromise('nvm use 16.10.0');
+            sendLog('✓ Node.js 16.10.0 instalado e ativado via NVM.');
+            return Promise.resolve();
+          }
+        } catch (nvmListError) {
+          sendLog('Erro ao listar versões do NVM. Tentando instalar Node.js 16.10.0...');
+          try {
+            await execPromise('nvm install 16.10.0');
+            await execPromise('nvm use 16.10.0');
+            sendLog('✓ Node.js 16.10.0 instalado e ativado via NVM.');
+            return Promise.resolve();
+          } catch (installError) {
+            sendLog(`Erro ao instalar via NVM existente: ${installError.message}`);
+            sendLog('Prosseguindo com método alternativo...');
+          }
+        }
+      } catch {
+        sendLog('NVM não encontrado no sistema.');
+      }
+
+      // Terceira verificação: Se Node.js existe mas não é a versão ideal
+      try {
+        const nodeVersion = execSync('node -v', { encoding: 'utf8' }).trim();
+        if (nodeVersion && nodeVersion !== 'v16.10.0') {
+          sendLog('═══════════════════════════════════════════════════════════════');
+          sendLog('⚠️  ATENÇÃO: Node.js já está instalado em uma versão diferente!');
+          sendLog(`   Versão atual: ${nodeVersion}`);
+          sendLog(`   Versão recomendada: v16.10.0`);
+          sendLog('');
+          sendLog('OPÇÕES DISPONÍVEIS:');
+          sendLog('1. Manter a versão atual (pode funcionar para a maioria dos casos)');
+          sendLog('2. Instalar NVM para gerenciar múltiplas versões');
+          sendLog('3. Substituir por Node.js 16.10.0 (pode afetar outros projetos)');
+          sendLog('');
+          sendLog('Por segurança, mantendo a versão atual instalada.');
+          sendLog('Se houver problemas, considere instalar o NVM manualmente.');
+          sendLog('═══════════════════════════════════════════════════════════════');
           return Promise.resolve();
         }
       } catch {
-        sendLog('Node.js não encontrado. Iniciando instalação...');
+        // Node.js não existe, prosseguir com instalação
       }
-  
-      if (os.platform() === 'win32') {
-        sendLog('Baixando instalador do Node.js...');
+
+      // Quarta opção: Instalar NVM apenas se nada foi encontrado
+      sendLog('');
+      sendLog('Nenhuma instalação adequada do Node.js ou NVM foi encontrada.');
+      sendLog('Iniciando instalação do NVM para gerenciamento de versões...');
+
+      try {
+        // Download e instalação do NVM (apenas se nada foi encontrado)
+        const nvmDir = path.join(os.homedir(), 'nvm');
+        sendLog(`Criando diretório NVM em: ${nvmDir}`);
+        
+        if (!fs.existsSync(nvmDir)) {
+          fs.mkdirSync(nvmDir, { recursive: true });
+        }
+
+        const nvmZipUrl = 'https://github.com/coreybutler/nvm-windows/releases/download/1.2.2/nvm-noinstall.zip';
+        const nvmZipPath = path.join(os.tmpdir(), 'nvm-noinstall.zip');
+        
+        sendLog('Baixando NVM for Windows...');
+        await downloadFileWithRetry(nvmZipUrl, nvmZipPath);
+        
+        sendLog('Extraindo NVM...');
+        await extractZip(nvmZipPath, nvmDir);
+        
+        // Adicionar NVM ao PATH do usuário
+        sendLog('Configurando NVM no PATH...');
+        await addToUserPath(nvmDir);
+        
+        // Configurar NVM
+        const settingsPath = path.join(nvmDir, 'settings.txt');
+        const settingsContent = `root: ${nvmDir}\npath: ${path.join(nvmDir, 'nodejs')}\n`;
+        fs.writeFileSync(settingsPath, settingsContent);
+        
+        sendLog('Aguardando configuração do PATH (10 segundos)...');
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        
+        // Instalar Node.js via NVM
+        sendLog('Instalando Node.js 16.10.0 via NVM recém-instalado...');
+        await execPromise(`"${path.join(nvmDir, 'nvm.exe')}" install 16.10.0`);
+        await execPromise(`"${path.join(nvmDir, 'nvm.exe')}" use 16.10.0`);
+        
+        sendLog('✓ NVM e Node.js 16.10.0 instalados com sucesso.');
+        
+      } catch (error) {
+        sendLog(`Erro na instalação via NVM: ${error.message}`);
+        sendLog('Tentando instalação direta do Node.js como último recurso...');
+        
+        // Fallback: instalação direta (apenas se tudo falhar)
         const installerUrl = 'https://nodejs.org/dist/v16.10.0/node-v16.10.0-x64.msi';
         const installerPath = path.join(os.tmpdir(), 'node-v16.10.0-x64.msi');
-        return downloadFile(installerUrl, installerPath)
-          .then(() => {
-            sendLog('Instalador baixado. Iniciando instalação...');
-            return execPromise(`msiexec /i "${installerPath}" /quiet /norestart`);
-          })
-          .then(() => sendLog('Node.js instalado com sucesso.'));
+        
+        sendLog('Baixando instalador oficial do Node.js...');
+        await downloadFileWithRetry(installerUrl, installerPath);
+        
+        sendLog('Executando instalador do Node.js... (Isso pode demorar alguns minutos)');
+        sendLog('AVISO: Esta instalação pode substituir versões existentes do Node.js!');
+        await execPromise(`msiexec /i "${installerPath}" /quiet /norestart`);
+        
+        sendLog('Aguardando finalização da instalação (30 segundos)...');
+        await new Promise(resolve => setTimeout(resolve, 30000));
+        
+        sendLog('✓ Node.js instalado com sucesso via instalador MSI.');
+      }
+    };
+
+    const installNodeLinux = async () => {
+      sendLog('Detectado sistema Linux. Verificando Node.js...');
+      
+      // Verifica se Node.js já está instalado na versão correta
+      try {
+        const nodeVersion = execSync('node -v', { encoding: 'utf8' }).trim();
+        sendLog(`Node.js encontrado: ${nodeVersion}`);
+        if (nodeVersion === 'v16.10.0') {
+          sendLog('✓ Node.js já está instalado na versão 16.10.0.');
+          sendLog('Nenhuma ação necessária para o Node.js.');
+          return Promise.resolve();
+        } else {
+          sendLog(`⚠️ Versão atual: ${nodeVersion} (recomendada: v16.10.0)`);
+          sendLog('IMPORTANTE: Se você já tem projetos funcionando com esta versão,');
+          sendLog('pode não ser necessário fazer upgrade. Prosseguindo com instalação...');
+        }
+      } catch {
+        sendLog('Node.js não encontrado. Instalando Node.js 16.x...');
+      }
+
+      try {
+        // Usar NodeSource repository para versão específica
+        sendLog('Configurando repositório NodeSource...');
+        await execPromise('curl -fsSL https://deb.nodesource.com/setup_16.x | sudo -E bash -');
+        
+        sendLog('Instalando Node.js 16.x...');
+        await execPromise('sudo apt-get install -y nodejs');
+        
+        sendLog('✓ Node.js instalado com sucesso no Linux.');
+      } catch (error) {
+        sendLog(`Erro na instalação no Linux: ${error.message}`);
+        throw error;
+      }
+    };
+
+    const installNode = () => {
+      if (os.platform() === 'win32') {
+        return installNodeWindows();
       } else {
-        sendLog('Instalando Node.js no Linux...');
-        return execPromise('sudo apt-get update && sudo apt-get install -y nodejs');
+        return installNodeLinux();
       }
     };
   
-    const installAngular = () => {
+    const installAngular = async () => {
       sendLog('Passo 2: Verificando Angular CLI...');
       try {
-        const angularVersion = execSync('ng version').toString();
+        const angularVersion = execSync('ng version', { encoding: 'utf8' });
+        sendLog(`Angular CLI encontrado: ${angularVersion.split('\n')[0]}`);
         if (angularVersion.includes('13.3.11')) {
           sendLog('Angular CLI já está instalado na versão 13.3.11.');
           return Promise.resolve();
+        } else {
+          sendLog('Versão diferente encontrada. Instalando versão 13.3.11...');
         }
       } catch {
         sendLog('Angular CLI não encontrado. Iniciando instalação...');
       }
-  
-      sendLog('Instalando Angular CLI...');
-      return execPromise('npm install -g @angular/cli@13.3.11');
+
+      try {
+        sendLog('Verificando se npm está disponível...');
+        execSync('npm --version', { encoding: 'utf8' });
+        sendLog('npm encontrado. Instalando Angular CLI...');
+        
+        // Primeiro desinstala versões existentes
+        sendLog('Removendo versões anteriores do Angular CLI...');
+        try {
+          await execPromise('npm uninstall -g @angular/cli');
+        } catch {
+          // Ignora erro se não existir
+        }
+        
+        sendLog('Instalando Angular CLI versão 13.3.11... (Isso pode demorar alguns minutos)');
+        await execPromise('npm install -g @angular/cli@13.3.11');
+        
+        sendLog('Verificando instalação do Angular CLI...');
+        const installedVersion = execSync('ng version', { encoding: 'utf8' });
+        sendLog(`Angular CLI instalado com sucesso: ${installedVersion.split('\n')[0]}`);
+        
+      } catch (error) {
+        throw new Error(`Erro ao instalar Angular CLI: ${error.message}`);
+      }
     };
 
-    console.log('Iniciando instalação do Node.js e Angular CLI 2...');
-    event.reply('installation-log', 'Iniciando instalação do node.js');	
+    console.log('Iniciando instalação do Node.js e Angular CLI...');
+    sendLog('=== INSTALAÇÃO DE DEPENDÊNCIAS ===');
+    sendLog('ATENÇÃO: Este processo pode demorar vários minutos.');
+    sendLog('Mantenha a janela aberta e aguarde a conclusão.');
+    sendLog('Você pode fechar esta janela a qualquer momento clicando no [X].');
+    sendLog('');
   
-    installNode()
-      .then(() => installAngular())
-      .then(() => {
-        sendLog('Passo 3: Todas as dependências foram instaladas com sucesso.');
-        event.reply('installation-complete');
-      })
-      .catch((err) => {
-        sendLog(`Erro durante a instalação: ${err.message}`);
-      });
+    try {
+      await installNode();
+      sendLog('');
+      sendLog('✓ Node.js configurado com sucesso!');
+      sendLog('');
+      
+      await installAngular();
+      sendLog('');
+      sendLog('✓ Angular CLI configurado com sucesso!');
+      sendLog('');
+      
+      sendLog('=== INSTALAÇÃO CONCLUÍDA ===');
+      sendLog('Todas as dependências foram instaladas com sucesso!');
+      sendLog('RECOMENDAÇÃO: Reinicie o aplicativo para garantir que as');
+      sendLog('novas versões sejam reconhecidas corretamente.');
+      sendLog('Você pode usar: Ctrl+R ou F5 ou Menu > File > Reiniciar Aplicativo');
+      event.reply('installation-complete');
+      
+      // Mostra dialog sugerindo reinício após pequeno delay
+      setTimeout(() => {
+        dialog.showMessageBox(mainWindow, {
+          type: 'info',
+          title: 'Instalação Concluída',
+          message: 'Dependências instaladas com sucesso!',
+          detail: 'Recomendamos reiniciar o aplicativo para garantir que as novas versões sejam reconhecidas corretamente.\n\nDeseja reiniciar agora?',
+          buttons: ['Agora não', 'Reiniciar Agora'],
+          defaultId: 1,
+          cancelId: 0
+        }).then((result) => {
+          if (result.response === 1) {
+            console.log('Reiniciando aplicativo após instalação...');
+            // Para todos os processos em execução
+            Object.keys(runningProcesses).forEach(processPath => {
+              try {
+                runningProcesses[processPath].kill();
+                console.log(`Processo parado: ${processPath}`);
+              } catch (error) {
+                console.error(`Erro ao parar processo ${processPath}:`, error);
+              }
+            });
+            
+            // Reinicia o aplicativo
+            app.relaunch();
+            app.exit();
+          }
+        });
+      }, 2000); // 2 segundos de delay para não interferir com o fechamento da janela de instalação
+      
+    } catch (err) {
+      sendLog('');
+      sendLog('❌ ERRO DURANTE A INSTALAÇÃO:');
+      sendLog(`Detalhes: ${err.message}`);
+      sendLog('');
+      sendLog('SUGESTÕES:');
+      sendLog('1. Verifique sua conexão com a internet');
+      sendLog('2. Execute o aplicativo como administrador');
+      sendLog('3. Desative temporariamente o antivírus');
+      sendLog('4. Tente novamente em alguns minutos');
+      sendLog('');
+      sendLog('Se o problema persistir, você pode instalar manualmente:');
+      sendLog('- Node.js 16.10.0: https://nodejs.org/dist/v16.10.0/');
+      sendLog('- Angular CLI: npm install -g @angular/cli@13.3.11');
+    }
   });
 
   function execPromise(command) {
@@ -1402,16 +2063,94 @@ ipcMain.on('execute-command', (event, command) => {
     });
   }
 
-  function downloadFile(url, dest) {
+  function downloadFile(fileUrl, dest) {
     return new Promise((resolve, reject) => {
       const file = fs.createWriteStream(dest);
-      https.get(url, (response) => {
+      const parsedUrl = url.parse(fileUrl);
+      const protocol = parsedUrl.protocol === 'https:' ? https : http;
+      
+      const request = protocol.get(fileUrl, (response) => {
+        // Handle redirects
+        if (response.statusCode === 301 || response.statusCode === 302) {
+          file.close();
+          fs.unlink(dest, () => {});
+          return downloadFile(response.headers.location, dest).then(resolve).catch(reject);
+        }
+        
+        if (response.statusCode !== 200) {
+          file.close();
+          fs.unlink(dest, () => {});
+          return reject(new Error(`HTTP ${response.statusCode}: ${response.statusMessage}`));
+        }
+        
         response.pipe(file);
         file.on('finish', () => {
           file.close(resolve);
         });
       }).on('error', (err) => {
+        file.close();
         fs.unlink(dest, () => reject(err));
+      });
+      
+      request.setTimeout(30000, () => {
+        request.abort();
+        file.close();
+        fs.unlink(dest, () => reject(new Error('Download timeout')));
+      });
+    });
+  }
+
+  function downloadFileWithRetry(fileUrl, dest, maxRetries = 3) {
+    return new Promise(async (resolve, reject) => {
+      for (let i = 0; i < maxRetries; i++) {
+        try {
+          await downloadFile(fileUrl, dest);
+          resolve();
+          return;
+        } catch (error) {
+          console.log(`Tentativa ${i + 1} falhou: ${error.message}`);
+          if (i === maxRetries - 1) {
+            reject(new Error(`Falha no download após ${maxRetries} tentativas: ${error.message}`));
+          } else {
+            // Aguarda antes da próxima tentativa
+            await new Promise(r => setTimeout(r, 2000));
+          }
+        }
+      }
+    });
+  }
+
+  function extractZip(zipPath, extractPath) {
+    return new Promise((resolve, reject) => {
+      // Usar PowerShell para extrair (disponível no Windows por padrão)
+      const command = `powershell -command "Expand-Archive -Path '${zipPath}' -DestinationPath '${extractPath}' -Force"`;
+      exec(command, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(`Erro ao extrair ZIP: ${error.message}`));
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  function addToUserPath(nvmPath) {
+    return new Promise((resolve, reject) => {
+      // Adicionar ao PATH do usuário usando PowerShell
+      const command = `powershell -command "
+        $userPath = [Environment]::GetEnvironmentVariable('PATH', 'User');
+        if ($userPath -notlike '*${nvmPath}*') {
+          $newPath = if ($userPath) { $userPath + ';${nvmPath}' } else { '${nvmPath}' };
+          [Environment]::SetEnvironmentVariable('PATH', $newPath, 'User');
+        }
+      "`;
+      
+      exec(command, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(`Erro ao adicionar ao PATH: ${error.message}`));
+        } else {
+          resolve();
+        }
       });
     });
   }
