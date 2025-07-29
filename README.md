@@ -459,3 +459,29 @@ Novos recursos:
 - Movimentações entre discos diferentes levam mais tempo devido à cópia de arquivos
 - Projetos grandes podem levar vários minutos para serem movidos entre discos
 - Sempre verifique se há espaço suficiente no disco de destino antes de mover
+
+
+## Notas da atualização versão MFEM v0.0.5
+
+### Bugfixes e novas funcionalidades
+
+- Corrigido bug do instalador de dependências;
+- Melhorado desempenho do intalador de dependências;
+- Adicionado feature para recarregar/reniciar app por menu CTR+R ou F5;
+- Corrigido mensagens duplicadas nos consoles dos projetos do PAMP, tinha listeners de eventos duplicados no index.html;
+- Adicionado feature de procurar o projeto já baixado na máquina;
+
+#### Imagens e evidências
+------
+1. Reiniciar app:
+<img width="792" height="589" alt="image" src="https://github.com/user-attachments/assets/3a34e9db-6eac-4a19-99e7-53a7b4b2d5a1" />
+
+------
+2. Melhorias gerais nos instaldores e menu:
+<img width="782" height="593" alt="image" src="https://github.com/user-attachments/assets/d94ad7cd-329e-4d3a-bc64-a0f3189cc978" />
+
+------
+3. Novo elemento para procurar a pasta do projeto:
+<img width="106" height="76" alt="image" src="https://github.com/user-attachments/assets/b383138c-d522-4a5b-bc66-90e623c1c970" />
+
+
