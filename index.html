@@ -157,95 +157,6 @@
     const pampProjects = projects.filter(p => p.name && p.name.startsWith('mp-pamp'));
     const pampContainer = document.getElementById('pamp-mfes');
     pampContainer.innerHTML = '';
-    
-    ipcRenderer.on('pamp-log', (event, { path, message, index, name, error, nodeVersionError }) => {
-      // Evite logs duplicados verificando se a mesma mensagem já foi exibida recentemente
-      const pampLogDiv = document.getElementById(`pamp-log-${index}`);
-      
-      // Se for uma linha em branco ou duplicada, ignore
-      if (!message.trim() || (
-        pampLogDiv && 
-        pampLogDiv.innerText.slice(-500).includes(message) && 
-        !message.includes('npm install') &&
-        !message.includes('Compiled successfully')
-      )) {
-        return;
-      }
-
-      console.log(`Recebeu pamp-log: ${message} para índice ${index}`);
-
-      const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
-      const pampInput = document.getElementById(`pamp-input-${index}`);
-      const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
-      const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
-      
-      if (pampLogDiv) {
-        pampLogDiv.style.display = 'block';
-        pampLogDiv.innerText += `\n${message}`;
-        pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
-        
-        if (message.includes('existe em')) {
-          console.log('Mensagem contém "existe em", tentando extrair caminho');
-          try {
-            const existingPath = path;
-            console.log(`Caminho extraído: ${existingPath}`);
-            
-            if (pampInput) {
-              pampInput.value = existingPath;
-              console.log(`Input atualizado com caminho: ${existingPath}`);
-              
-              if (pampDownloadButton) pampDownloadButton.style.display = 'none';
-              if (pampStartButton) pampStartButton.disabled = false;
-              if (pampDeleteButton) pampDeleteButton.style.display = 'inline-block';
-              
-              ipcRenderer.send('update-project-path', { index: index, path: existingPath });
-            }
-          } catch (error) {
-            console.error('Erro ao extrair caminho:', error);
-          }
-        }
-
-         if (message.includes('terminou com código') && message.includes('1')) {
-          // Adiciona um aviso sobre a versão do Node.js
-          const nodeVersionSpan = document.getElementById('node-version');
-          const currentNodeVersion = nodeVersionSpan.innerText.replace('Node.js: ', '');
-          
-          let warningMessage;
-  
-          if (currentNodeVersion === 'v16.10.0') {
-            // Se a versão é correta, sugere verificar problemas de compilação
-            warningMessage = `\n\n⚠️ AVISO: O projeto apresentou erro de compilação. 
-            Verifique seu código fonte por possíveis problemas como:
-            • Dependências incompatíveis
-            • Erros de sintaxe
-            • Problemas de configuração
-            • Comandos de shell não disponíveis (como 'sed')`;
-          } else {
-            // Se a versão é incorreta, mantém o aviso sobre a versão do Node.js
-            warningMessage = `\n\n⚠️ AVISO: O erro acima pode ser causado pela versão incompatível do Node.js (${currentNodeVersion}).
-            Projetos PAMP requerem Node.js v16.10.0. Por favor, instale a versão correta para evitar erros de sintaxe.`;
-          }
-          
-          if (pampLogDiv) {
-            pampLogDiv.style.display = 'block';
-            
-            // Adicionar estilo para destacar o aviso
-            pampLogDiv.innerHTML += `<div style="color: yellow; margin-top: 10px; border-top: 1px solid #444; padding-top: 10px;">${warningMessage}</div>`;
-            pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
-          }
-        } else if (pampLogDiv) {
-          pampLogDiv.style.display = 'block';
-          pampLogDiv.innerText += `\n${message}`;
-          pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
-        }
-        
-        if (message.includes('Caminho do projeto:') || message.includes('Projeto baixado')) {
-          if (pampDownloadButton) pampDownloadButton.style.display = 'none';
-        }
-      } else {
-        console.error(`Elemento log não encontrado para índice ${index}`);
-      }
-    });
 
   pampProjects.forEach((project, index) => {
       // Descubra o índice real no array projects
@@ -274,6 +185,98 @@
     const pampMoveButton = document.getElementById(`pamp-btn-move-${realIndex}`);
     const pampDeleteButton = document.getElementById(`pamp-btn-delete-${realIndex}`);
     const pampLogDiv = document.getElementById(`pamp-log-${realIndex}`);
+
+    // Listener específico para este projeto PAMP
+    ipcRenderer.on('pamp-log', (event, { path, message, index, name, error, nodeVersionError }) => {
+      // Só processa se for para ESTE projeto específico
+      if (index !== realIndex) {
+        return;
+      }
+      
+      // Se for uma linha em branco, ignore
+      if (!message.trim()) {
+        return;
+      }
+      
+      // Verifica se a mensagem é igual à última mensagem adicionada
+      if (pampLogDiv) {
+        const currentText = pampLogDiv.innerText;
+        const lines = currentText.split('\n');
+        const lastLine = lines[lines.length - 1];
+        
+        // Se a mensagem for igual à última linha, ignore (exceto mensagens importantes)
+        if (lastLine === message && 
+            !message.includes('npm install') &&
+            !message.includes('Compiled successfully')) {
+          return;
+        }
+      }
+
+      console.log(`Recebeu pamp-log: ${message} para índice ${index}`);
+      
+      if (pampLogDiv) {
+        pampLogDiv.style.display = 'block';
+        pampLogDiv.innerText += `\n${message}`;
+        pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
+        
+        if (message.includes('existe em')) {
+          console.log('Mensagem contém "existe em", tentando extrair caminho');
+          try {
+            const existingPath = path;
+            console.log(`Caminho extraído: ${existingPath}`);
+            
+            if (pampInput) {
+              pampInput.value = existingPath;
+              console.log(`Input atualizado com caminho: ${existingPath}`);
+              
+              if (pampDownloadButton) pampDownloadButton.style.display = 'none';
+              if (pampStartButton) pampStartButton.disabled = false;
+              if (pampDeleteButton) pampDeleteButton.style.display = 'inline-block';
+              
+              ipcRenderer.send('update-project-path', { index: realIndex, path: existingPath });
+            }
+          } catch (error) {
+            console.error('Erro ao extrair caminho:', error);
+          }
+        }
+
+        if (message.includes('terminou com código') && message.includes('1')) {
+          // Adiciona um aviso sobre a versão do Node.js
+          const nodeVersionSpan = document.getElementById('node-version');
+          const currentNodeVersion = nodeVersionSpan.innerText.replace('Node.js: ', '');
+          
+          let warningMessage;
+  
+          if (currentNodeVersion === 'v16.10.0') {
+            // Se a versão é correta, sugere verificar problemas de compilação
+            warningMessage = `\n\n⚠️ AVISO: O projeto apresentou erro de compilação. 
+            Verifique seu código fonte por possíveis problemas como:
+            • Dependências incompatíveis
+            • Erros de sintaxe
+            • Problemas de configuração
+            • Comandos de shell não disponíveis (como 'sed')`;
+          } else {
+            // Se a versão é incorreta, mantém o aviso sobre a versão do Node.js
+            warningMessage = `\n\n⚠️ AVISO: O erro acima pode ser causado pela versão incompatível do Node.js (${currentNodeVersion}).
+            Projetos PAMP requerem Node.js v16.10.0. Por favor, instale a versão correta para evitar erros de sintaxe.`;
+          }
+          
+          if (pampLogDiv) {
+            pampLogDiv.style.display = 'block';
+            
+            // Adicionar estilo para destacar o aviso
+            pampLogDiv.innerHTML += `<div style="color: yellow; margin-top: 10px; border-top: 1px solid #444; padding-top: 10px;">${warningMessage}</div>`;
+            pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
+          }
+        }
+        
+        if (message.includes('Caminho do projeto:') || message.includes('Projeto baixado')) {
+          if (pampDownloadButton) pampDownloadButton.style.display = 'none';
+        }
+      } else {
+        console.error(`Elemento log não encontrado para índice ${realIndex}`);
+      }
+    });
 
     pampInput.addEventListener('blur', () => {
       ipcRenderer.send('update-project-path', { index: realIndex, path: pampInput.value });
@@ -340,6 +343,23 @@
 
   });  
     // FIM PAMP Projects
+
+  // Listener global para logs de deleção do PAMP (independente do índice)
+  ipcRenderer.on('pamp-log', (event, { path, message, index, name, error, nodeVersionError }) => {
+    // Só processa mensagens de deleção ou erro que não foram capturadas pelos listeners específicos
+    if (message && (message.includes('Deletando') || message.includes('Erro ao deletar') || message.includes('deletado com sucesso') || message.includes('pode encontrar o arquivo especificado'))) {
+      console.log(`Log global de deleção PAMP: ${message} para índice ${index}`);
+      
+      const pampLogDiv = document.getElementById(`pamp-log-${index}`);
+      if (pampLogDiv) {
+        pampLogDiv.style.display = 'block';
+        pampLogDiv.innerText += `\n${message}`;
+        pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
+      } else {
+        console.error(`Elemento log PAMP não encontrado para índice ${index} (log global)`);
+      }
+    }
+  });
 
   // Projects PAS
   const pasProjects = projects.filter(p => p.name && !p.name.startsWith('mp-pamp'));
@@ -672,20 +692,27 @@
 
   ipcRenderer.on('delete-project-log', (event, { path, message, success, index }) => {
     const console = document.getElementById(`pamp-log-${index}`);
-    if(message.includes('pode encontrar o arquivo especificado')) {
-      console.innerText += `\n${message}`;
+    
+    // Sempre exibe a mensagem de log primeiro
+    if (console && message) {
       console.style.display = 'block';
-      console.value = '';
+      console.innerText += `\n${message}`;
+      console.scrollTop = console.scrollHeight;
+    }
+    
+    if(message.includes('pode encontrar o arquivo especificado')) {
+      // Em caso de erro, reabilita o botão deletar
+      const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`);
+      if (deleteBtn) deleteBtn.disabled = false;
       return;
     }
     
      if (success) {
-      console.value = '';
-      
       // Use querySelector para buscar os elementos mesmo que não existam variáveis de referência
       const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`);
       const moveBtn = document.getElementById(`pamp-btn-move-${index}`);
       const downloadBtn = document.getElementById(`pamp-btn-download-${index}`);
+      const browseBtn = document.getElementById(`pamp-btn-browse-${index}`);
       const startBtn = document.getElementById(`pamp-btn-start-${index}`);
       const stopBtn = document.getElementById(`pamp-btn-stop-${index}`);
       const pampInput = document.getElementById(`pamp-input-${index}`);
@@ -693,6 +720,7 @@
       if (deleteBtn) deleteBtn.style.display = 'none';
       if (moveBtn) moveBtn.style.display = 'none';
       if (downloadBtn) downloadBtn.style.display = 'inline-block';
+      if (browseBtn) browseBtn.style.display = 'inline-block'; // Reabilita o botão Procurar
       if (startBtn) {
         startBtn.style.display = 'inline-block';
         startBtn.disabled = true;
@@ -703,8 +731,11 @@
       }
       
       setTimeout(() => {
-        if (console) console.style.display = 'none';
-      }, 1000);
+        if (console) {
+          console.innerText = ''; // Limpa o conteúdo
+          console.style.display = 'none';
+        }
+      }, 2000); // Aumentei para 2 segundos para dar tempo de ler
     } else {
       const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`);
       if (deleteBtn) deleteBtn.disabled = false;

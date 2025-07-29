@@ -457,6 +457,7 @@ app.on('ready', () => {
   });
 
   mainWindow.loadFile('index.html');
+  // mainWindow.webContents.openDevTools();
 
   // Adiciona listener para tecla F5 (Refresh/Restart)
   mainWindow.webContents.on('before-input-event', (event, input) => {
