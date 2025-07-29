@@ -99,6 +99,48 @@
       margin-top: 10px;
       margin-bottom: 20px;
     }
+
+    /* Input com ícone de pasta */
+    .input-with-folder {
+      position: relative;
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .folder-icon {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      z-index: 10;
+      opacity: 0.7;
+      transition: opacity 0.3s;
+    }
+
+    .folder-icon:hover {
+      opacity: 1;
+    }
+
+    .folder-icon:disabled,
+    .folder-icon.disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* Ajusta o padding do input para dar espaço ao ícone */
+    .input-with-folder input {
+      width: 100% !important;
+      box-sizing: border-box !important;
+      padding-right: 35px !important;
+      padding-left: 8px !important;
+      padding-top: 6px !important;
+      padding-bottom: 6px !important;
+    }
   </style>
 </head>
 <body>
@@ -165,8 +207,10 @@
     div.innerHTML = `
        <div class="project-card">
         <p><strong>${project.name}</strong></p>
-        <input id="pamp-input-${realIndex}" data-path="${project.path}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" style="width: 100%; margin-bottom: 10px;" />
-        <button id="pamp-btn-browse-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}; background-color: #6c757d; color: white;" title="Procurar projeto existente">🔍 Procurar</button>
+        <div class="input-with-folder" style="margin-bottom: 10px;">
+          <input id="pamp-input-${realIndex}" data-path="${project.path}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
+          <img id="pamp-folder-icon-${realIndex}" src="pasta.png" class="folder-icon" title="Procurar projeto existente" alt="Procurar pasta" />
+        </div>
         <button id="pamp-btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
         <button id="pamp-btn-start-${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
         <button id="pamp-btn-stop-${realIndex}" style="display: none;">Parar</button>
@@ -179,7 +223,7 @@
 
     const pampInput = document.getElementById(`pamp-input-${realIndex}`);
     const pampDownloadButton = document.getElementById(`pamp-btn-download-${realIndex}`);
-    const pampBrowseButton = document.getElementById(`pamp-btn-browse-${realIndex}`);
+    const pampFolderIcon = document.getElementById(`pamp-folder-icon-${realIndex}`);
     const pampStartButton = document.getElementById(`pamp-btn-start-${realIndex}`);
     const pampStopButton = document.getElementById(`pamp-btn-stop-${realIndex}`);
     const pampMoveButton = document.getElementById(`pamp-btn-move-${realIndex}`);
@@ -281,7 +325,6 @@
     pampInput.addEventListener('blur', () => {
       ipcRenderer.send('update-project-path', { index: realIndex, path: pampInput.value });
       if (pampInput.value.trim()) {
-          pampBrowseButton.style.display = 'none';
           pampDownloadButton.style.display = 'none';
           pampStartButton.disabled = false;
           pampMoveButton.style.display = 'inline-block';
@@ -289,17 +332,17 @@
       }else {
           pampDeleteButton.style.display = 'none';
           pampMoveButton.style.display = 'none';
-          pampBrowseButton.style.display = 'inline-block';
           pampDownloadButton.style.display = 'inline-block';
           pampStartButton.disabled = true;
       }
     });
 
     pampDownloadButton.addEventListener('click', () => {
+      pampFolderIcon.classList.add('disabled'); // Desabilita durante o download
       ipcRenderer.send('download-project', { name: project.name, index: realIndex });
     });
 
-    pampBrowseButton.addEventListener('click', () => {
+    pampFolderIcon.addEventListener('click', () => {
       ipcRenderer.send('browse-project-folder', { index: realIndex, projectName: project.name });
     });
 
@@ -326,6 +369,7 @@
     pampDeleteButton.addEventListener('click', () => {
       if (confirm(`Tem certeza que deseja deletar o projeto ${project.name}?`)) {
         pampDeleteButton.disabled = true;
+        pampFolderIcon.classList.add('disabled'); // Desabilita o ícone durante a deleção
         ipcRenderer.send('delete-project', { index: realIndex, path: pampInput.value });
       }
     });
@@ -333,6 +377,7 @@
     pampStartButton.addEventListener('click', (event) => {
       pampStartButton.disabled = true;
       pampStartButton.innerText = 'Executando...';
+      pampFolderIcon.classList.add('disabled'); // Desabilita durante a execução
       if (pampDeleteButton) pampDeleteButton.disabled = true;      
       ipcRenderer.send('start-project-pamp', { projectPath: pampInput.value, port: project.port });
     });
@@ -373,8 +418,10 @@
     div.innerHTML = `
       <div class="project-card">
         <p><strong>${project.name}</strong></p>
-        <input id="input-${realIndex}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" style="width: 100%; margin-bottom: 10px;" />
-        <button id="btn-browse-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}; background-color: #6c757d; color: white;" title="Procurar projeto existente">🔍 Procurar</button>
+        <div class="input-with-folder" style="margin-bottom: 10px;">
+          <input id="input-${realIndex}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
+          <img id="folder-icon-${realIndex}" src="pasta.png" class="folder-icon" title="Procurar projeto existente" alt="Procurar pasta" />
+        </div>
         <button id="btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
         <button id="btn-start-${realIndex}" data-index="${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
         <button id="btn-stop-${realIndex}" style="display: none;">Parar</button>
@@ -387,7 +434,7 @@
 
     const input = document.getElementById(`input-${realIndex}`);
     const downloadButton = document.getElementById(`btn-download-${realIndex}`);
-    const browseButton = document.getElementById(`btn-browse-${realIndex}`);
+    const folderIcon = document.getElementById(`folder-icon-${realIndex}`);
     const startButton = document.getElementById(`btn-start-${realIndex}`);
     const stopButton = document.getElementById(`btn-stop-${realIndex}`);
     const moveButton = document.getElementById(`btn-move-${realIndex}`);
@@ -398,7 +445,6 @@
       ipcRenderer.send('update-project-path', { index: realIndex, path: input.value });
       // Oculta o botão "Baixar Projeto" se o path for preenchido
       if (input.value.trim()) {
-          browseButton.style.display = 'none';
           downloadButton.style.display = 'none';
           startButton.disabled = false;
           moveButton.style.display = 'inline-block';
@@ -406,7 +452,6 @@
       }else {
         deleteButton.style.display = 'none';
         moveButton.style.display = 'none';
-        browseButton.style.display = 'inline-block';
         downloadButton.style.display = 'inline-block';
       }
     });
@@ -415,7 +460,7 @@
       ipcRenderer.send('download-project', { name: project.name, index: realIndex });
     });
 
-    browseButton.addEventListener('click', () => {
+    folderIcon.addEventListener('click', () => {
       ipcRenderer.send('browse-project-folder', { index: realIndex, projectName: project.name });
     });
   
@@ -506,6 +551,7 @@
       const pampStopButton = document.getElementById(`pamp-btn-stop-${index}`);
       const pampMoveButton = document.getElementById(`pamp-btn-move-${index}`);
       const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
+      const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
       
       console.log(`Atualizando status do projeto PAMP ${index} para ${status}`);
       
@@ -519,6 +565,7 @@
         if (pampMoveButton) pampMoveButton.style.display = 'none';
         if (pampDeleteButton) pampDeleteButton.style.display = 'none';
         if (pampStopButton) pampStopButton.style.display = 'inline-block';
+        if (pampFolderIcon) pampFolderIcon.classList.add('disabled');
       } else if (status === 'stopping') {
         if (pampStopButton) {
           pampStopButton.innerText = 'Parando...';
@@ -526,6 +573,7 @@
         }
         if (pampMoveButton) pampMoveButton.disabled = true;
         if (pampDeleteButton) pampDeleteButton.disabled = true;
+        if (pampFolderIcon) pampFolderIcon.classList.add('disabled');
       } else if (status === 'stopped') {
         if (pampStartButton) {
           pampStartButton.innerText = 'Iniciar';
@@ -546,6 +594,7 @@
           pampDeleteButton.style.display = 'inline-block';
           pampDeleteButton.disabled = false;
         }
+        if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
       }
     } else {
       // Tratamento para projetos PAS
@@ -701,9 +750,11 @@
     }
     
     if(message.includes('pode encontrar o arquivo especificado')) {
-      // Em caso de erro, reabilita o botão deletar
+      // Em caso de erro, reabilita o botão deletar e o ícone
       const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`);
+      const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
       if (deleteBtn) deleteBtn.disabled = false;
+      if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
       return;
     }
     
@@ -712,15 +763,14 @@
       const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`);
       const moveBtn = document.getElementById(`pamp-btn-move-${index}`);
       const downloadBtn = document.getElementById(`pamp-btn-download-${index}`);
-      const browseBtn = document.getElementById(`pamp-btn-browse-${index}`);
       const startBtn = document.getElementById(`pamp-btn-start-${index}`);
       const stopBtn = document.getElementById(`pamp-btn-stop-${index}`);
       const pampInput = document.getElementById(`pamp-input-${index}`);
+      const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
       
       if (deleteBtn) deleteBtn.style.display = 'none';
       if (moveBtn) moveBtn.style.display = 'none';
       if (downloadBtn) downloadBtn.style.display = 'inline-block';
-      if (browseBtn) browseBtn.style.display = 'inline-block'; // Reabilita o botão Procurar
       if (startBtn) {
         startBtn.style.display = 'inline-block';
         startBtn.disabled = true;
@@ -729,6 +779,7 @@
       if (pampInput) {
         pampInput.value = '';
       }
+      if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
       
       setTimeout(() => {
         if (console) {
@@ -814,16 +865,16 @@
       const pampInput = document.getElementById(`pamp-input-${index}`);
       const pampMoveButton = document.getElementById(`pamp-btn-move-${index}`);
       const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
-      const pampBrowseButton = document.getElementById(`pamp-btn-browse-${index}`);
       const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
+      const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
   
       // Atualiza o valor do input e os botões relacionados ao projeto deletado
       pampInput.value = path;
       pampInput.disabled = false;
       pampMoveButton.style.display = 'none'; // Oculta o botão "Mover para..."
       pampDeleteButton.style.display = 'none'; // Oculta o botão "Deletar"
-      pampBrowseButton.style.display = 'inline-block'; // Reexibe o botão "Procurar"
       pampDownloadButton.style.display = 'inline-block'; // Reexibe o botão "Baixar Projeto"
+      if (pampFolderIcon) pampFolderIcon.classList.remove('disabled'); // Habilita o ícone da pasta
     }else {
       const input = document.getElementById(`input-${index}`);
       const moveButton = document.getElementById(`btn-move-${index}`);
@@ -846,6 +897,7 @@
     console.log(`Projeto PAMP com erro, resetando botões para índice ${index}`);
     const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
     const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
+    const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
     
     if (pampStartButton) {
       pampStartButton.disabled = false;
@@ -855,6 +907,10 @@
     if (pampDeleteButton) {
       pampDeleteButton.disabled = false;
       pampDeleteButton.style.display = 'inline-block';
+    }
+    
+    if (pampFolderIcon) {
+      pampFolderIcon.classList.remove('disabled');
     }
   });
   
@@ -892,13 +948,11 @@
       pampInput.value = path;
       
       // Atualiza os botões da seção PAMP
-      const pampBrowseButton = document.getElementById(`pamp-btn-browse-${index}`);
       const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
       const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
       const pampMoveButton = document.getElementById(`pamp-btn-move-${index}`);
       const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
       
-      if (pampBrowseButton) pampBrowseButton.style.display = 'none';
       if (pampDownloadButton) pampDownloadButton.style.display = 'none';
       if (pampStartButton) pampStartButton.disabled = false;
       if (pampMoveButton) pampMoveButton.style.display = 'inline-block';
@@ -909,13 +963,11 @@
       pasInput.value = path;
       
       // Atualiza os botões da seção PAS
-      const browseButton = document.getElementById(`btn-browse-${index}`);
       const downloadButton = document.getElementById(`btn-download-${index}`);
       const startButton = document.getElementById(`btn-start-${index}`);
       const moveButton = document.getElementById(`btn-move-${index}`);
       const deleteButton = document.getElementById(`btn-delete-${index}`);
       
-      if (browseButton) browseButton.style.display = 'none';
       if (downloadButton) downloadButton.style.display = 'none';
       if (startButton) startButton.disabled = false;
       if (moveButton) moveButton.style.display = 'inline-block';
