@@ -99,6 +99,48 @@
       margin-top: 10px;
       margin-bottom: 20px;
     }
+
+    /* Input com ícone de pasta */
+    .input-with-folder {
+      position: relative;
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .folder-icon {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      z-index: 10;
+      opacity: 0.7;
+      transition: opacity 0.3s;
+    }
+
+    .folder-icon:hover {
+      opacity: 1;
+    }
+
+    .folder-icon:disabled,
+    .folder-icon.disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* Ajusta o padding do input para dar espaço ao ícone */
+    .input-with-folder input {
+      width: 100% !important;
+      box-sizing: border-box !important;
+      padding-right: 35px !important;
+      padding-left: 8px !important;
+      padding-top: 6px !important;
+      padding-bottom: 6px !important;
+    }
   </style>
 </head>
 <body>
@@ -106,6 +148,9 @@
     Micro Front-Ends 
     <span id="node-version" style="font-size: 12px; margin-left: 10px; color: green;"></span>
     <span id="angular-version" style="font-size: 12px; margin-left: 10px; color: green;"></span>
+    <span style="font-size: 10px; margin-left: 20px; color: #666; font-style: italic;" title="Atalhos para reiniciar">
+      💡 Ctrl+R ou F5 = Reiniciar
+    </span>
   </h1>
   
   <div class="version-info">
@@ -154,27 +199,64 @@
     const pampProjects = projects.filter(p => p.name && p.name.startsWith('mp-pamp'));
     const pampContainer = document.getElementById('pamp-mfes');
     pampContainer.innerHTML = '';
-    
+
+  pampProjects.forEach((project, index) => {
+      // Descubra o índice real no array projects
+    const realIndex = projects.findIndex(p => p.name === project.name);
+    const div = document.createElement('div');
+    div.innerHTML = `
+       <div class="project-card">
+        <p><strong>${project.name}</strong></p>
+        <div class="input-with-folder" style="margin-bottom: 10px;">
+          <input id="pamp-input-${realIndex}" data-path="${project.path}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
+          <img id="pamp-folder-icon-${realIndex}" src="pasta.png" class="folder-icon" title="Procurar projeto existente" alt="Procurar pasta" />
+        </div>
+        <button id="pamp-btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
+        <button id="pamp-btn-start-${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
+        <button id="pamp-btn-stop-${realIndex}" style="display: none;">Parar</button>
+        <button id="pamp-btn-move-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #007acc; color: white;">Mover para...</button>
+        <button id="pamp-btn-delete-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
+        <div id="pamp-log-${realIndex}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
+      </div>
+    `;
+    pampContainer.appendChild(div);
+
+    const pampInput = document.getElementById(`pamp-input-${realIndex}`);
+    const pampDownloadButton = document.getElementById(`pamp-btn-download-${realIndex}`);
+    const pampFolderIcon = document.getElementById(`pamp-folder-icon-${realIndex}`);
+    const pampStartButton = document.getElementById(`pamp-btn-start-${realIndex}`);
+    const pampStopButton = document.getElementById(`pamp-btn-stop-${realIndex}`);
+    const pampMoveButton = document.getElementById(`pamp-btn-move-${realIndex}`);
+    const pampDeleteButton = document.getElementById(`pamp-btn-delete-${realIndex}`);
+    const pampLogDiv = document.getElementById(`pamp-log-${realIndex}`);
+
+    // Listener específico para este projeto PAMP
     ipcRenderer.on('pamp-log', (event, { path, message, index, name, error, nodeVersionError }) => {
-      // Evite logs duplicados verificando se a mesma mensagem já foi exibida recentemente
-      const pampLogDiv = document.getElementById(`pamp-log-${index}`);
-      
-      // Se for uma linha em branco ou duplicada, ignore
-      if (!message.trim() || (
-        pampLogDiv && 
-        pampLogDiv.innerText.slice(-500).includes(message) && 
-        !message.includes('npm install') &&
-        !message.includes('Compiled successfully')
-      )) {
+      // Só processa se for para ESTE projeto específico
+      if (index !== realIndex) {
         return;
+      }
+      
+      // Se for uma linha em branco, ignore
+      if (!message.trim()) {
+        return;
+      }
+      
+      // Verifica se a mensagem é igual à última mensagem adicionada
+      if (pampLogDiv) {
+        const currentText = pampLogDiv.innerText;
+        const lines = currentText.split('\n');
+        const lastLine = lines[lines.length - 1];
+        
+        // Se a mensagem for igual à última linha, ignore (exceto mensagens importantes)
+        if (lastLine === message && 
+            !message.includes('npm install') &&
+            !message.includes('Compiled successfully')) {
+          return;
+        }
       }
 
       console.log(`Recebeu pamp-log: ${message} para índice ${index}`);
-
-      const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
-      const pampInput = document.getElementById(`pamp-input-${index}`);
-      const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
-      const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
       
       if (pampLogDiv) {
         pampLogDiv.style.display = 'block';
@@ -195,14 +277,14 @@
               if (pampStartButton) pampStartButton.disabled = false;
               if (pampDeleteButton) pampDeleteButton.style.display = 'inline-block';
               
-              ipcRenderer.send('update-project-path', { index: index, path: existingPath });
+              ipcRenderer.send('update-project-path', { index: realIndex, path: existingPath });
             }
           } catch (error) {
             console.error('Erro ao extrair caminho:', error);
           }
         }
 
-         if (message.includes('terminou com código') && message.includes('1')) {
+        if (message.includes('terminou com código') && message.includes('1')) {
           // Adiciona um aviso sobre a versão do Node.js
           const nodeVersionSpan = document.getElementById('node-version');
           const currentNodeVersion = nodeVersionSpan.innerText.replace('Node.js: ', '');
@@ -230,45 +312,15 @@
             pampLogDiv.innerHTML += `<div style="color: yellow; margin-top: 10px; border-top: 1px solid #444; padding-top: 10px;">${warningMessage}</div>`;
             pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
           }
-        } else if (pampLogDiv) {
-          pampLogDiv.style.display = 'block';
-          pampLogDiv.innerText += `\n${message}`;
-          pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
         }
         
         if (message.includes('Caminho do projeto:') || message.includes('Projeto baixado')) {
           if (pampDownloadButton) pampDownloadButton.style.display = 'none';
         }
       } else {
-        console.error(`Elemento log não encontrado para índice ${index}`);
+        console.error(`Elemento log não encontrado para índice ${realIndex}`);
       }
     });
-
-  pampProjects.forEach((project, index) => {
-      // Descubra o índice real no array projects
-    const realIndex = projects.findIndex(p => p.name === project.name);
-    const div = document.createElement('div');
-    div.innerHTML = `
-       <div class="project-card">
-        <p><strong>${project.name}</strong></p>
-        <input id="pamp-input-${realIndex}" data-path="${project.path}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" style="width: 100%; margin-bottom: 10px;" />
-        <button id="pamp-btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
-        <button id="pamp-btn-start-${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
-        <button id="pamp-btn-stop-${realIndex}" style="display: none;">Parar</button>
-        <button id="pamp-btn-move-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #007acc; color: white;">Mover para...</button>
-        <button id="pamp-btn-delete-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
-        <div id="pamp-log-${realIndex}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
-      </div>
-    `;
-    pampContainer.appendChild(div);
-
-    const pampInput = document.getElementById(`pamp-input-${realIndex}`);
-    const pampDownloadButton = document.getElementById(`pamp-btn-download-${realIndex}`);
-    const pampStartButton = document.getElementById(`pamp-btn-start-${realIndex}`);
-    const pampStopButton = document.getElementById(`pamp-btn-stop-${realIndex}`);
-    const pampMoveButton = document.getElementById(`pamp-btn-move-${realIndex}`);
-    const pampDeleteButton = document.getElementById(`pamp-btn-delete-${realIndex}`);
-    const pampLogDiv = document.getElementById(`pamp-log-${realIndex}`);
 
     pampInput.addEventListener('blur', () => {
       ipcRenderer.send('update-project-path', { index: realIndex, path: pampInput.value });
@@ -286,7 +338,12 @@
     });
 
     pampDownloadButton.addEventListener('click', () => {
+      pampFolderIcon.classList.add('disabled'); // Desabilita durante o download
       ipcRenderer.send('download-project', { name: project.name, index: realIndex });
+    });
+
+    pampFolderIcon.addEventListener('click', () => {
+      ipcRenderer.send('browse-project-folder', { index: realIndex, projectName: project.name });
     });
 
     pampMoveButton.addEventListener('click', () => {
@@ -312,6 +369,7 @@
     pampDeleteButton.addEventListener('click', () => {
       if (confirm(`Tem certeza que deseja deletar o projeto ${project.name}?`)) {
         pampDeleteButton.disabled = true;
+        pampFolderIcon.classList.add('disabled'); // Desabilita o ícone durante a deleção
         ipcRenderer.send('delete-project', { index: realIndex, path: pampInput.value });
       }
     });
@@ -319,6 +377,7 @@
     pampStartButton.addEventListener('click', (event) => {
       pampStartButton.disabled = true;
       pampStartButton.innerText = 'Executando...';
+      pampFolderIcon.classList.add('disabled'); // Desabilita durante a execução
       if (pampDeleteButton) pampDeleteButton.disabled = true;      
       ipcRenderer.send('start-project-pamp', { projectPath: pampInput.value, port: project.port });
     });
@@ -329,6 +388,23 @@
 
   });  
     // FIM PAMP Projects
+
+  // Listener global para logs de deleção do PAMP (independente do índice)
+  ipcRenderer.on('pamp-log', (event, { path, message, index, name, error, nodeVersionError }) => {
+    // Só processa mensagens de deleção ou erro que não foram capturadas pelos listeners específicos
+    if (message && (message.includes('Deletando') || message.includes('Erro ao deletar') || message.includes('deletado com sucesso') || message.includes('pode encontrar o arquivo especificado'))) {
+      console.log(`Log global de deleção PAMP: ${message} para índice ${index}`);
+      
+      const pampLogDiv = document.getElementById(`pamp-log-${index}`);
+      if (pampLogDiv) {
+        pampLogDiv.style.display = 'block';
+        pampLogDiv.innerText += `\n${message}`;
+        pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
+      } else {
+        console.error(`Elemento log PAMP não encontrado para índice ${index} (log global)`);
+      }
+    }
+  });
 
   // Projects PAS
   const pasProjects = projects.filter(p => p.name && !p.name.startsWith('mp-pamp'));
@@ -342,7 +418,10 @@
     div.innerHTML = `
       <div class="project-card">
         <p><strong>${project.name}</strong></p>
-        <input id="input-${realIndex}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" style="width: 100%; margin-bottom: 10px;" />
+        <div class="input-with-folder" style="margin-bottom: 10px;">
+          <input id="input-${realIndex}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
+          <img id="folder-icon-${realIndex}" src="pasta.png" class="folder-icon" title="Procurar projeto existente" alt="Procurar pasta" />
+        </div>
         <button id="btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
         <button id="btn-start-${realIndex}" data-index="${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
         <button id="btn-stop-${realIndex}" style="display: none;">Parar</button>
@@ -355,6 +434,7 @@
 
     const input = document.getElementById(`input-${realIndex}`);
     const downloadButton = document.getElementById(`btn-download-${realIndex}`);
+    const folderIcon = document.getElementById(`folder-icon-${realIndex}`);
     const startButton = document.getElementById(`btn-start-${realIndex}`);
     const stopButton = document.getElementById(`btn-stop-${realIndex}`);
     const moveButton = document.getElementById(`btn-move-${realIndex}`);
@@ -372,11 +452,16 @@
       }else {
         deleteButton.style.display = 'none';
         moveButton.style.display = 'none';
+        downloadButton.style.display = 'inline-block';
       }
     });
   
     downloadButton.addEventListener('click', () => {
       ipcRenderer.send('download-project', { name: project.name, index: realIndex });
+    });
+
+    folderIcon.addEventListener('click', () => {
+      ipcRenderer.send('browse-project-folder', { index: realIndex, projectName: project.name });
     });
   
     startButton.addEventListener('click', (event) => {
@@ -451,93 +536,140 @@
           }
       }
     });
-  
-    ipcRenderer.on('status-update', (event, { path, status, isPamp, index }) => {
-      if (isPamp) {
-        // Tratamento para projetos PAMP
-        const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
-        const pampStopButton = document.getElementById(`pamp-btn-stop-${index}`);
-        const pampMoveButton = document.getElementById(`pamp-btn-move-${index}`);
-        const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
-        
-        console.log(`Atualizando status do projeto PAMP ${index} para ${status}`);
-        
-        if (status === 'running') {
-          if (pampStartButton) {
-            pampStartButton.innerText = 'Rodando ✓';
-            pampStartButton.disabled = true;
-            pampStartButton.style.backgroundColor = 'green';
-            pampStartButton.style.color = 'white';
-          }
-          if (pampMoveButton) pampMoveButton.style.display = 'none';
-          if (pampDeleteButton) pampDeleteButton.style.display = 'none';
-          if (pampStopButton) pampStopButton.style.display = 'inline-block';
-        } else if (status === 'stopping') {
-          if (pampStopButton) {
-            pampStopButton.innerText = 'Parando...';
-            pampStopButton.disabled = true;
-          }
-          if (pampMoveButton) pampMoveButton.disabled = true;
-          if (pampDeleteButton) pampDeleteButton.disabled = true;
-        } else if (status === 'stopped') {
-          if (pampStartButton) {
-            pampStartButton.innerText = 'Iniciar';
-            pampStartButton.disabled = false;
-            pampStartButton.style.backgroundColor = '';
-            pampStartButton.style.color = '';
-          }
-          if (pampStopButton) {
-            pampStopButton.style.display = 'none';
-            pampStopButton.disabled = false;
-            pampStopButton.innerText = 'Parar';
-          }
-          if (pampMoveButton) {
-            pampMoveButton.style.display = 'inline-block';
-            pampMoveButton.disabled = false;
-          }
-          if (pampDeleteButton) {
-            pampDeleteButton.style.display = 'inline-block';
-            pampDeleteButton.disabled = false;
-          }
-        }
-      } else {
-        const projectIndex = projects.findIndex((project) => project.path === path);
-        if (projectIndex !== -1) {
-            const startButton = document.getElementById(`btn-start-${projectIndex}`);
-            const stopButton = document.getElementById(`btn-stop-${projectIndex}`);
-            const moveButton = document.getElementById(`btn-move-${projectIndex}`);
-            const deleteButton = document.getElementById(`btn-delete-${projectIndex}`);
+    });
+  });
 
-            if (status === 'running') {
+  // Listeners globais movidos para fora do loop para evitar duplicação
+  
+  // Listener para atualizações de status de projetos
+  ipcRenderer.on('status-update', (event, { path, status, isPamp, index }) => {
+    console.log(`*** FRONTEND STATUS UPDATE: path=${path}, status=${status}, isPamp=${isPamp}, index=${index}`);
+    
+    if (isPamp) {
+      // Tratamento para projetos PAMP
+      const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
+      const pampStopButton = document.getElementById(`pamp-btn-stop-${index}`);
+      const pampMoveButton = document.getElementById(`pamp-btn-move-${index}`);
+      const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
+      const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
+      
+      console.log(`Atualizando status do projeto PAMP ${index} para ${status}`);
+      
+      if (status === 'running') {
+        if (pampStartButton) {
+          pampStartButton.innerText = 'Rodando ✓';
+          pampStartButton.disabled = true;
+          pampStartButton.style.backgroundColor = 'green';
+          pampStartButton.style.color = 'white';
+        }
+        if (pampMoveButton) pampMoveButton.style.display = 'none';
+        if (pampDeleteButton) pampDeleteButton.style.display = 'none';
+        if (pampStopButton) pampStopButton.style.display = 'inline-block';
+        if (pampFolderIcon) pampFolderIcon.classList.add('disabled');
+      } else if (status === 'stopping') {
+        if (pampStopButton) {
+          pampStopButton.innerText = 'Parando...';
+          pampStopButton.disabled = true;
+        }
+        if (pampMoveButton) pampMoveButton.disabled = true;
+        if (pampDeleteButton) pampDeleteButton.disabled = true;
+        if (pampFolderIcon) pampFolderIcon.classList.add('disabled');
+      } else if (status === 'stopped') {
+        if (pampStartButton) {
+          pampStartButton.innerText = 'Iniciar';
+          pampStartButton.disabled = false;
+          pampStartButton.style.backgroundColor = '';
+          pampStartButton.style.color = '';
+        }
+        if (pampStopButton) {
+          pampStopButton.style.display = 'none';
+          pampStopButton.disabled = false;
+          pampStopButton.innerText = 'Parar';
+        }
+        if (pampMoveButton) {
+          pampMoveButton.style.display = 'inline-block';
+          pampMoveButton.disabled = false;
+        }
+        if (pampDeleteButton) {
+          pampDeleteButton.style.display = 'inline-block';
+          pampDeleteButton.disabled = false;
+        }
+        if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
+      }
+    } else {
+      // Tratamento para projetos PAS
+      // Usa o índice fornecido ou tenta encontrar pelo path como fallback
+      let projectIndex = index;
+      if (projectIndex === undefined || projectIndex === null) {
+        projectIndex = projects.findIndex((project) => project.path === path);
+      }
+      
+      if (projectIndex !== -1) {
+        const startButton = document.getElementById(`btn-start-${projectIndex}`);
+        const stopButton = document.getElementById(`btn-stop-${projectIndex}`);
+        const moveButton = document.getElementById(`btn-move-${projectIndex}`);
+        const deleteButton = document.getElementById(`btn-delete-${projectIndex}`);
+
+        if (status === 'running') {
+          if (startButton) {
             startButton.innerText = 'Rodando ✓';
             startButton.disabled = true;
             startButton.style.backgroundColor = 'green';
             startButton.style.color = 'white';
-            moveButton.style.display = 'none';
-            deleteButton.style.display = 'none';
-            stopButton.style.display = 'inline-block';
-            } else if (status === 'stopping') {
+          }
+          if (moveButton) moveButton.style.display = 'none';
+          if (deleteButton) deleteButton.style.display = 'none';
+          if (stopButton) stopButton.style.display = 'inline-block';
+        } else if (status === 'stopping') {
+          if (stopButton) {
             stopButton.innerText = 'Parando...';
             stopButton.disabled = true;
-            moveButton.disabled = true;
-            deleteButton.disabled = true;
-            } else if (status === 'stopped') {
+          }
+          if (moveButton) moveButton.disabled = true;
+          if (deleteButton) deleteButton.disabled = true;
+        } else if (status === 'stopped') {
+          if (startButton) {
             startButton.innerText = 'Iniciar';
             startButton.disabled = false;
             startButton.style.backgroundColor = '';
             startButton.style.color = 'black';
+          }
+          if (stopButton) {
             stopButton.style.display = 'none';
             stopButton.disabled = false;
             stopButton.innerText = 'Parar';
+          }
+          if (moveButton) {
             moveButton.style.display = 'inline-block';
             moveButton.disabled = false;
+          }
+          if (deleteButton) {
             deleteButton.style.display = 'inline-block';
             deleteButton.disabled = false;
-            }
           }
         }
-      });
-    });
+      }
+    }
+  });
+
+  ipcRenderer.on('delete-project-log', (event, { path, message, success }) => {
+    const input = document.querySelector(`#projects input[value="${path}"]`);
+    if (input) {
+      const logDiv = input.nextElementSibling.nextElementSibling.nextElementSibling.nextElementSibling;
+      const deleteButton = input.nextElementSibling.nextElementSibling;
+      const startButton = input.nextElementSibling;
+  
+      logDiv.style.display = 'block';
+      logDiv.innerText += `\n${message}`;
+      logDiv.scrollTop = logDiv.scrollHeight;
+  
+      if (success) {
+        input.value = ''; // Limpa o caminho do input
+        window.location.reload();
+      } else {
+        deleteButton.disabled = false; // Reabilita o botão em caso de erro
+      }
+    }
   });
 
   // Listeners para o processo de mover projetos
@@ -576,7 +708,6 @@
     if (isPampProject) {
       const pampInput = document.getElementById(`pamp-input-${index}`);
       if (pampInput) {
-        console.log(`Atualizando input PAMP ${index} com novo caminho: ${path}`);
         pampInput.value = path;
       } else {
         console.error(`Input PAMP não encontrado para índice ${index}`);
@@ -584,7 +715,6 @@
     } else {
       const input = document.getElementById(`input-${index}`);
       if (input) {
-        console.log(`Atualizando input PAS ${index} com novo caminho: ${path}`);
         input.value = path;
       } else {
         console.error(`Input PAS não encontrado para índice ${index}`);
@@ -611,16 +741,24 @@
 
   ipcRenderer.on('delete-project-log', (event, { path, message, success, index }) => {
     const console = document.getElementById(`pamp-log-${index}`);
-    if(message.includes('pode encontrar o arquivo especificado')) {
-      console.innerText += `\n${message}`;
+    
+    // Sempre exibe a mensagem de log primeiro
+    if (console && message) {
       console.style.display = 'block';
-      console.value = '';
+      console.innerText += `\n${message}`;
+      console.scrollTop = console.scrollHeight;
+    }
+    
+    if(message.includes('pode encontrar o arquivo especificado')) {
+      // Em caso de erro, reabilita o botão deletar e o ícone
+      const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`);
+      const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
+      if (deleteBtn) deleteBtn.disabled = false;
+      if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
       return;
     }
     
      if (success) {
-      console.value = '';
-      
       // Use querySelector para buscar os elementos mesmo que não existam variáveis de referência
       const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`);
       const moveBtn = document.getElementById(`pamp-btn-move-${index}`);
@@ -628,6 +766,7 @@
       const startBtn = document.getElementById(`pamp-btn-start-${index}`);
       const stopBtn = document.getElementById(`pamp-btn-stop-${index}`);
       const pampInput = document.getElementById(`pamp-input-${index}`);
+      const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
       
       if (deleteBtn) deleteBtn.style.display = 'none';
       if (moveBtn) moveBtn.style.display = 'none';
@@ -640,10 +779,14 @@
       if (pampInput) {
         pampInput.value = '';
       }
+      if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
       
       setTimeout(() => {
-        if (console) console.style.display = 'none';
-      }, 1000);
+        if (console) {
+          console.innerText = ''; // Limpa o conteúdo
+          console.style.display = 'none';
+        }
+      }, 2000); // Aumentei para 2 segundos para dar tempo de ler
     } else {
       const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`);
       if (deleteBtn) deleteBtn.disabled = false;
@@ -672,17 +815,6 @@
       statusDiv.innerText = 'Logado no Nexus ✓';
     } else {
       statusDiv.innerText = 'Não logado';
-    }
-  });
-
-  ipcRenderer.on('log', (event, { message }) => {
-    const statusDiv = document.getElementById('status');
-    if (message.includes('Logado no Nexus com sucesso')) {
-      statusDiv.innerText = 'Logado no Nexus ✓';
-      statusDiv.style.background = 'green';
-    } else if (message.includes('Erro no login')) {
-      statusDiv.innerText = 'Erro no login ✗';
-      statusDiv.style.background = 'red';
     }
   });
 
@@ -734,6 +866,7 @@
       const pampMoveButton = document.getElementById(`pamp-btn-move-${index}`);
       const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
       const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
+      const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
   
       // Atualiza o valor do input e os botões relacionados ao projeto deletado
       pampInput.value = path;
@@ -741,10 +874,12 @@
       pampMoveButton.style.display = 'none'; // Oculta o botão "Mover para..."
       pampDeleteButton.style.display = 'none'; // Oculta o botão "Deletar"
       pampDownloadButton.style.display = 'inline-block'; // Reexibe o botão "Baixar Projeto"
+      if (pampFolderIcon) pampFolderIcon.classList.remove('disabled'); // Habilita o ícone da pasta
     }else {
       const input = document.getElementById(`input-${index}`);
       const moveButton = document.getElementById(`btn-move-${index}`);
       const deleteButton = document.getElementById(`btn-delete-${index}`);
+      const browseButton = document.getElementById(`btn-browse-${index}`);
       const downloadButton = document.getElementById(`btn-download-${index}`);
     
       // Atualiza o valor do input e os botões relacionados ao projeto deletado
@@ -752,6 +887,7 @@
       input.disabled = false;
       moveButton.style.display = 'none'; // Oculta o botão "Mover para..."
       deleteButton.style.display = 'none'; // Oculta o botão "Deletar"
+      browseButton.style.display = 'inline-block'; // Reexibe o botão "Procurar"
       downloadButton.style.display = 'inline-block'; // Reexibe o botão "Baixar Projeto"
     }
   });
@@ -761,6 +897,7 @@
     console.log(`Projeto PAMP com erro, resetando botões para índice ${index}`);
     const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
     const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
+    const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
     
     if (pampStartButton) {
       pampStartButton.disabled = false;
@@ -770,6 +907,10 @@
     if (pampDeleteButton) {
       pampDeleteButton.disabled = false;
       pampDeleteButton.style.display = 'inline-block';
+    }
+    
+    if (pampFolderIcon) {
+      pampFolderIcon.classList.remove('disabled');
     }
   });
   
@@ -793,6 +934,53 @@
         deleteButton.style.display = 'inline-block';
       }
     }
+  });
+
+  // Handler para resposta do browse de projeto
+  ipcRenderer.on('project-path-selected', (event, { index, path, projectName }) => {
+    console.log(`Recebida resposta do browse: projeto ${projectName}, índice ${index}, caminho ${path}`);
+    
+    // Atualiza o input correspondente
+    const pampInput = document.getElementById(`pamp-input-${index}`);
+    const pasInput = document.getElementById(`input-${index}`);
+    
+    if (pampInput) {
+      pampInput.value = path;
+      
+      // Atualiza os botões da seção PAMP
+      const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
+      const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
+      const pampMoveButton = document.getElementById(`pamp-btn-move-${index}`);
+      const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
+      
+      if (pampDownloadButton) pampDownloadButton.style.display = 'none';
+      if (pampStartButton) pampStartButton.disabled = false;
+      if (pampMoveButton) pampMoveButton.style.display = 'inline-block';
+      if (pampDeleteButton) pampDeleteButton.style.display = 'inline-block';
+    }
+    
+    if (pasInput) {
+      pasInput.value = path;
+      
+      // Atualiza os botões da seção PAS
+      const downloadButton = document.getElementById(`btn-download-${index}`);
+      const startButton = document.getElementById(`btn-start-${index}`);
+      const moveButton = document.getElementById(`btn-move-${index}`);
+      const deleteButton = document.getElementById(`btn-delete-${index}`);
+      
+      if (downloadButton) downloadButton.style.display = 'none';
+      if (startButton) startButton.disabled = false;
+      if (moveButton) moveButton.style.display = 'inline-block';
+      if (deleteButton) deleteButton.style.display = 'inline-block';
+    }
+    
+    // Envia a atualização para o backend
+    ipcRenderer.send('update-project-path', { index: index, path: path });
+  });
+
+  // Handler para verificação manual do status do Nexus
+  ipcRenderer.on('check-nexus-status', () => {
+    ipcRenderer.send('check-nexus-status');
   });
 </script>
 </body>
