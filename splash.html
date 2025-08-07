@@ -79,14 +79,7 @@
       height: 100%;
       background: linear-gradient(90deg, #0033C6, #E31233);
       width: 0%;
-      transition: width 0.5s ease;
-      animation: progress 3s ease-in-out infinite;
-    }
-
-    @keyframes progress {
-      0% { width: 0%; }
-      50% { width: 70%; }
-      100% { width: 100%; }
+      transition: width 0.8s ease-out;
     }
 
     .status {
@@ -94,14 +87,6 @@
       color: #888888;
       text-align: center;
       min-height: 20px;
-    }
-
-    .tip {
-      position: absolute;
-      bottom: 30px;
-      font-size: 12px;
-      color: #666666;
-      text-align: center;
     }
   </style>
 </head>
@@ -127,14 +112,11 @@
   <div class="status" id="status">
     Inicializando sistema...
   </div>
-  
-  <div class="tip">
-    💡 Aguarde um momento, estamos preparando tudo para você!
-  </div>
 
   <script>
     const { ipcRenderer } = require('electron');
     const statusElement = document.getElementById('status');
+    const progressFill = document.querySelector('.progress-fill');
     
     // Simula progresso de carregamento
     const loadingSteps = [
@@ -147,21 +129,40 @@
     ];
     
     let currentStep = 0;
-    const interval = setInterval(() => {
+    let progressInterval;
+    
+    function updateProgress() {
       if (currentStep < loadingSteps.length) {
         statusElement.textContent = loadingSteps[currentStep];
+        
+        // Atualiza a barra de progresso (cada step = ~16% do progresso)
+        const progress = ((currentStep + 1) / loadingSteps.length) * 90; // Máximo 90% até receber o sinal do app
+        progressFill.style.width = progress + '%';
+        
         currentStep++;
       } else {
-        clearInterval(interval);
+        // Para a animação quando todos os steps foram concluídos
+        clearInterval(progressInterval);
       }
-    }, 500);
+    }
+    
+    // Inicia o progresso simulado
+    progressInterval = setInterval(updateProgress, 600);
+    updateProgress(); // Primeira execução imediata
 
     // Escuta quando o app principal estiver pronto
     ipcRenderer.on('main-app-ready', () => {
+      // Para o progresso simulado
+      clearInterval(progressInterval);
+      
+      // Completa a barra de progresso
+      progressFill.style.width = '100%';
       statusElement.textContent = 'Abrindo aplicação...';
+      
+      // Aguarda um pouco para mostrar o 100% antes de fechar
       setTimeout(() => {
         ipcRenderer.send('close-splash');
-      }, 500);
+      }, 800);
     });
   </script>
 </body>
