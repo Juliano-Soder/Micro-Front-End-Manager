@@ -9,11 +9,47 @@ const https = require('https');
 const http = require('http');
 const url = require('url');
 const userDataPath = app.getPath('userData');
+const loginStateFile = path.join(userDataPath, 'login-state.json');
+const configFile = path.join(userDataPath, 'config.json');
 
 require('events').EventEmitter.defaultMaxListeners = 50;
 
+// Funções para gerenciar configurações
+function getDefaultConfig() {
+  return {
+    darkMode: false
+  };
+}
 
-const loginStateFile = path.join(userDataPath, 'login-state.json');
+function saveConfig(config) {
+  const dir = path.dirname(configFile);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  fs.writeFileSync(configFile, JSON.stringify(config, null, 2), 'utf-8');
+}
+
+function loadConfig() {
+  if (fs.existsSync(configFile)) {
+    try {
+      const data = fs.readFileSync(configFile, 'utf-8');
+      const config = JSON.parse(data);
+      // Mescla com configurações padrão para garantir que todas as propriedades existam
+      return { ...getDefaultConfig(), ...config };
+    } catch (error) {
+      console.error('Erro ao carregar configurações:', error);
+      return getDefaultConfig();
+    }
+  }
+  return getDefaultConfig();
+}
+
+function updateConfigProperty(key, value) {
+  const config = loadConfig();
+  config[key] = value;
+  saveConfig(config);
+  return config;
+}
 
 // Salva o estado de login
 function saveLoginState(isLoggedIn) {
@@ -235,6 +271,42 @@ function performNpmLoginFallback() {
   performNpmLogin(registry);
 }
 
+// Função para abrir a janela de configurações
+let configWindow = null;
+
+function openConfigWindow() {
+  // Se já existe uma janela de configurações, apenas foca nela
+  if (configWindow && !configWindow.isDestroyed()) {
+    configWindow.focus();
+    return;
+  }
+
+  configWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    modal: true,
+    parent: mainWindow,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+    autoHideMenuBar: true,
+    resizable: false,
+    titleBarStyle: 'hidden',
+  });
+
+  configWindow.loadFile(path.join(__dirname, 'configs.html'));
+
+  configWindow.webContents.once('did-finish-load', () => {
+    console.log('Janela de configurações carregada.');
+  });
+
+  // Limpa a referência quando a janela for fechada
+  configWindow.on('closed', () => {
+    configWindow = null;
+  });
+}
+
 // Cria o menu da aplicação
 const menuTemplate = [
   {
@@ -297,6 +369,18 @@ const menuTemplate = [
       },
       { type: 'separator' },
       { role: 'quit' },
+    ],
+  },
+  {
+    label: 'Configurações',
+    submenu: [
+      {
+        label: '🔧 Configurações',
+        accelerator: 'CmdOrCtrl+Comma',
+        click: () => {
+          openConfigWindow();
+        },
+      },
     ],
   },
 ];
@@ -498,6 +582,31 @@ app.on('ready', () => {
     isLoggedIn = true;
     saveLoginState(isLoggedIn);
     mainWindow.webContents.send('log', { message: 'Logado no Nexus com sucesso!' });
+  });
+
+  // Handlers IPC para configurações
+  ipcMain.on('load-configs', (event) => {
+    const config = loadConfig();
+    event.reply('configs-loaded', config);
+  });
+
+  ipcMain.on('save-config', (event, { key, value }) => {
+    const updatedConfig = updateConfigProperty(key, value);
+    console.log(`Configuração atualizada: ${key} = ${value}`);
+  });
+
+  ipcMain.on('apply-dark-mode', (event, isDarkMode) => {
+    // Aplica o modo escuro na janela principal
+    if (mainWindow) {
+      mainWindow.webContents.send('apply-dark-mode', isDarkMode);
+    }
+  });
+
+  ipcMain.on('close-config-window', () => {
+    // Fecha a janela de configurações se ela existir
+    if (configWindow && !configWindow.isDestroyed()) {
+      configWindow.close();
+    }
   });
 
   ipcMain.on('load-login-state', (event) => {
