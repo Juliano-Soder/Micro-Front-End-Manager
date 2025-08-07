@@ -265,7 +265,10 @@
     const div = document.createElement('div');
     div.innerHTML = `
        <div class="project-card">
-        <p><strong>${project.name}</strong></p>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <p style="margin: 0;"><strong>${project.name}</strong></p>
+          <img id="pamp-btn-terminal-${realIndex}" src="terminal.png" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+        </div>
         <div class="input-with-folder" style="margin-bottom: 10px;">
           <input id="pamp-input-${realIndex}" data-path="${project.path}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
           <img id="pamp-folder-icon-${realIndex}" src="pasta.png" class="folder-icon" title="Procurar projeto existente" alt="Procurar pasta" />
@@ -287,6 +290,7 @@
     const pampStartButton = document.getElementById(`pamp-btn-start-${realIndex}`);
     const pampCancelButton = document.getElementById(`pamp-btn-cancel-${realIndex}`);
     const pampStopButton = document.getElementById(`pamp-btn-stop-${realIndex}`);
+    const pampTerminalButton = document.getElementById(`pamp-btn-terminal-${realIndex}`);
     const pampMoveButton = document.getElementById(`pamp-btn-move-${realIndex}`);
     const pampDeleteButton = document.getElementById(`pamp-btn-delete-${realIndex}`);
     const pampLogDiv = document.getElementById(`pamp-log-${realIndex}`);
@@ -456,6 +460,27 @@
       if (pampDeleteButton) pampDeleteButton.disabled = false;
     });
 
+    pampTerminalButton.addEventListener('click', () => {
+      if (pampInput.value.trim()) {
+        // Desabilita o ícone temporariamente para evitar cliques múltiplos
+        pampTerminalButton.style.opacity = '0.5';
+        pampTerminalButton.style.pointerEvents = 'none';
+        pampTerminalButton.title = 'Abrindo terminal...';
+        
+        // Envia comando para abrir terminal
+        ipcRenderer.send('open-terminal', { projectPath: pampInput.value });
+        
+        // Reabilita o ícone após 5 segundos
+        setTimeout(() => {
+          pampTerminalButton.style.opacity = '1';
+          pampTerminalButton.style.pointerEvents = 'auto';
+          pampTerminalButton.title = 'Abrir terminal na pasta do projeto';
+        }, 5000);
+      } else {
+        alert('Projeto precisa ter um caminho válido para abrir o terminal.');
+      }
+    });
+
     pampStopButton.addEventListener('click', () => {
       ipcRenderer.send('stop-project', { projectPath: pampInput.value, port: project.port });
     });
@@ -491,7 +516,10 @@
     const div = document.createElement('div');
     div.innerHTML = `
       <div class="project-card">
-        <p><strong>${project.name}</strong></p>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <p style="margin: 0;"><strong>${project.name}</strong></p>
+          <img id="btn-terminal-${realIndex}" src="terminal.png" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+        </div>
         <div class="input-with-folder" style="margin-bottom: 10px;">
           <input id="input-${realIndex}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
           <img id="folder-icon-${realIndex}" src="pasta.png" class="folder-icon" title="Procurar projeto existente" alt="Procurar pasta" />
@@ -513,6 +541,7 @@
     const startButton = document.getElementById(`btn-start-${realIndex}`);
     const cancelButton = document.getElementById(`btn-cancel-${realIndex}`);
     const stopButton = document.getElementById(`btn-stop-${realIndex}`);
+    const terminalButton = document.getElementById(`btn-terminal-${realIndex}`);
     const moveButton = document.getElementById(`btn-move-${realIndex}`);
     const deleteButton = document.getElementById(`btn-delete-${realIndex}`);
     const logDiv = document.getElementById(`log-${realIndex}`);
@@ -560,6 +589,27 @@
       cancelButton.style.display = 'none';
       const deleteButton = document.getElementById(`btn-delete-${realIndex}`);
       if (deleteButton) deleteButton.disabled = false;
+    });
+
+    terminalButton.addEventListener('click', () => {
+      if (input.value.trim()) {
+        // Desabilita o ícone temporariamente para evitar cliques múltiplos
+        terminalButton.style.opacity = '0.5';
+        terminalButton.style.pointerEvents = 'none';
+        terminalButton.title = 'Abrindo terminal...';
+        
+        // Envia comando para abrir terminal
+        ipcRenderer.send('open-terminal', { projectPath: input.value });
+        
+        // Reabilita o ícone após 5 segundos
+        setTimeout(() => {
+          terminalButton.style.opacity = '1';
+          terminalButton.style.pointerEvents = 'auto';
+          terminalButton.title = 'Abrir terminal na pasta do projeto';
+        }, 5000);
+      } else {
+        alert('Projeto precisa ter um caminho válido para abrir o terminal.');
+      }
     });
   
     stopButton.addEventListener('click', () => {

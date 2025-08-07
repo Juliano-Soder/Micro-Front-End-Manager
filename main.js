@@ -1871,6 +1871,44 @@ ipcMain.on('execute-command', (event, command) => {
     });
   });
 
+  // Handler para abrir terminal na pasta do projeto
+  ipcMain.on('open-terminal', (event, { projectPath }) => {
+    console.log(`Abrindo terminal na pasta: ${projectPath}`);
+    
+    try {
+      // Verifica se o caminho existe
+      if (!fs.existsSync(projectPath)) {
+        console.error(`Caminho não encontrado: ${projectPath}`);
+        return;
+      }
+      
+      // Comando para abrir terminal baseado no sistema operacional
+      let command;
+      if (os.platform() === 'win32') {
+        // Windows: abre PowerShell na pasta usando cmd
+        command = `cmd /c "cd /d "${projectPath}" && start powershell"`;
+      } else if (os.platform() === 'darwin') {
+        // macOS: abre Terminal na pasta
+        command = `open -a Terminal "${projectPath}"`;
+      } else {
+        // Linux: tenta abrir terminal padrão
+        command = `gnome-terminal --working-directory="${projectPath}" || xterm -e "cd '${projectPath}' && bash" || konsole --workdir "${projectPath}"`;
+      }
+      
+      console.log(`Executando comando: ${command}`);
+      exec(command, (err) => {
+        if (err) {
+          console.error(`Erro ao abrir terminal: ${err.message}`);
+        } else {
+          console.log(`Terminal aberto com sucesso em: ${projectPath}`);
+        }
+      });
+      
+    } catch (error) {
+      console.error(`Erro ao abrir terminal:`, error);
+    }
+  });
+
   // Handler para procurar projeto existente na máquina
   ipcMain.on('browse-project-folder', async (event, { index, projectName }) => {
     console.log(`Procurando pasta para projeto: ${projectName} (índice: ${index})`);
