@@ -12,6 +12,21 @@ const userDataPath = app.getPath('userData');
 const loginStateFile = path.join(userDataPath, 'login-state.json');
 const configFile = path.join(userDataPath, 'config.json');
 
+// Impede múltiplas instâncias do app
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Alguém tentou executar uma segunda instância, foca na janela existente
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
+
 require('events').EventEmitter.defaultMaxListeners = 50;
 
 // Funções para gerenciar configurações
@@ -617,6 +632,7 @@ function handleInstallDependencies() {
 }
 
 let mainWindow;
+let splashWindow;
 const projectsFile = path.join(userDataPath, 'projects.txt');
 let runningProcesses = {}; // Armazena os processos em execução
 
@@ -681,53 +697,88 @@ function saveProjects(projects) {
 let projects = loadProjects();
 let startingProjects = new Set(); // Para controlar projetos que estão sendo iniciados
 
-app.on('ready', () => {
-  // Remove todos os listeners IPC existentes para evitar duplicação em caso de reinício
-  ipcMain.removeAllListeners();
+// Função para criar a splash screen
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 500,
+    height: 400,
+    frame: false,
+    alwaysOnTop: true,
+    transparent: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+    icon: path.join(__dirname, 'OIP.ico'),
+    show: false
+  });
+
+  splashWindow.loadFile('splash.html');
   
-  let isLoggedIn = loadLoginState();
-  let nodeVersion = null;
-  let nodeWarning = null;
-  let angularVersion = null;
-  let angularWarning = null;
+  splashWindow.once('ready-to-show', () => {
+    splashWindow.show();
+    // Inicia o carregamento da aplicação principal em background
+    setTimeout(initializeMainApp, 100);
+  });
 
-  try {
-    // Verifica se o Node.js está no PATH
-    const isNodeInPath = process.env.PATH.split(path.delimiter).some((dir) => {
-      const nodePath = path.join(dir, 'node' + (os.platform() === 'win32' ? '.exe' : ''));
-      return fs.existsSync(nodePath);
-    });
+  splashWindow.on('closed', () => {
+    splashWindow = null;
+  });
+}
 
-    if (isNodeInPath) {
-      // Executa o comando `node -v` para obter a versão
-      nodeVersion = execSync('node -v').toString().trim();
-      if (nodeVersion !== 'v16.10.0') {
-        nodeWarning = `A versão ideal do Node.js é v16.10.0. A versão atual é ${nodeVersion}, o que pode causar problemas.`;
+// Função para inicializar a aplicação principal
+function initializeMainApp() {
+  // Executa verificações em background
+  setTimeout(() => {
+    let isLoggedIn = loadLoginState();
+    let nodeVersion = null;
+    let nodeWarning = null;
+    let angularVersion = null;
+    let angularWarning = null;
+
+    try {
+      // Verifica se o Node.js está no PATH
+      const isNodeInPath = process.env.PATH.split(path.delimiter).some((dir) => {
+        const nodePath = path.join(dir, 'node' + (os.platform() === 'win32' ? '.exe' : ''));
+        return fs.existsSync(nodePath);
+      });
+
+      if (isNodeInPath) {
+        // Executa o comando `node -v` para obter a versão
+        nodeVersion = execSync('node -v').toString().trim();
+        if (nodeVersion !== 'v16.10.0') {
+          nodeWarning = `A versão ideal do Node.js é v16.10.0. A versão atual é ${nodeVersion}, o que pode causar problemas.`;
+        }
+      } else {
+        console.error('Node.js não está no PATH do sistema.');
+        nodeVersion = null;
       }
-    } else {
-      console.error('Node.js não está no PATH do sistema.');
-      nodeVersion = null; // Indica que o Node.js não está disponível
-    }
-  
-  // Verifica se o Angular CLI está instalado
-  try {
-    const angularOutput = execSync('ng version').toString();
-    const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
-    if (angularCliMatch) {
-      angularVersion = angularCliMatch[1];
-      if (angularVersion !== '13.3.11') {
-        angularWarning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${angularVersion}, o que pode causar problemas.`;
+    
+      // Verifica se o Angular CLI está instalado
+      try {
+        const angularOutput = execSync('ng version').toString();
+        const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
+        if (angularCliMatch) {
+          angularVersion = angularCliMatch[1];
+          if (angularVersion !== '13.3.11') {
+            angularWarning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${angularVersion}, o que pode causar problemas.`;
+          }
+        }
+      } catch (err) {
+        console.error('Angular CLI não está instalado:', err.message);
+        angularVersion = null;
       }
+    } catch (err) {
+      console.error('Erro ao verificar o Node.js ou Angular CLI:', err.message);
     }
-  } catch (err) {
-    console.error('Angular CLI não está instalado:', err.message);
-    angularVersion = null; // Indica que o Angular CLI não está disponível
-  }
- } catch (err) {
-   console.error('Erro ao verificar o Node.js ou Angular CLI:', err.message);
- }
-  
+    
+    // Cria a janela principal
+    createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, angularWarning);
+  }, 1000);
+}
 
+// Função para criar a janela principal
+function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, angularWarning) {
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
@@ -735,11 +786,31 @@ app.on('ready', () => {
       nodeIntegration: true,
       contextIsolation: false,
     },
-    icon: path.join(__dirname, 'OIP.ico'), // Define o ícone personalizado
+    icon: path.join(__dirname, 'OIP.ico'),
+    show: false // Não mostra até estar carregada
   });
 
   mainWindow.loadFile('index.html');
-  // mainWindow.webContents.openDevTools();
+  
+  // Mostra a janela apenas quando estiver pronta
+  mainWindow.once('ready-to-show', () => {
+    // Notifica a splash screen que está pronto
+    if (splashWindow) {
+      splashWindow.webContents.send('main-app-ready');
+    }
+    
+    setTimeout(() => {
+      mainWindow.show();
+      
+      // Fecha a splash screen
+      if (splashWindow) {
+        splashWindow.close();
+      }
+    }, 500);
+  });
+
+  // Remove todos os listeners IPC existentes para evitar duplicação
+  ipcMain.removeAllListeners();
 
   // Adiciona listener para tecla F5 (Refresh/Restart)
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -803,6 +874,14 @@ app.on('ready', () => {
     // Fecha a janela de configurações se ela existir
     if (configWindow && !configWindow.isDestroyed()) {
       configWindow.close();
+    }
+  });
+
+  ipcMain.on('close-splash', () => {
+    // Fecha a splash screen se ela existir
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.close();
+      splashWindow = null;
     }
   });
 
@@ -2421,4 +2500,7 @@ ipcMain.on('execute-command', (event, command) => {
       });
     });
   }
-});
+}
+
+// Evento principal do aplicativo
+app.on('ready', createSplashWindow);

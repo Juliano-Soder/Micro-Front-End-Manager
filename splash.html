@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Carregando Micro Front-End Manager</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
+      color: #ffffff;
+      font-family: 'Fira Code', monospace, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .logo {
+      font-size: 32px;
+      font-weight: bold;
+      margin-bottom: 20px;
+      text-align: center;
+      background: linear-gradient(45deg, #0033C6, #E31233);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      font-size: 16px;
+      color: #cccccc;
+      margin-bottom: 40px;
+      text-align: center;
+    }
+
+    .loader {
+      width: 60px;
+      height: 60px;
+      border: 4px solid #333333;
+      border-top: 4px solid #0033C6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 30px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+      font-size: 18px;
+      color: #00ff00;
+      margin-bottom: 10px;
+      text-align: center;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 0.6; }
+      50% { opacity: 1; }
+      100% { opacity: 0.6; }
+    }
+
+    .progress-bar {
+      width: 300px;
+      height: 6px;
+      background-color: #333333;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #0033C6, #E31233);
+      width: 0%;
+      transition: width 0.5s ease;
+      animation: progress 3s ease-in-out infinite;
+    }
+
+    @keyframes progress {
+      0% { width: 0%; }
+      50% { width: 70%; }
+      100% { width: 100%; }
+    }
+
+    .status {
+      font-size: 14px;
+      color: #888888;
+      text-align: center;
+      min-height: 20px;
+    }
+
+    .tip {
+      position: absolute;
+      bottom: 30px;
+      font-size: 12px;
+      color: #666666;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="logo">
+    🔧 Micro Front-End Manager
+  </div>
+  
+  <div class="subtitle">
+    Gerenciador de Micro Front-Ends PAS & PAMP
+  </div>
+  
+  <div class="loader"></div>
+  
+  <div class="loading-text">
+    Carregando aplicação...
+  </div>
+  
+  <div class="progress-bar">
+    <div class="progress-fill"></div>
+  </div>
+  
+  <div class="status" id="status">
+    Inicializando sistema...
+  </div>
+  
+  <div class="tip">
+    💡 Aguarde um momento, estamos preparando tudo para você!
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    const statusElement = document.getElementById('status');
+    
+    // Simula progresso de carregamento
+    const loadingSteps = [
+      'Inicializando sistema...',
+      'Carregando configurações...',
+      'Verificando dependências...',
+      'Preparando interface...',
+      'Finalizando carregamento...',
+      'Pronto! ✅'
+    ];
+    
+    let currentStep = 0;
+    const interval = setInterval(() => {
+      if (currentStep < loadingSteps.length) {
+        statusElement.textContent = loadingSteps[currentStep];
+        currentStep++;
+      } else {
+        clearInterval(interval);
+      }
+    }, 500);
+
+    // Escuta quando o app principal estiver pronto
+    ipcRenderer.on('main-app-ready', () => {
+      statusElement.textContent = 'Abrindo aplicação...';
+      setTimeout(() => {
+        ipcRenderer.send('close-splash');
+      }, 500);
+    });
+  </script>
+</body>
+</html>
