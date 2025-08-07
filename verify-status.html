@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Fira Code', monospace;
+      background-color: #121212;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #close {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: none;
+      border: none;
+      color: #fff;
+      font-size: 18px;
+      cursor: pointer;
+    }
+
+    #close:hover {
+      color: #ff4d4d;
+    }
+
+    pre {
+      background: #000;
+      color: #0f0;
+      padding: 10px;
+      width: 95%;
+      height: 85%;
+      overflow-y: auto;
+      border-radius: 5px;
+      margin-top: 40px;
+      font-family: monospace;
+    }
+
+    pre:focus {
+      outline: none;
+    }
+  </style>
+</head>
+<body>
+  <button id="close">[x]</button>
+  <pre id="terminal"></pre>
+  <script>
+    const { ipcRenderer } = require('electron');
+    const terminal = document.getElementById('terminal');
+
+    // Adiciona mensagem inicial
+    function addLog(message) {
+      const timestamp = new Date().toLocaleTimeString();
+      terminal.innerText += `[${timestamp}] ${message}\n`;
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    // Adiciona mensagem inicial
+    addLog('🔍 Iniciando verificação de status do Nexus...');
+
+    // Escuta logs de verificação
+    ipcRenderer.on('verify-status-log', (event, { message, type }) => {
+      addLog(message);
+    });
+
+    // Escuta resultado da verificação
+    ipcRenderer.on('verify-status-result', (event, { isLoggedIn, username, registry, reason }) => {
+      addLog('');
+      addLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      
+      if (isLoggedIn) {
+        addLog('🎉 RESULTADO: VOCÊ ESTÁ CONECTADO AO NEXUS! ✅');
+        addLog('');
+        addLog(`👤 Usuário logado: ${username}`);
+        addLog(`🌐 Registry: ${registry}`);
+        addLog('');
+        addLog('✅ Tudo funcionando! Você pode usar os repositórios privados.');
+      } else {
+        addLog('❌ RESULTADO: VOCÊ NÃO ESTÁ CONECTADO AO NEXUS');
+        addLog('');
+        
+        switch (reason) {
+          case 'no-projects':
+            addLog('📝 Motivo: Nenhum projeto configurado com arquivo .npmrc');
+            addLog('💡 Solução: Configure pelo menos um projeto para verificar o login.');
+            break;
+          case 'ping-success-no-auth':
+            addLog('🌐 Motivo: Servidor acessível, mas você não está autenticado');
+            addLog(`📍 Registry: ${registry}`);
+            addLog('💡 Solução: Faça login usando "Dependências → Login npm"');
+            break;
+          case 'both-failed':
+            addLog('🔌 Motivo: Falha na comunicação com o servidor');
+            addLog(`📍 Registry: ${registry}`);
+            addLog('💡 Solução: Verifique sua conexão de rede');
+            break;
+          case 'error':
+            addLog('💥 Motivo: Erro técnico durante a verificação');
+            addLog('💡 Solução: Tente novamente ou verifique os logs');
+            break;
+        }
+      }
+      
+      addLog('');
+      addLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      addLog('✅ Verificação concluída. Você pode fechar esta janela.');
+    });
+
+    // Botão fechar
+    document.getElementById('close').addEventListener('click', () => {
+      ipcRenderer.send('close-verify-status-window');
+    });
+
+    // Permite fechar com ESC
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        ipcRenderer.send('close-verify-status-window');
+      }
+    });
+
+    // Inicia a verificação automaticamente
+    setTimeout(() => {
+      ipcRenderer.send('start-nexus-verification');
+    }, 500);
+  </script>
+</body>
+</html>

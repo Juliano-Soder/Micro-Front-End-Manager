@@ -1,0 +1,61 @@
+/* Estilos para melhorar a experiência visual do menu */
+
+/* Efeito de click/press nos itens do menu */
+.menu-item {
+  transition: transform 0.1s ease-in-out;
+}
+
+.menu-item:active {
+  transform: scale(0.95);
+}
+
+/* Para menus nativos do Electron, aplicamos via código JavaScript */
+/* Estas regras serão aplicadas dinamicamente */
+
+/* Estados de loading para itens do menu */
+.menu-item-loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.menu-item-disabled {
+  opacity: 0.5;
+  color: #666;
+}
+
+/* Animações para estados */
+@keyframes menuItemPress {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+
+.menu-item-pressed {
+  animation: menuItemPress 0.15s ease-in-out;
+}
+
+/* Para botões customizados que podem usar estas classes */
+.custom-menu-button {
+  background: none;
+  border: none;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: all 0.1s ease-in-out;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.custom-menu-button:hover {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.custom-menu-button:active {
+  transform: scale(0.95);
+  background-color: rgba(0, 0, 0, 0.2);
+}
+
+.custom-menu-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}

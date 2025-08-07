@@ -127,56 +127,60 @@ function checkNexusLoginStatus() {
 }
 
 function handleNpmLogin() {
-  console.log('Iniciando verificação de status de login no Nexus...');
-  
-  // Mostra uma mensagem de "verificando" para o usuário
-  mainWindow.webContents.send('log', { message: 'Verificando status de login no Nexus...' });
-
-  checkNexusLoginStatus().then(({ isLoggedIn, reason, username, registry }) => {
-    if (isLoggedIn) {
-      // Usuário já está logado
-      console.log(`Usuário já está logado no Nexus: ${username}`);
-      mainWindow.webContents.send('log', { message: `✓ Você já está logado no Nexus como: ${username}` });
-      
-      // Salva o estado de login
-      saveLoginState(true);
-      
-      // Mostra dialog informativo
-      dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'Login já realizado',
-        message: `Você já está logado no Nexus!`,
-        detail: `Usuário: ${username}\nRegistry: ${registry}\n\nNão é necessário fazer login novamente.`,
-        buttons: ['OK']
-      });
-      
-      return;
-    }
-
-    // Usuário não está logado, procede com o login
-    console.log(`Login necessário. Motivo: ${reason}`);
+  return new Promise((resolve, reject) => {
+    console.log('Iniciando verificação de status de login no Nexus...');
     
-    if (reason === 'no-projects') {
-      mainWindow.webContents.send('log', { message: 'Erro: Nenhum projeto com arquivo .npmrc encontrado para login no npm.' });
+    // Mostra uma mensagem de "verificando" para o usuário
+    mainWindow.webContents.send('log', { message: 'Verificando status de login no Nexus...' });
 
-      // Mostra um alerta nativo para o usuário
-      dialog.showMessageBox(mainWindow, {
-        type: 'warning',
-        title: 'Atenção',
-        message: 'Você precisa ter pelo menos um projeto salvo e o caminho configurado corretamente antes de fazer login no npm.',
-        buttons: ['OK']
-      });
-      return;
-    }
+    checkNexusLoginStatus().then(({ isLoggedIn, reason, username, registry }) => {
+      if (isLoggedIn) {
+        // Usuário já está logado
+        console.log(`Usuário já está logado no Nexus: ${username}`);
+        mainWindow.webContents.send('log', { message: `✓ Você já está logado no Nexus como: ${username}` });
+        
+        // Salva o estado de login
+        saveLoginState(true);
+        
+        // Mostra dialog informativo
+        dialog.showMessageBox(mainWindow, {
+          type: 'info',
+          title: 'Login já realizado',
+          message: `Você já está logado no Nexus!`,
+          detail: `Usuário: ${username}\nRegistry: ${registry}\n\nNão é necessário fazer login novamente.`,
+          buttons: ['OK']
+        }).then(() => resolve()).catch(() => resolve());
+        
+        return;
+      }
 
-    // Continua com o processo de login
-    performNpmLogin(registry);
-  }).catch((error) => {
-    console.error('Erro ao verificar status de login:', error);
-    mainWindow.webContents.send('log', { message: `Erro ao verificar login: ${error.message}. Prosseguindo com login...` });
-    
-    // Em caso de erro na verificação, procede com login usando lógica antiga
-    performNpmLoginFallback();
+      // Usuário não está logado, procede com o login
+      console.log(`Login necessário. Motivo: ${reason}`);
+      
+      if (reason === 'no-projects') {
+        mainWindow.webContents.send('log', { message: 'Erro: Nenhum projeto com arquivo .npmrc encontrado para login no npm.' });
+
+        // Mostra um alerta nativo para o usuário
+        dialog.showMessageBox(mainWindow, {
+          type: 'warning',
+          title: 'Atenção',
+          message: 'Você precisa ter pelo menos um projeto salvo e o caminho configurado corretamente antes de fazer login no npm.',
+          buttons: ['OK']
+        }).then(() => resolve()).catch(() => resolve());
+        return;
+      }
+
+      // Continua com o processo de login
+      performNpmLogin(registry);
+      resolve();
+    }).catch((error) => {
+      console.error('Erro ao verificar status de login:', error);
+      mainWindow.webContents.send('log', { message: `Erro ao verificar login: ${error.message}. Prosseguindo com login...` });
+      
+      // Em caso de erro na verificação, procede com login usando lógica antiga
+      performNpmLoginFallback();
+      resolve();
+    });
   });
 }
 
@@ -301,21 +305,34 @@ function openConfigWindow() {
     console.log('Janela de configurações carregada.');
   });
 
-  // Limpa a referência quando a janela for fechada
+  // Limpa a referência quando a janela for fechada e reabilita o menu
   configWindow.on('closed', () => {
     configWindow = null;
+    const menuItem = menu.getMenuItemById('open-config');
+    if (menuItem) {
+      menuItem.label = '🔧 Configurações';
+      menuItem.enabled = true;
+    }
   });
 }
 
 // Cria o menu da aplicação
 const menuTemplate = [
   {
-    label: 'File',
+    label: 'Dependências',
     submenu: [
       {
         label: 'Reiniciar Aplicativo',
         accelerator: 'CmdOrCtrl+R',
+        id: 'restart-app',
         click: () => {
+          // Desabilita o item do menu
+          const menuItem = menu.getMenuItemById('restart-app');
+          if (menuItem) {
+            menuItem.label = 'Reiniciando...';
+            menuItem.enabled = false;
+          }
+
           // Mostra confirmação antes de reiniciar
           dialog.showMessageBox(mainWindow, {
             type: 'question',
@@ -341,6 +358,18 @@ const menuTemplate = [
               // Reinicia o aplicativo
               app.relaunch();
               app.exit();
+            } else {
+              // Reabilita o item se cancelado
+              if (menuItem) {
+                menuItem.label = 'Reiniciar Aplicativo';
+                menuItem.enabled = true;
+              }
+            }
+          }).catch(() => {
+            // Reabilita o item em caso de erro
+            if (menuItem) {
+              menuItem.label = 'Reiniciar Aplicativo';
+              menuItem.enabled = true;
             }
           });
         },
@@ -348,23 +377,169 @@ const menuTemplate = [
       { type: 'separator' },
       {
         label: 'Login npm',
+        id: 'npm-login',
         click: () => {
-          handleNpmLogin(); // Chama a função handleNpmLogin ao clicar
+          // Desabilita o item do menu
+          const menuItem = menu.getMenuItemById('npm-login');
+          if (menuItem) {
+            menuItem.label = 'Login npm...';
+            menuItem.enabled = false;
+          }
+
+          // Executa a função original
+          handleNpmLogin()
+            .finally(() => {
+              // Reabilita o item após conclusão
+              setTimeout(() => {
+                if (menuItem) {
+                  menuItem.label = 'Login npm';
+                  menuItem.enabled = true;
+                }
+              }, 1000);
+            });
         },
       },
       {
         label: 'Verificar Status Nexus',
+        id: 'verify-nexus',
         click: () => {
-          if (mainWindow) {
-            mainWindow.webContents.send('check-nexus-status');
+          // Desabilita o item do menu
+          const menuItem = menu.getMenuItemById('verify-nexus');
+          if (menuItem) {
+            menuItem.label = 'Verificando Status...';
+            menuItem.enabled = false;
           }
+
+          // Cria janela de console para mostrar o progresso
+          const verifyWindow = new BrowserWindow({
+            width: 700,
+            height: 500,
+            modal: true,
+            parent: mainWindow,
+            webPreferences: {
+              nodeIntegration: true,
+              contextIsolation: false,
+            },
+            autoHideMenuBar: true,
+            resizable: false,
+            titleBarStyle: 'default',
+            title: '🔍 Verificação Status Nexus'
+          });
+
+          verifyWindow.loadFile(path.join(__dirname, 'verify-status.html'));
+
+          // Reabilita o menu quando a janela for fechada
+          verifyWindow.on('closed', () => {
+            if (menuItem) {
+              menuItem.label = 'Verificar Status Nexus';
+              menuItem.enabled = true;
+            }
+          });
+
+          // Handler para fechar a janela
+          ipcMain.once('close-verify-status-window', () => {
+            verifyWindow.close();
+          });
+
+          // Handler para iniciar a verificação
+          ipcMain.once('start-nexus-verification', () => {
+            // Envia log inicial
+            verifyWindow.webContents.send('verify-status-log', { 
+              message: 'Procurando projetos com arquivo .npmrc...', 
+              type: 'info' 
+            });
+
+            // Executa a verificação
+            checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username, registry, reason }) => {
+              // Logs de progresso
+              verifyWindow.webContents.send('verify-status-log', { 
+                message: `Verificando registry: ${registry}`, 
+                type: 'info' 
+              });
+              
+              if (actualLoginStatus) {
+                verifyWindow.webContents.send('verify-status-log', { 
+                  message: `Login detectado: ${username}`, 
+                  type: 'success' 
+                });
+                
+                // Atualiza o estado salvo se necessário
+                const currentLoginState = loadLoginState();
+                if (!currentLoginState) {
+                  saveLoginState(true);
+                }
+
+                // Atualiza a bolinha verde
+                mainWindow.webContents.send('login-state', true);
+                mainWindow.webContents.send('log', { message: `✓ Conectado ao Nexus como: ${username}` });
+              } else {
+                verifyWindow.webContents.send('verify-status-log', { 
+                  message: 'Nenhum login detectado', 
+                  type: 'warning' 
+                });
+                
+                // Atualiza o estado salvo se necessário
+                const currentLoginState = loadLoginState();
+                if (currentLoginState) {
+                  saveLoginState(false);
+                }
+
+                // Atualiza a bolinha verde
+                mainWindow.webContents.send('login-state', false);
+              }
+
+              // Envia o resultado final para a janela
+              verifyWindow.webContents.send('verify-status-result', {
+                isLoggedIn: actualLoginStatus,
+                username,
+                registry,
+                reason
+              });
+
+            }).catch((error) => {
+              console.log('[DEBUG] Erro capturado no catch:', error);
+              verifyWindow.webContents.send('verify-status-log', { 
+                message: `Erro na verificação: ${error.message}`, 
+                type: 'error' 
+              });
+              
+              verifyWindow.webContents.send('verify-status-result', {
+                isLoggedIn: false,
+                username: null,
+                registry: null,
+                reason: 'error'
+              });
+              
+              // Reabilita o menu em caso de erro
+              if (menuItem) {
+                menuItem.label = 'Verificar Status Nexus';
+                menuItem.enabled = true;
+              }
+            });
+          });
         },
       },
       { type: 'separator' },
       {
         label: 'Instalar Dependências',
+        id: 'install-deps',
         click: () => {
-          handleInstallDependencies(); // Chama a função para instalar dependências
+          // Desabilita o item do menu
+          const menuItem = menu.getMenuItemById('install-deps');
+          if (menuItem) {
+            menuItem.label = 'Instalando...';
+            menuItem.enabled = false;
+          }
+
+          handleInstallDependencies();
+          
+          // Reabilita após um tempo (será ajustado pelo handler da instalação)
+          setTimeout(() => {
+            if (menuItem) {
+              menuItem.label = 'Instalar Dependências';
+              menuItem.enabled = true;
+            }
+          }, 5000);
         },
       },
       { type: 'separator' },
@@ -377,8 +552,24 @@ const menuTemplate = [
       {
         label: '🔧 Configurações',
         accelerator: 'CmdOrCtrl+Comma',
+        id: 'open-config',
         click: () => {
+          // Desabilita temporariamente
+          const menuItem = menu.getMenuItemById('open-config');
+          if (menuItem) {
+            menuItem.label = 'Abrindo...';
+            menuItem.enabled = false;
+          }
+
           openConfigWindow();
+
+          // Reabilita após um tempo
+          setTimeout(() => {
+            if (menuItem) {
+              menuItem.label = '🔧 Configurações';
+              menuItem.enabled = true;
+            }
+          }, 1000);
         },
       },
     ],
@@ -409,6 +600,15 @@ function handleInstallDependencies() {
   installWindow.webContents.once('did-finish-load', () => {
     console.log('A janela de instalação foi carregada.');
     installWindow.webContents.send('start-installation');
+  });
+
+  // Quando a janela de instalação é fechada, reabilita o menu
+  installWindow.on('closed', () => {
+    const menuItem = menu.getMenuItemById('install-deps');
+    if (menuItem) {
+      menuItem.label = 'Instalar Dependências';
+      menuItem.enabled = true;
+    }
   });
 
   ipcMain.on('close-install-window', () => {
@@ -484,8 +684,6 @@ let startingProjects = new Set(); // Para controlar projetos que estão sendo in
 app.on('ready', () => {
   // Remove todos os listeners IPC existentes para evitar duplicação em caso de reinício
   ipcMain.removeAllListeners();
-  
-  // Não precisa remover listeners específicos após removeAllListeners()
   
   let isLoggedIn = loadLoginState();
   let nodeVersion = null;
@@ -579,8 +777,7 @@ app.on('ready', () => {
   });
 
   ipcMain.on('login-success', () => {
-    isLoggedIn = true;
-    saveLoginState(isLoggedIn);
+    saveLoginState(true);
     mainWindow.webContents.send('log', { message: 'Logado no Nexus com sucesso!' });
   });
 
@@ -611,15 +808,15 @@ app.on('ready', () => {
 
   ipcMain.on('load-login-state', (event) => {
     // Primeiro retorna o estado salvo
-    event.reply('login-state', isLoggedIn);
+    const currentLoginState = loadLoginState();
+    event.reply('login-state', currentLoginState);
     
     // Depois faz uma verificação em background para atualizar se necessário
     checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username }) => {
-      if (actualLoginStatus !== isLoggedIn) {
+      if (actualLoginStatus !== currentLoginState) {
         // O status real é diferente do salvo, atualiza
-        isLoggedIn = actualLoginStatus;
-        saveLoginState(isLoggedIn);
-        event.reply('login-state', isLoggedIn);
+        saveLoginState(actualLoginStatus);
+        event.reply('login-state', actualLoginStatus);
         
         if (actualLoginStatus) {
           console.log(`Login detectado automaticamente: ${username}`);
@@ -630,46 +827,6 @@ app.on('ready', () => {
       }
     }).catch((error) => {
       console.log('Erro na verificação automática de login:', error.message);
-    });
-  });
-
-  ipcMain.on('check-nexus-status', (event) => {
-    mainWindow.webContents.send('log', { message: 'Verificando status do Nexus...' });
-    
-    checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username, registry, reason }) => {
-      if (actualLoginStatus) {
-        mainWindow.webContents.send('log', { message: `✓ Conectado ao Nexus como: ${username}` });
-        
-        // Atualiza o estado salvo se necessário
-        if (!isLoggedIn) {
-          isLoggedIn = true;
-          saveLoginState(isLoggedIn);
-          event.reply('login-state', isLoggedIn);
-        }
-      } else {
-        let message = '❌ Não conectado ao Nexus';
-        switch (reason) {
-          case 'no-projects':
-            message += ' (nenhum projeto configurado)';
-            break;
-          case 'ping-success-no-auth':
-            message += ' (servidor acessível, mas não autenticado)';
-            break;
-          case 'both-failed':
-            message += ' (falha na comunicação)';
-            break;
-        }
-        mainWindow.webContents.send('log', { message });
-        
-        // Atualiza o estado salvo se necessário
-        if (isLoggedIn) {
-          isLoggedIn = false;
-          saveLoginState(isLoggedIn);
-          event.reply('login-state', isLoggedIn);
-        }
-      }
-    }).catch((error) => {
-      mainWindow.webContents.send('log', { message: `Erro ao verificar Nexus: ${error.message}` });
     });
   });
 
