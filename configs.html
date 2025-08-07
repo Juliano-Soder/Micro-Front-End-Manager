@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configurações - Micro Front-End Manager</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #ffffff;
+            color: #333333;
+            height: 100vh;
+            overflow: hidden;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        body.dark-mode {
+            background-color: #1e1e1e;
+            color: #ffffff;
+        }
+
+        .config-container {
+            width: 100%;
+            height: 100vh;
+            position: relative;
+            padding: 40px;
+            background: inherit;
+        }
+
+        .config-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        body.dark-mode .config-header {
+            border-bottom-color: #444444;
+        }
+
+        .config-title {
+            font-size: 28px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .close-btn {
+            background: #ff4757;
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+            transition: background-color 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .close-btn:hover {
+            background: #ff3742;
+        }
+
+        .config-section {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            border: 1px solid #e9ecef;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        body.dark-mode .config-section {
+            background: #2d2d2d;
+            border-color: #444444;
+        }
+
+        .config-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 0;
+        }
+
+        .config-label {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .config-description {
+            font-size: 14px;
+            color: #666666;
+            margin-top: 4px;
+        }
+
+        body.dark-mode .config-description {
+            color: #bbbbbb;
+        }
+
+        /* Toggle Switch Styles */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: 0.4s;
+            border-radius: 34px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: 0.4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: #2196F3;
+        }
+
+        input:focus + .slider {
+            box-shadow: 0 0 1px #2196F3;
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+
+        .version-info {
+            position: absolute;
+            bottom: 20px;
+            left: 40px;
+            font-size: 12px;
+            color: #888888;
+        }
+
+        body.dark-mode .version-info {
+            color: #bbbbbb;
+        }
+    </style>
+</head>
+<body>
+    <div class="config-container">
+        <div class="config-header">
+            <h1 class="config-title">🔧 Configurações</h1>
+            <button class="close-btn" onclick="closeConfig()">&times;</button>
+        </div>
+
+        <div class="config-section">
+            <div class="config-item">
+                <div>
+                    <div class="config-label">🌃 Modo Escuro</div>
+                    <div class="config-description">Altera a aparência do aplicativo para cores escuras</div>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="darkModeToggle" onchange="toggleDarkMode()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <div class="version-info">
+            Micro Front-End Manager v0.0.5
+        </div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+
+        // Carrega as configurações ao iniciar a página
+        document.addEventListener('DOMContentLoaded', () => {
+            loadConfigs();
+        });
+
+        // Função para carregar as configurações
+        function loadConfigs() {
+            ipcRenderer.send('load-configs');
+        }
+
+        // Recebe as configurações do processo principal
+        ipcRenderer.on('configs-loaded', (event, configs) => {
+            const darkModeToggle = document.getElementById('darkModeToggle');
+            
+            // Aplica o modo escuro se estiver habilitado
+            if (configs.darkMode) {
+                darkModeToggle.checked = true;
+                document.body.classList.add('dark-mode');
+            }
+        });
+
+        // Função para alternar o modo escuro
+        function toggleDarkMode() {
+            const darkModeToggle = document.getElementById('darkModeToggle');
+            const isDarkMode = darkModeToggle.checked;
+            
+            // Aplica/remove a classe dark-mode
+            if (isDarkMode) {
+                document.body.classList.add('dark-mode');
+            } else {
+                document.body.classList.remove('dark-mode');
+            }
+            
+            // Salva a configuração
+            ipcRenderer.send('save-config', { key: 'darkMode', value: isDarkMode });
+            
+            // Envia para a janela principal aplicar o modo escuro também
+            ipcRenderer.send('apply-dark-mode', isDarkMode);
+        }
+
+        // Função para fechar a janela de configurações
+        function closeConfig() {
+            console.log('Fechando janela de configurações...');
+            try {
+                ipcRenderer.send('close-config-window');
+            } catch (error) {
+                console.error('Erro ao fechar janela:', error);
+                // Fallback: tentar fechar via window
+                if (window.close) {
+                    window.close();
+                }
+            }
+        }
+
+        // Também permite fechar com a tecla ESC
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                closeConfig();
+            }
+        });
+    </script>
+</body>
+</html>
