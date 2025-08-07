@@ -272,6 +272,7 @@
         </div>
         <button id="pamp-btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
         <button id="pamp-btn-start-${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
+        <button id="pamp-btn-cancel-${realIndex}" style="display: none; margin-right: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
         <button id="pamp-btn-stop-${realIndex}" style="display: none;">Parar</button>
         <button id="pamp-btn-move-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #007acc; color: white;">Mover para...</button>
         <button id="pamp-btn-delete-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
@@ -284,6 +285,7 @@
     const pampDownloadButton = document.getElementById(`pamp-btn-download-${realIndex}`);
     const pampFolderIcon = document.getElementById(`pamp-folder-icon-${realIndex}`);
     const pampStartButton = document.getElementById(`pamp-btn-start-${realIndex}`);
+    const pampCancelButton = document.getElementById(`pamp-btn-cancel-${realIndex}`);
     const pampStopButton = document.getElementById(`pamp-btn-stop-${realIndex}`);
     const pampMoveButton = document.getElementById(`pamp-btn-move-${realIndex}`);
     const pampDeleteButton = document.getElementById(`pamp-btn-delete-${realIndex}`);
@@ -436,9 +438,22 @@
     pampStartButton.addEventListener('click', (event) => {
       pampStartButton.disabled = true;
       pampStartButton.innerText = 'Executando...';
+      pampCancelButton.style.display = 'inline-block'; // Mostra botão cancelar
       pampFolderIcon.classList.add('disabled'); // Desabilita durante a execução
       if (pampDeleteButton) pampDeleteButton.disabled = true;      
       ipcRenderer.send('start-project-pamp', { projectPath: pampInput.value, port: project.port });
+    });
+
+    pampCancelButton.addEventListener('click', () => {
+      // Cancela o processo de inicialização
+      ipcRenderer.send('cancel-project-startup', { projectPath: pampInput.value, isPamp: true, index: realIndex });
+      
+      // Restaura o estado dos botões
+      pampStartButton.disabled = false;
+      pampStartButton.innerText = 'Iniciar';
+      pampCancelButton.style.display = 'none';
+      pampFolderIcon.classList.remove('disabled');
+      if (pampDeleteButton) pampDeleteButton.disabled = false;
     });
 
     pampStopButton.addEventListener('click', () => {
@@ -483,6 +498,7 @@
         </div>
         <button id="btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
         <button id="btn-start-${realIndex}" data-index="${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
+        <button id="btn-cancel-${realIndex}" style="display: none; margin-right: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
         <button id="btn-stop-${realIndex}" style="display: none;">Parar</button>
         <button id="btn-move-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #007acc; color: white;">Mover para...</button>
         <button id="btn-delete-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
@@ -495,6 +511,7 @@
     const downloadButton = document.getElementById(`btn-download-${realIndex}`);
     const folderIcon = document.getElementById(`folder-icon-${realIndex}`);
     const startButton = document.getElementById(`btn-start-${realIndex}`);
+    const cancelButton = document.getElementById(`btn-cancel-${realIndex}`);
     const stopButton = document.getElementById(`btn-stop-${realIndex}`);
     const moveButton = document.getElementById(`btn-move-${realIndex}`);
     const deleteButton = document.getElementById(`btn-delete-${realIndex}`);
@@ -526,10 +543,23 @@
     startButton.addEventListener('click', (event) => {
       startButton.disabled = true;
       startButton.innerText = 'Executando...';
+      cancelButton.style.display = 'inline-block'; // Mostra botão cancelar
       // Desabilite o botão de delete correspondente
       const deleteButton = document.getElementById(`btn-delete-${event.currentTarget.getAttribute('data-index')}`);
       if (deleteButton) deleteButton.disabled = true;      
       ipcRenderer.send('start-project', { projectPath: input.value, port: project.port });
+    });
+  
+    cancelButton.addEventListener('click', () => {
+      // Cancela o processo de inicialização
+      ipcRenderer.send('cancel-project-startup', { projectPath: input.value, isPamp: false, index: realIndex });
+      
+      // Restaura o estado dos botões
+      startButton.disabled = false;
+      startButton.innerText = 'Iniciar';
+      cancelButton.style.display = 'none';
+      const deleteButton = document.getElementById(`btn-delete-${realIndex}`);
+      if (deleteButton) deleteButton.disabled = false;
     });
   
     stopButton.addEventListener('click', () => {
@@ -607,6 +637,7 @@
     if (isPamp) {
       // Tratamento para projetos PAMP
       const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
+      const pampCancelButton = document.getElementById(`pamp-btn-cancel-${index}`);
       const pampStopButton = document.getElementById(`pamp-btn-stop-${index}`);
       const pampMoveButton = document.getElementById(`pamp-btn-move-${index}`);
       const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
@@ -621,6 +652,7 @@
           pampStartButton.style.backgroundColor = 'green';
           pampStartButton.style.color = 'white';
         }
+        if (pampCancelButton) pampCancelButton.style.display = 'none'; // Esconde botão cancelar
         if (pampMoveButton) pampMoveButton.style.display = 'none';
         if (pampDeleteButton) pampDeleteButton.style.display = 'none';
         if (pampStopButton) pampStopButton.style.display = 'inline-block';
@@ -640,6 +672,7 @@
           pampStartButton.style.backgroundColor = '';
           pampStartButton.style.color = '';
         }
+        if (pampCancelButton) pampCancelButton.style.display = 'none'; // Esconde botão cancelar
         if (pampStopButton) {
           pampStopButton.style.display = 'none';
           pampStopButton.disabled = false;
@@ -665,6 +698,7 @@
       
       if (projectIndex !== -1) {
         const startButton = document.getElementById(`btn-start-${projectIndex}`);
+        const cancelButton = document.getElementById(`btn-cancel-${projectIndex}`);
         const stopButton = document.getElementById(`btn-stop-${projectIndex}`);
         const moveButton = document.getElementById(`btn-move-${projectIndex}`);
         const deleteButton = document.getElementById(`btn-delete-${projectIndex}`);
@@ -676,6 +710,7 @@
             startButton.style.backgroundColor = 'green';
             startButton.style.color = 'white';
           }
+          if (cancelButton) cancelButton.style.display = 'none'; // Esconde botão cancelar
           if (moveButton) moveButton.style.display = 'none';
           if (deleteButton) deleteButton.style.display = 'none';
           if (stopButton) stopButton.style.display = 'inline-block';
@@ -693,6 +728,7 @@
             startButton.style.backgroundColor = '';
             startButton.style.color = 'black';
           }
+          if (cancelButton) cancelButton.style.display = 'none'; // Esconde botão cancelar
           if (stopButton) {
             stopButton.style.display = 'none';
             stopButton.disabled = false;
@@ -955,12 +991,17 @@
   ipcRenderer.on('pamp-process-error', (event, { path, index }) => {
     console.log(`Projeto PAMP com erro, resetando botões para índice ${index}`);
     const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
+    const pampCancelButton = document.getElementById(`pamp-btn-cancel-${index}`);
     const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
     const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
     
     if (pampStartButton) {
       pampStartButton.disabled = false;
       pampStartButton.innerText = 'Iniciar';
+    }
+    
+    if (pampCancelButton) {
+      pampCancelButton.style.display = 'none'; // Esconde botão cancelar
     }
     
     if (pampDeleteButton) {
@@ -979,6 +1020,7 @@
     const projectIndex = projects.findIndex(p => p.path === path);
     if (projectIndex !== -1) {
       const startButton = document.getElementById(`btn-start-${projectIndex}`);
+      const cancelButton = document.getElementById(`btn-cancel-${projectIndex}`);
       const deleteButton = document.getElementById(`btn-delete-${projectIndex}`);
       
       if (startButton) {
@@ -986,6 +1028,10 @@
         startButton.innerText = 'Iniciar';
         startButton.style.backgroundColor = '';
         startButton.style.color = 'black';
+      }
+      
+      if (cancelButton) {
+        cancelButton.style.display = 'none'; // Esconde botão cancelar
       }
       
       if (deleteButton) {

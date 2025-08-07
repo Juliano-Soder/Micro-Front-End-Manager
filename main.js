@@ -635,6 +635,7 @@ let mainWindow;
 let splashWindow;
 const projectsFile = path.join(userDataPath, 'projects.txt');
 let runningProcesses = {}; // Armazena os processos em execução
+let canceledProjects = new Set(); // Controla projetos que foram cancelados
 
 function removeAnsiCodes(input) {
   return input.replace(
@@ -696,6 +697,29 @@ function saveProjects(projects) {
 
 let projects = loadProjects();
 let startingProjects = new Set(); // Para controlar projetos que estão sendo iniciados
+
+// Funções para controlar cancelamento de projetos
+function markProjectAsCanceled(projectPath) {
+  canceledProjects.add(projectPath);
+  console.log(`Projeto marcado como cancelado: ${projectPath}`);
+}
+
+function unmarkProjectAsCanceled(projectPath) {
+  canceledProjects.delete(projectPath);
+  console.log(`Projeto desmarcado como cancelado: ${projectPath}`);
+}
+
+function isProjectCanceled(projectPath) {
+  return canceledProjects.has(projectPath);
+}
+
+function checkCancelationAndExit(projectPath, stepName) {
+  if (isProjectCanceled(projectPath)) {
+    console.log(`⛔ Execução interrompida em ${stepName} para ${projectPath} (projeto foi cancelado)`);
+    return true;
+  }
+  return false;
+}
 
 // Função para criar a splash screen
 function createSplashWindow() {
@@ -1008,6 +1032,10 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
 
   ipcMain.on('start-project', (event, { projectPath, port }) => {
     console.log(`Iniciando projeto: ${projectPath} na porta: ${port}`);
+    
+    // Desmarca o projeto como cancelado ao iniciar normalmente
+    unmarkProjectAsCanceled(projectPath);
+    
     if (!port) {
         event.reply('log', { path: projectPath, message: '- Porta não definida.' });
         return;
@@ -1023,6 +1051,10 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     
       // Aguarda 10 segundos antes de iniciar o projeto
       setTimeout(() => {
+        // Verifica cancelamento antes de iniciar projeto
+        if (checkCancelationAndExit(projectPath, "início do projeto após liberação de porta")) {
+          return;
+        }
         startProject(event, projectPath, port);
       }, 10000);
     });
@@ -1030,6 +1062,10 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
 
   ipcMain.on('start-project-pamp', (event, { projectPath, port }) => {
     console.log(`Iniciando projeto: ${projectPath} na porta: ${port}`);
+    
+    // Desmarca o projeto como cancelado ao iniciar normalmente
+    unmarkProjectAsCanceled(projectPath);
+    
     if (!port) {
         event.reply('pamp-log', { path: projectPath, message: 'Porta ainda não definida.' });
         startProject(event, projectPath, port);
@@ -1044,6 +1080,10 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       
         // Aguarda 10 segundos antes de iniciar o projeto
         setTimeout(() => {
+          // Verifica cancelamento antes de iniciar projeto
+          if (checkCancelationAndExit(projectPath, "início do projeto PAMP após liberação de porta")) {
+            return;
+          }
           startProject(event, projectPath, port);
         }, 9000);
       });
@@ -1267,7 +1307,115 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       }
   });
 
+  ipcMain.on('cancel-project-startup', (event, { projectPath, isPamp, index }) => {
+    console.log(`Cancelando inicialização do projeto: ${projectPath}`);
+    
+    // Marca o projeto como cancelado
+    markProjectAsCanceled(projectPath);
+    
+    const projectName = path.basename(projectPath);
+    let processCanceled = false;
+    
+    // Para o processo em execução se existir
+    if (runningProcesses[projectPath]) {
+      console.log(`Matando processo de inicialização para ${projectPath}`);
+      try {
+        // No Windows, mata toda a árvore de processos
+        if (os.platform() === 'win32') {
+          exec(`taskkill /pid ${runningProcesses[projectPath].pid} /T /F`, (error) => {
+            if (error) {
+              console.log(`Erro ao usar taskkill: ${error.message}`);
+            }
+          });
+        }
+        
+        // Mata o processo principal
+        runningProcesses[projectPath].kill('SIGKILL');
+        processCanceled = true;
+        
+      } catch (error) {
+        console.log(`Erro ao matar processo para ${projectPath}:`, error.message);
+      } finally {
+        delete runningProcesses[projectPath];
+      }
+    }
+    
+    // Remove da proteção de início múltiplo (busca por qualquer chave que comece com o projectPath)
+    for (let key of startingProjects) {
+      if (key.startsWith(projectPath)) {
+        startingProjects.delete(key);
+        console.log(`Removido ${key} da proteção de início múltiplo`);
+      }
+    }
+    
+    // Força parada de processos na porta (se soubermos qual é)
+    // Tenta encontrar o projeto para descobrir a porta
+    const project = projects.find(p => p.path === projectPath);
+    if (project && project.port) {
+      console.log(`Matando processo na porta ${project.port} para garantir cancelamento`);
+      if (os.platform() === 'win32') {
+        exec(`netstat -aon | findstr :${project.port}`, (err, stdout) => {
+          if (!err && stdout) {
+            const lines = stdout.split('\n');
+            lines.forEach(line => {
+              const parts = line.trim().split(/\s+/);
+              const pid = parts[parts.length - 1];
+              if (pid && !isNaN(pid)) {
+                exec(`taskkill /PID ${pid} /F`, (killErr) => {
+                  if (!killErr) {
+                    console.log(`Processo PID ${pid} na porta ${project.port} foi morto`);
+                  }
+                });
+              }
+            });
+          }
+        });
+      }
+    }
+    
+    // Envia log de cancelamento
+    const cancelMessage = '🛑 Cancelado com sucesso!';
+      
+    if (isPamp) {
+      event.reply('pamp-log', { 
+        path: projectPath, 
+        message: cancelMessage,
+        index: index,
+        name: projectName
+      });
+      
+      // Resetar botões do projeto PAMP
+      event.reply('pamp-process-error', { 
+        path: projectPath,
+        index: index 
+      });
+    } else {
+      event.reply('log', { 
+        path: projectPath, 
+        message: cancelMessage
+      });
+      
+      // Resetar botões do projeto PAS
+      event.reply('process-error', { path: projectPath });
+    }
+    
+    // Atualiza o status para "stopped"
+    event.reply('status-update', { 
+      path: projectPath, 
+      status: 'stopped',
+      isPamp: isPamp,
+      index: index
+    });
+    
+    console.log(`Inicialização cancelada para ${projectPath}. Processo cancelado: ${processCanceled}`);
+  });
+
   function startProject(event, projectPath, port) {
+    // Verifica se o projeto foi cancelado antes de iniciar
+    if (checkCancelationAndExit(projectPath, "início da função startProject")) {
+      return;
+    }
+    
     // Define o comando com base no nome do projeto
     const projectName = path.basename(projectPath); // Extrai o nome do projeto do caminho
     const isPampProject = projectName.startsWith('mp-pamp');
@@ -1304,6 +1452,11 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     console.log(`[DEBUG] node_modules existe: ${fs.existsSync(nodeModulesPath)}`);
     
     if (!fs.existsSync(nodeModulesPath)) {
+      // Verifica cancelamento antes de instalar dependências
+      if (checkCancelationAndExit(projectPath, "instalação de dependências")) {
+        return;
+      }
+      
       console.log(`[DEBUG] node_modules NÃO existe, executando npm install`);
 
       console.log(`Diretório node_modules não encontrado em ${projectPath}. Instalando dependências...`);
@@ -1356,6 +1509,11 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
 
       installProcess.on('close', (code) => {
         if (code === 0) {
+          // Verifica cancelamento antes de executar comando de start
+          if (checkCancelationAndExit(projectPath, "execução do comando de start após npm install")) {
+            return;
+          }
+          
           console.log(`Dependências instaladas com sucesso em ${projectPath}.`);
           
           const successMessage = 'Dependências instaladas com sucesso.';
@@ -1404,6 +1562,11 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         }
       });
     } else {
+      // Verifica cancelamento antes de executar comando diretamente
+      if (checkCancelationAndExit(projectPath, "execução direta do comando")) {
+        return;
+      }
+      
       // Se node_modules já existir, abre o console e inicia o projeto diretamente
       event.reply('show-console', { path: projectPath, index: projectIndex, isPamp: isPampProject });
       executeStartCommand(event, projectPath, command, port);
@@ -1411,6 +1574,11 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
   }
 
   function executeStartCommand(event, projectPath, command, port) {
+    // Verifica se o projeto foi cancelado antes de executar comando
+    if (checkCancelationAndExit(projectPath, "início da função executeStartCommand")) {
+      return;
+    }
+    
     const process = exec(command, { cwd: projectPath });
     runningProcesses[projectPath] = process;
 
@@ -1510,6 +1678,11 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
               
               // Inicia o projeto novamente após um breve intervalo
               setTimeout(() => {
+                // Verifica cancelamento antes de reiniciar projeto
+                if (checkCancelationAndExit(projectPath, "reinício do projeto após liberação de porta")) {
+                  return;
+                }
+                
                 console.log(`Reiniciando projeto ${projectName} após liberação de porta`);
                 startProject(event, projectPath, detectedPort);
               }, 2000);
