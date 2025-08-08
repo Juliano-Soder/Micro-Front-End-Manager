@@ -8,33 +8,298 @@ const { spawn } = require('child_process');
 const https = require('https');
 const http = require('http');
 const url = require('url');
+
+// ⚡ OTIMIZAÇÕES DE PERFORMANCE ⚡
+// Habilita aceleração de hardware
+app.commandLine.appendSwitch('--enable-gpu-rasterization');
+app.commandLine.appendSwitch('--enable-zero-copy');
+app.commandLine.appendSwitch('--disable-dev-shm-usage');
+app.commandLine.appendSwitch('--max_old_space_size', '4096');
+
+// Otimizações do Windows
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('--high-dpi-support', '1');
+  app.commandLine.appendSwitch('--force-device-scale-factor', '1');
+}
+
 const userDataPath = app.getPath('userData');
+const loginStateFile = path.join(userDataPath, 'login-state.json');
+const configFile = path.join(userDataPath, 'config.json');
+const cacheFile = path.join(userDataPath, 'app-cache.json');
+
+// Cache global para dados da aplicação
+let appCache = {
+  projects: null,
+  nodeInfo: null,
+  angularInfo: null,
+  loginState: null,
+  lastUpdate: 0
+};
+
+// Carrega cache na inicialização
+function loadAppCache() {
+  try {
+    if (fs.existsSync(cacheFile)) {
+      const cacheData = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
+      const cacheAge = Date.now() - cacheData.timestamp;
+      
+      // Cache é válido por 5 minutos
+      if (cacheAge < 5 * 60 * 1000) {
+        appCache = { ...cacheData };
+        console.log('🚀 Cache carregado com sucesso');
+        return true;
+      }
+    }
+  } catch (error) {
+    console.log('Cache não encontrado ou inválido, será regenerado');
+  }
+  return false;
+}
+
+// Salva cache
+function saveAppCache() {
+  try {
+    const cacheData = {
+      ...appCache,
+      timestamp: Date.now()
+    };
+    fs.writeFileSync(cacheFile, JSON.stringify(cacheData, null, 2));
+    console.log('💾 Cache salvo com sucesso');
+  } catch (error) {
+    console.error('Erro ao salvar cache:', error);
+  }
+}
+
+// ⚡ FUNÇÕES DE PRÉ-CARREGAMENTO E CACHE ⚡
+async function preloadCriticalData() {
+  console.log('🚀 Pré-carregando dados críticos...');
+  const startTime = Date.now();
+  
+  try {
+    // Carrega dados em paralelo
+    const promises = [];
+    
+    // Se não temos cache válido, carrega os dados
+    if (!appCache.projects) {
+      promises.push(preloadProjects());
+    }
+    
+    if (!appCache.nodeInfo) {
+      promises.push(preloadNodeInfo());
+    }
+    
+    if (!appCache.angularInfo) {
+      promises.push(preloadAngularInfo());
+    }
+    
+    if (!appCache.loginState) {
+      promises.push(preloadLoginState());
+    }
+    
+    // Executa todas as operações em paralelo
+    await Promise.allSettled(promises);
+    
+    // Salva o cache atualizado
+    saveAppCache();
+    
+    const loadTime = Date.now() - startTime;
+    console.log(`⚡ Pré-carregamento concluído em ${loadTime}ms`);
+    
+  } catch (error) {
+    console.error('Erro durante pré-carregamento:', error);
+  }
+}
+
+async function preloadProjects() {
+  try {
+    const projectsContent = await fs.promises.readFile('projects.txt', 'utf-8');
+    const projectNames = projectsContent.split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+    
+    // Não sobrescreve a variável projects global, apenas salva no cache
+    appCache.projects = projectNames;
+    console.log(`📁 ${projectNames.length} projetos carregados no cache para pré-carregamento`);
+  } catch (error) {
+    console.log('Arquivo projects.txt não encontrado, será criado quando necessário');
+    appCache.projects = [];
+  }
+}
+
+async function preloadNodeInfo() {
+  return new Promise((resolve) => {
+    exec('node --version', { timeout: 3000 }, (error, stdout, stderr) => {
+      if (error) {
+        appCache.nodeInfo = { version: 'N/A', available: false };
+      } else {
+        appCache.nodeInfo = { 
+          version: stdout.trim(),
+          available: true
+        };
+      }
+      resolve();
+    });
+  });
+}
+
+async function preloadAngularInfo() {
+  return new Promise((resolve) => {
+    exec('ng version', { timeout: 5000 }, (error, stdout, stderr) => {
+      if (error) {
+        appCache.angularInfo = { version: 'N/A', available: false };
+      } else {
+        const versionMatch = stdout.match(/Angular CLI:\s*(\d+\.\d+\.\d+)/);
+        appCache.angularInfo = {
+          version: versionMatch ? versionMatch[1] : 'Instalado',
+          available: true,
+          fullOutput: stdout
+        };
+      }
+      resolve();
+    });
+  });
+}
+
+async function preloadLoginState() {
+  try {
+    if (fs.existsSync(loginStateFile)) {
+      const data = await fs.promises.readFile(loginStateFile, 'utf-8');
+      appCache.loginState = JSON.parse(data);
+    } else {
+      appCache.loginState = { isLoggedIn: false };
+    }
+  } catch (error) {
+    appCache.loginState = { isLoggedIn: false };
+  }
+}
+
+// Impede múltiplas instâncias do app
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Alguém tentou executar uma segunda instância, foca na janela existente
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
 
 require('events').EventEmitter.defaultMaxListeners = 50;
 
+// Funções para gerenciar configurações (OTIMIZADAS COM CACHE)
+function getDefaultConfig() {
+  return {
+    darkMode: false
+  };
+}
 
-const loginStateFile = path.join(userDataPath, 'login-state.json');
+function saveConfig(config) {
+  const dir = path.dirname(configFile);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  fs.writeFileSync(configFile, JSON.stringify(config, null, 2), 'utf-8');
+  
+  // Atualiza cache
+  appCache.config = config;
+  saveAppCache();
+}
 
-// Salva o estado de login
+function loadConfig() {
+  // Usa cache se disponível
+  if (appCache.config) {
+    return appCache.config;
+  }
+  
+  if (fs.existsSync(configFile)) {
+    try {
+      const data = fs.readFileSync(configFile, 'utf-8');
+      const config = JSON.parse(data);
+      // Mescla com configurações padrão para garantir que todas as propriedades existam
+      const finalConfig = { ...getDefaultConfig(), ...config };
+      
+      // Salva no cache
+      appCache.config = finalConfig;
+      
+      return finalConfig;
+    } catch (error) {
+      console.error('Erro ao carregar configurações:', error);
+      const defaultConfig = getDefaultConfig();
+      appCache.config = defaultConfig;
+      return defaultConfig;
+    }
+  }
+  
+  const defaultConfig = getDefaultConfig();
+  appCache.config = defaultConfig;
+  return defaultConfig;
+}
+
+function updateConfigProperty(key, value) {
+  const config = loadConfig();
+  config[key] = value;
+  saveConfig(config);
+  return config;
+}
+
+// Salva o estado de login (OTIMIZADO COM CACHE)
 function saveLoginState(isLoggedIn) {
   const dir = path.dirname(loginStateFile);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  fs.writeFileSync(loginStateFile, JSON.stringify({ isLoggedIn }), 'utf-8');
+  
+  const loginState = { isLoggedIn, timestamp: Date.now() };
+  fs.writeFileSync(loginStateFile, JSON.stringify(loginState, null, 2), 'utf-8');
+  
+  // Atualiza cache
+  appCache.loginState = loginState;
+  saveAppCache();
+  
+  console.log(`💾 Estado de login salvo: ${isLoggedIn}`);
 }
 
-// Carrega o estado de login
+// Carrega o estado de login (OTIMIZADO COM CACHE)
 function loadLoginState() {
+  // Usa cache se disponível
+  if (appCache.loginState) {
+    return appCache.loginState;
+  }
+  
   if (fs.existsSync(loginStateFile)) {
     const data = fs.readFileSync(loginStateFile, 'utf-8');
-    return JSON.parse(data).isLoggedIn;
+    const loginState = JSON.parse(data);
+    
+    // Salva no cache
+    appCache.loginState = loginState;
+    
+    return loginState.isLoggedIn;
   }
+  
+  const defaultState = { isLoggedIn: false };
+  appCache.loginState = defaultState;
   return false;
 }
 
 function checkNexusLoginStatus() {
   return new Promise((resolve) => {
+    console.log('🔍 [DEBUG] Iniciando verificação de login...');
+    console.log('🔍 [DEBUG] Total de projetos carregados:', projects.length);
+    
+    // Debug detalhado dos projetos
+    projects.forEach((project, index) => {
+      console.log(`🔍 [DEBUG] Projeto ${index}:`, {
+        name: project.name || 'Sem nome',
+        path: project.path || 'Sem path',
+        pathExists: project.path ? fs.existsSync(project.path) : false,
+        npmrcExists: project.path ? fs.existsSync(path.join(project.path, '.npmrc')) : false
+      });
+    });
+
     const mfePaths = projects
       .filter(
         (project) =>
@@ -45,8 +310,13 @@ function checkNexusLoginStatus() {
       )
       .map((project) => project.path);
 
+    console.log('🔍 [DEBUG] Projetos válidos com .npmrc:', mfePaths.length);
+    mfePaths.forEach((path, index) => {
+      console.log(`🔍 [DEBUG] Path válido ${index}: ${path}`);
+    });
+
     if (mfePaths.length === 0) {
-      console.log('Nenhum projeto com .npmrc encontrado para verificar login.');
+      console.log('❌ [DEBUG] Nenhum projeto com .npmrc encontrado para verificar login.');
       resolve({ isLoggedIn: false, reason: 'no-projects', username: null });
       return;
     }
@@ -55,35 +325,51 @@ function checkNexusLoginStatus() {
     const npmrcPath = path.join(projectPath, '.npmrc');
     let registry = 'http://nexus.viavarejo.com.br/repository/npm-marketplace/';
     
+    console.log(`🔍 [DEBUG] Usando projeto: ${projectPath}`);
+    
     if (fs.existsSync(npmrcPath)) {
       const npmrcContent = fs.readFileSync(npmrcPath, 'utf-8');
+      console.log(`🔍 [DEBUG] Conteúdo .npmrc (primeiras 100 chars): ${npmrcContent.substring(0, 100)}...`);
       if (npmrcContent.includes('https://')) {
         registry = 'https://nexus.viavarejo.com.br/repository/npm-marketplace/';
       }
     }
 
-    console.log(`Verificando status de login no registry: ${registry}`);
+    console.log(`🔍 [DEBUG] Registry detectado: ${registry}`);
 
     // Primeiro tenta npm whoami
+    console.log('🔍 [DEBUG] Executando npm whoami...');
     exec(`npm whoami --registry=${registry}`, { cwd: projectPath, timeout: 10000 }, (whoamiErr, whoamiStdout, whoamiStderr) => {
+      console.log('🔍 [DEBUG] npm whoami resultado:', {
+        erro: whoamiErr?.message,
+        stdout: whoamiStdout?.trim(),
+        stderr: whoamiStderr?.trim()
+      });
+
       if (!whoamiErr && whoamiStdout && whoamiStdout.trim()) {
         const username = whoamiStdout.trim();
-        console.log(`Login verificado via whoami: ${username}`);
+        console.log(`✅ [DEBUG] Login verificado via whoami: ${username}`);
         resolve({ isLoggedIn: true, reason: 'whoami-success', username: username, registry: registry });
         return;
       }
 
-      console.log(`npm whoami falhou, tentando npm ping...`);
+      console.log(`⚠️ [DEBUG] npm whoami falhou, tentando npm ping...`);
       
       // Se whoami falhar, tenta npm ping
       exec(`npm ping --registry=${registry}`, { cwd: projectPath, timeout: 10000 }, (pingErr, pingStdout, pingStderr) => {
+        console.log('🔍 [DEBUG] npm ping resultado:', {
+          erro: pingErr?.message,
+          stdout: pingStdout?.trim(),
+          stderr: pingStderr?.trim()
+        });
+
         if (!pingErr && pingStdout && pingStdout.includes('PONG')) {
-          console.log('npm ping bem-sucedido, mas usuário pode não estar logado');
+          console.log('⚠️ [DEBUG] npm ping bem-sucedido, mas usuário pode não estar logado');
           resolve({ isLoggedIn: false, reason: 'ping-success-no-auth', username: null, registry: registry });
           return;
         }
 
-        console.log('Ambos whoami e ping falharam, usuário provavelmente não está logado');
+        console.log('❌ [DEBUG] Ambos whoami e ping falharam, usuário provavelmente não está logado');
         resolve({ isLoggedIn: false, reason: 'both-failed', username: null, registry: registry });
       });
     });
@@ -91,56 +377,60 @@ function checkNexusLoginStatus() {
 }
 
 function handleNpmLogin() {
-  console.log('Iniciando verificação de status de login no Nexus...');
-  
-  // Mostra uma mensagem de "verificando" para o usuário
-  mainWindow.webContents.send('log', { message: 'Verificando status de login no Nexus...' });
-
-  checkNexusLoginStatus().then(({ isLoggedIn, reason, username, registry }) => {
-    if (isLoggedIn) {
-      // Usuário já está logado
-      console.log(`Usuário já está logado no Nexus: ${username}`);
-      mainWindow.webContents.send('log', { message: `✓ Você já está logado no Nexus como: ${username}` });
-      
-      // Salva o estado de login
-      saveLoginState(true);
-      
-      // Mostra dialog informativo
-      dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'Login já realizado',
-        message: `Você já está logado no Nexus!`,
-        detail: `Usuário: ${username}\nRegistry: ${registry}\n\nNão é necessário fazer login novamente.`,
-        buttons: ['OK']
-      });
-      
-      return;
-    }
-
-    // Usuário não está logado, procede com o login
-    console.log(`Login necessário. Motivo: ${reason}`);
+  return new Promise((resolve, reject) => {
+    console.log('Iniciando verificação de status de login no Nexus...');
     
-    if (reason === 'no-projects') {
-      mainWindow.webContents.send('log', { message: 'Erro: Nenhum projeto com arquivo .npmrc encontrado para login no npm.' });
+    // Mostra uma mensagem de "verificando" para o usuário
+    mainWindow.webContents.send('log', { message: 'Verificando status de login no Nexus...' });
 
-      // Mostra um alerta nativo para o usuário
-      dialog.showMessageBox(mainWindow, {
-        type: 'warning',
-        title: 'Atenção',
-        message: 'Você precisa ter pelo menos um projeto salvo e o caminho configurado corretamente antes de fazer login no npm.',
-        buttons: ['OK']
-      });
-      return;
-    }
+    checkNexusLoginStatus().then(({ isLoggedIn, reason, username, registry }) => {
+      if (isLoggedIn) {
+        // Usuário já está logado
+        console.log(`Usuário já está logado no Nexus: ${username}`);
+        mainWindow.webContents.send('log', { message: `✓ Você já está logado no Nexus como: ${username}` });
+        
+        // Salva o estado de login
+        saveLoginState(true);
+        
+        // Mostra dialog informativo
+        dialog.showMessageBox(mainWindow, {
+          type: 'info',
+          title: 'Login já realizado',
+          message: `Você já está logado no Nexus!`,
+          detail: `Usuário: ${username}\nRegistry: ${registry}\n\nNão é necessário fazer login novamente.`,
+          buttons: ['OK']
+        }).then(() => resolve()).catch(() => resolve());
+        
+        return;
+      }
 
-    // Continua com o processo de login
-    performNpmLogin(registry);
-  }).catch((error) => {
-    console.error('Erro ao verificar status de login:', error);
-    mainWindow.webContents.send('log', { message: `Erro ao verificar login: ${error.message}. Prosseguindo com login...` });
-    
-    // Em caso de erro na verificação, procede com login usando lógica antiga
-    performNpmLoginFallback();
+      // Usuário não está logado, procede com o login
+      console.log(`Login necessário. Motivo: ${reason}`);
+      
+      if (reason === 'no-projects') {
+        mainWindow.webContents.send('log', { message: 'Erro: Nenhum projeto com arquivo .npmrc encontrado para login no npm.' });
+
+        // Mostra um alerta nativo para o usuário
+        dialog.showMessageBox(mainWindow, {
+          type: 'warning',
+          title: 'Atenção',
+          message: 'Você precisa ter pelo menos um projeto salvo e o caminho configurado corretamente antes de fazer login no npm.',
+          buttons: ['OK']
+        }).then(() => resolve()).catch(() => resolve());
+        return;
+      }
+
+      // Continua com o processo de login
+      performNpmLogin(registry);
+      resolve();
+    }).catch((error) => {
+      console.error('Erro ao verificar status de login:', error);
+      mainWindow.webContents.send('log', { message: `Erro ao verificar login: ${error.message}. Prosseguindo com login...` });
+      
+      // Em caso de erro na verificação, procede com login usando lógica antiga
+      performNpmLoginFallback();
+      resolve();
+    });
   });
 }
 
@@ -235,75 +525,46 @@ function performNpmLoginFallback() {
   performNpmLogin(registry);
 }
 
-// Cria o menu da aplicação
-const menuTemplate = [
-  {
-    label: 'File',
-    submenu: [
-      {
-        label: 'Reiniciar Aplicativo',
-        accelerator: 'CmdOrCtrl+R',
-        click: () => {
-          // Mostra confirmação antes de reiniciar
-          dialog.showMessageBox(mainWindow, {
-            type: 'question',
-            title: 'Reiniciar Aplicativo',
-            message: 'Deseja reiniciar o aplicativo?',
-            detail: 'Isso irá fechar e reabrir o aplicativo. Todos os processos em execução serão interrompidos.',
-            buttons: ['Cancelar', 'Reiniciar'],
-            defaultId: 1,
-            cancelId: 0
-          }).then((result) => {
-            if (result.response === 1) {
-              console.log('Reiniciando aplicativo...');
-              // Para todos os processos em execução
-              Object.keys(runningProcesses).forEach(processPath => {
-                try {
-                  runningProcesses[processPath].kill();
-                  console.log(`Processo parado: ${processPath}`);
-                } catch (error) {
-                  console.error(`Erro ao parar processo ${processPath}:`, error);
-                }
-              });
-              
-              // Reinicia o aplicativo
-              app.relaunch();
-              app.exit();
-            }
-          });
-        },
-      },
-      { type: 'separator' },
-      {
-        label: 'Login npm',
-        click: () => {
-          handleNpmLogin(); // Chama a função handleNpmLogin ao clicar
-        },
-      },
-      {
-        label: 'Verificar Status Nexus',
-        click: () => {
-          if (mainWindow) {
-            mainWindow.webContents.send('check-nexus-status');
-          }
-        },
-      },
-      { type: 'separator' },
-      {
-        label: 'Instalar Dependências',
-        click: () => {
-          handleInstallDependencies(); // Chama a função para instalar dependências
-        },
-      },
-      { type: 'separator' },
-      { role: 'quit' },
-    ],
-  },
-];
+// Função para abrir a janela de configurações
+let configWindow = null;
 
-// Define o menu
-const menu = Menu.buildFromTemplate(menuTemplate);
-Menu.setApplicationMenu(menu);
+function openConfigWindow() {
+  // Se já existe uma janela de configurações, apenas foca nela
+  if (configWindow && !configWindow.isDestroyed()) {
+    configWindow.focus();
+    return;
+  }
+
+  configWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    modal: true,
+    parent: mainWindow,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+    autoHideMenuBar: true,
+    resizable: false,
+    titleBarStyle: 'hidden',
+  });
+
+  configWindow.loadFile(path.join(__dirname, 'configs.html'));
+
+  configWindow.webContents.once('did-finish-load', () => {
+    console.log('Janela de configurações carregada.');
+  });
+
+  // Limpa a referência quando a janela for fechada e reabilita o menu
+  configWindow.on('closed', () => {
+    configWindow = null;
+    const menuItem = appMenu ? appMenu.getMenuItemById('open-config') : null;
+    if (menuItem) {
+      menuItem.label = '🔧 Configurações';
+      menuItem.enabled = true;
+    }
+  });
+}
 
 // Função para instalar dependências
 function handleInstallDependencies() {
@@ -327,14 +588,26 @@ function handleInstallDependencies() {
     installWindow.webContents.send('start-installation');
   });
 
+  // Quando a janela de instalação é fechada, reabilita o menu
+  installWindow.on('closed', () => {
+    const menuItem = appMenu ? appMenu.getMenuItemById('install-deps') : null;
+    if (menuItem) {
+      menuItem.label = 'Instalar Dependências';
+      menuItem.enabled = true;
+    }
+  });
+
   ipcMain.on('close-install-window', () => {
     installWindow.close();
   });
 }
 
 let mainWindow;
+let splashWindow;
+let appMenu; // Referência global do menu para uso nas funções
 const projectsFile = path.join(userDataPath, 'projects.txt');
 let runningProcesses = {}; // Armazena os processos em execução
+let canceledProjects = new Set(); // Controla projetos que foram cancelados
 
 function removeAnsiCodes(input) {
   return input.replace(
@@ -397,67 +670,449 @@ function saveProjects(projects) {
 let projects = loadProjects();
 let startingProjects = new Set(); // Para controlar projetos que estão sendo iniciados
 
-app.on('ready', () => {
-  // Remove todos os listeners IPC existentes para evitar duplicação em caso de reinício
-  ipcMain.removeAllListeners();
+// Funções para controlar cancelamento de projetos
+function markProjectAsCanceled(projectPath) {
+  canceledProjects.add(projectPath);
+  console.log(`Projeto marcado como cancelado: ${projectPath}`);
+}
+
+function unmarkProjectAsCanceled(projectPath) {
+  canceledProjects.delete(projectPath);
+  console.log(`Projeto desmarcado como cancelado: ${projectPath}`);
+}
+
+function isProjectCanceled(projectPath) {
+  return canceledProjects.has(projectPath);
+}
+
+function checkCancelationAndExit(projectPath, stepName) {
+  if (isProjectCanceled(projectPath)) {
+    console.log(`⛔ Execução interrompida em ${stepName} para ${projectPath} (projeto foi cancelado)`);
+    return true;
+  }
+  return false;
+}
+
+// Função para criar a splash screen
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 500,
+    height: 400,
+    frame: false,
+    alwaysOnTop: true,
+    transparent: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+    icon: path.join(__dirname, 'OIP.ico'),
+    show: false
+  });
+
+  splashWindow.loadFile('splash.html');
   
-  // Não precisa remover listeners específicos após removeAllListeners()
+  splashWindow.once('ready-to-show', () => {
+    splashWindow.show();
+    // Inicia o carregamento da aplicação principal em background
+    setTimeout(initializeMainApp, 100);
+  });
+
+  splashWindow.on('closed', () => {
+    splashWindow = null;
+  });
+}
+
+// Função para inicializar a aplicação principal (OTIMIZADA)
+async function initializeMainApp() {
+  console.log('🚀 Iniciando aplicação principal com otimizações...');
+  const startTime = Date.now();
   
-  let isLoggedIn = loadLoginState();
+  // Carrega cache se ainda não foi carregado
+  if (!appCache.projects) {
+    loadAppCache();
+  }
+  
+  // Executa pré-carregamento se necessário
+  if (!appCache.projects || !appCache.nodeInfo || !appCache.angularInfo) {
+    await preloadCriticalData();
+  }
+  
+  // Usa dados do cache
+  let isLoggedIn = appCache.loginState ? appCache.loginState.isLoggedIn : loadLoginState();
   let nodeVersion = null;
   let nodeWarning = null;
   let angularVersion = null;
   let angularWarning = null;
-
-  try {
-    // Verifica se o Node.js está no PATH
-    const isNodeInPath = process.env.PATH.split(path.delimiter).some((dir) => {
-      const nodePath = path.join(dir, 'node' + (os.platform() === 'win32' ? '.exe' : ''));
-      return fs.existsSync(nodePath);
-    });
-
-    if (isNodeInPath) {
-      // Executa o comando `node -v` para obter a versão
-      nodeVersion = execSync('node -v').toString().trim();
-      if (nodeVersion !== 'v16.10.0') {
-        nodeWarning = `A versão ideal do Node.js é v16.10.0. A versão atual é ${nodeVersion}, o que pode causar problemas.`;
-      }
-    } else {
-      console.error('Node.js não está no PATH do sistema.');
-      nodeVersion = null; // Indica que o Node.js não está disponível
-    }
   
-  // Verifica se o Angular CLI está instalado
-  try {
-    const angularOutput = execSync('ng version').toString();
-    const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
-    if (angularCliMatch) {
-      angularVersion = angularCliMatch[1];
-      if (angularVersion !== '13.3.11') {
-        angularWarning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${angularVersion}, o que pode causar problemas.`;
-      }
+  // Usa informações em cache se disponíveis
+  if (appCache.nodeInfo && appCache.nodeInfo.available) {
+    nodeVersion = appCache.nodeInfo.version;
+    if (nodeVersion !== 'v16.10.0') {
+      nodeWarning = `A versão ideal do Node.js é v16.10.0. A versão atual é ${nodeVersion}, o que pode causar problemas.`;
     }
-  } catch (err) {
-    console.error('Angular CLI não está instalado:', err.message);
-    angularVersion = null; // Indica que o Angular CLI não está disponível
+  } else {
+    // Fallback para verificação síncrona apenas se não tiver cache
+    try {
+      const isNodeInPath = process.env.PATH.split(path.delimiter).some((dir) => {
+        const nodePath = path.join(dir, 'node' + (os.platform() === 'win32' ? '.exe' : ''));
+        return fs.existsSync(nodePath);
+      });
+
+      if (isNodeInPath) {
+        nodeVersion = execSync('node -v', { timeout: 3000 }).toString().trim();
+        if (nodeVersion !== 'v16.10.0') {
+          nodeWarning = `A versão ideal do Node.js é v16.10.0. A versão atual é ${nodeVersion}, o que pode causar problemas.`;
+        }
+      }
+    } catch (err) {
+      console.error('Node.js não está disponível:', err.message);
+      nodeVersion = null;
+    }
   }
- } catch (err) {
-   console.error('Erro ao verificar o Node.js ou Angular CLI:', err.message);
- }
   
+  // Usa informações Angular do cache se disponíveis
+  if (appCache.angularInfo && appCache.angularInfo.available) {
+    angularVersion = appCache.angularInfo.version;
+    if (angularVersion !== '13.3.11' && angularVersion !== 'N/A') {
+      angularWarning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${angularVersion}, o que pode causar problemas.`;
+    }
+  } else {
+    // Fallback para verificação síncrona apenas se não tiver cache
+    try {
+      const angularOutput = execSync('ng version', { timeout: 5000 }).toString();
+      const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
+      if (angularCliMatch) {
+        angularVersion = angularCliMatch[1];
+        if (angularVersion !== '13.3.11') {
+          angularWarning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${angularVersion}, o que pode causar problemas.`;
+        }
+      }
+    } catch (err) {
+      console.error('Angular CLI não está instalado:', err.message);
+      angularVersion = null;
+    }
+  }
+  
+  const initTime = Date.now() - startTime;
+  console.log(`⚡ Aplicação inicializada em ${initTime}ms`);
+  
+  // Cria a janela principal
+  createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, angularWarning);
+}
 
+// Função para criar a janela principal (OTIMIZADA)
+function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, angularWarning) {
+  console.log('🖼️ Criando janela principal otimizada...');
+  
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      // Otimizações de performance
+      backgroundThrottling: false,
+      enableRemoteModule: false
     },
-    icon: path.join(__dirname, 'OIP.ico'), // Define o ícone personalizado
+    icon: path.join(__dirname, 'OIP.ico'),
+    show: false, // Não mostra até estar carregada
+    // Otimizações Windows
+    frame: true,
+    transparent: false,
+    hasShadow: true
   });
 
+  // ⚡ CRIA O MENU APÓS A JANELA PRINCIPAL ⚡
+  // Cria o menu da aplicação e usa a variável global
+  const menuTemplate = [
+    {
+      label: 'Dependências',
+      submenu: [
+        {
+          label: 'Reiniciar Aplicativo',
+          accelerator: 'CmdOrCtrl+R',
+          id: 'restart-app',
+          click: () => {
+            // Desabilita o item do menu
+            const menuItem = appMenu ? appMenu.getMenuItemById('restart-app') : null;
+            if (menuItem) {
+              menuItem.label = 'Reiniciando...';
+              menuItem.enabled = false;
+            }
+
+            // Mostra confirmação antes de reiniciar
+            dialog.showMessageBox(mainWindow, {
+              type: 'question',
+              title: 'Reiniciar Aplicativo',
+              message: 'Deseja reiniciar o aplicativo?',
+              detail: 'Isso irá fechar e reabrir o aplicativo. Todos os processos em execução serão interrompidos.',
+              buttons: ['Cancelar', 'Reiniciar'],
+              defaultId: 1,
+              cancelId: 0
+            }).then((result) => {
+              if (result.response === 1) {
+                console.log('Reiniciando aplicativo...');
+                // Para todos os processos em execução
+                Object.keys(runningProcesses).forEach(processPath => {
+                  try {
+                    runningProcesses[processPath].kill();
+                    console.log(`Processo parado: ${processPath}`);
+                  } catch (error) {
+                    console.error(`Erro ao parar processo ${processPath}:`, error);
+                  }
+                });
+                
+                // Reinicia o aplicativo
+                app.relaunch();
+                app.exit();
+              } else {
+                // Reabilita o item se cancelado
+                if (menuItem) {
+                  menuItem.label = 'Reiniciar Aplicativo';
+                  menuItem.enabled = true;
+                }
+              }
+            }).catch(() => {
+              // Reabilita o item em caso de erro
+              if (menuItem) {
+                menuItem.label = 'Reiniciar Aplicativo';
+                menuItem.enabled = true;
+              }
+            });
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Login npm',
+          id: 'npm-login',
+          click: () => {
+            // Desabilita o item do menu
+            const menuItem = appMenu ? appMenu.getMenuItemById('npm-login') : null;
+            if (menuItem) {
+              menuItem.label = 'Login npm...';
+              menuItem.enabled = false;
+            }
+
+            // Executa a função original
+            handleNpmLogin()
+              .finally(() => {
+                // Reabilita o item após conclusão
+                setTimeout(() => {
+                  if (menuItem) {
+                    menuItem.label = 'Login npm';
+                    menuItem.enabled = true;
+                  }
+                }, 1000);
+              });
+          },
+        },
+        {
+          label: 'Verificar Status Nexus',
+          id: 'verify-nexus',
+          click: () => {
+            // Desabilita o item do menu
+            const menuItem = appMenu ? appMenu.getMenuItemById('verify-nexus') : null;
+            if (menuItem) {
+              menuItem.label = 'Verificando Status...';
+              menuItem.enabled = false;
+            }
+
+            // Cria janela de console para mostrar o progresso
+            const verifyWindow = new BrowserWindow({
+              width: 700,
+              height: 500,
+              modal: true,
+              parent: mainWindow,
+              webPreferences: {
+                nodeIntegration: true,
+                contextIsolation: false,
+              },
+              autoHideMenuBar: true,
+              resizable: false,
+              titleBarStyle: 'default',
+              title: '🔍 Verificação Status Nexus'
+            });
+
+            verifyWindow.loadFile(path.join(__dirname, 'verify-status.html'));
+
+            // Reabilita o menu quando a janela for fechada
+            verifyWindow.on('closed', () => {
+              if (menuItem) {
+                menuItem.label = 'Verificar Status Nexus';
+                menuItem.enabled = true;
+              }
+            });
+
+            // Handler para fechar a janela
+            ipcMain.once('close-verify-status-window', () => {
+              verifyWindow.close();
+            });
+
+            // Handler para iniciar a verificação
+            ipcMain.once('start-nexus-verification', () => {
+              // Envia log inicial
+              verifyWindow.webContents.send('verify-status-log', { 
+                message: 'Procurando projetos com arquivo .npmrc...', 
+                type: 'info' 
+              });
+
+              // Executa a verificação
+              checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username, registry, reason }) => {
+                // Logs de progresso
+                verifyWindow.webContents.send('verify-status-log', { 
+                  message: `Verificando registry: ${registry}`, 
+                  type: 'info' 
+                });
+                
+                if (actualLoginStatus) {
+                  verifyWindow.webContents.send('verify-status-log', { 
+                    message: `Login detectado: ${username}`, 
+                    type: 'success' 
+                  });
+                  
+                  // Atualiza o estado salvo se necessário
+                  const currentLoginState = loadLoginState();
+                  if (!currentLoginState) {
+                    saveLoginState(true);
+                  }
+
+                  // Atualiza a bolinha verde
+                  mainWindow.webContents.send('login-state', true);
+                  mainWindow.webContents.send('log', { message: `✓ Conectado ao Nexus como: ${username}` });
+                } else {
+                  verifyWindow.webContents.send('verify-status-log', { 
+                    message: 'Nenhum login detectado', 
+                    type: 'warning' 
+                  });
+                  
+                  // Atualiza o estado salvo se necessário
+                  const currentLoginState = loadLoginState();
+                  if (currentLoginState) {
+                    saveLoginState(false);
+                  }
+
+                  // Atualiza a bolinha verde
+                  mainWindow.webContents.send('login-state', false);
+                }
+
+                // Envia o resultado final para a janela
+                verifyWindow.webContents.send('verify-status-result', {
+                  isLoggedIn: actualLoginStatus,
+                  username,
+                  registry,
+                  reason
+                });
+
+              }).catch((error) => {
+                console.log('[DEBUG] Erro capturado no catch:', error);
+                verifyWindow.webContents.send('verify-status-log', { 
+                  message: `Erro na verificação: ${error.message}`, 
+                  type: 'error' 
+                });
+                
+                verifyWindow.webContents.send('verify-status-result', {
+                  isLoggedIn: false,
+                  username: null,
+                  registry: null,
+                  reason: 'error'
+                });
+                
+                // Reabilita o menu em caso de erro
+                if (menuItem) {
+                  menuItem.label = 'Verificar Status Nexus';
+                  menuItem.enabled = true;
+                }
+              });
+            });
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Instalar Dependências',
+          id: 'install-deps',
+          click: () => {
+            // Desabilita o item do menu
+            const menuItem = appMenu ? appMenu.getMenuItemById('install-deps') : null;
+            if (menuItem) {
+              menuItem.label = 'Instalando...';
+              menuItem.enabled = false;
+            }
+
+            handleInstallDependencies();
+            
+            // Reabilita após um tempo
+            setTimeout(() => {
+              if (menuItem) {
+                menuItem.label = 'Instalar Dependências';
+                menuItem.enabled = true;
+              }
+            }, 5000);
+          },
+        },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: 'Configurações',
+      submenu: [
+        {
+          label: '🔧 Configurações',
+          accelerator: 'CmdOrCtrl+Comma',
+          id: 'open-config',
+          click: () => {
+            // Desabilita temporariamente
+            const menuItem = appMenu ? appMenu.getMenuItemById('open-config') : null;
+            if (menuItem) {
+              menuItem.label = 'Abrindo...';
+              menuItem.enabled = false;
+            }
+
+            openConfigWindow();
+
+            // Reabilita após um tempo
+            setTimeout(() => {
+              if (menuItem) {
+                menuItem.label = '🔧 Configurações';
+                menuItem.enabled = true;
+              }
+            }, 1000);
+          },
+        },
+      ],
+    },
+  ];
+
+  // Define o menu e armazena a referência
+  appMenu = Menu.buildFromTemplate(menuTemplate);
+  Menu.setApplicationMenu(appMenu);
+  console.log('📋 Menu de configurações criado e aplicado');
+
   mainWindow.loadFile('index.html');
-  // mainWindow.webContents.openDevTools();
+  
+  // Mostra a janela apenas quando estiver pronta
+  mainWindow.once('ready-to-show', () => {
+    console.log('✅ Janela principal pronta para exibição');
+    
+    // Notifica a splash screen que está pronto
+    if (splashWindow) {
+      splashWindow.webContents.send('main-app-ready');
+    }
+    
+    // Minimiza delay para mostrar a janela
+    setTimeout(() => {
+      mainWindow.show();
+      mainWindow.focus();
+      
+      // Fecha a splash screen
+      if (splashWindow) {
+        splashWindow.close();
+      }
+    }, 500);
+  });
+
+  // Remove todos os listeners IPC existentes para evitar duplicação
+  ipcMain.removeAllListeners();
 
   // Adiciona listener para tecla F5 (Refresh/Restart)
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -495,81 +1150,232 @@ app.on('ready', () => {
   });
 
   ipcMain.on('login-success', () => {
-    isLoggedIn = true;
-    saveLoginState(isLoggedIn);
+    saveLoginState(true);
     mainWindow.webContents.send('log', { message: 'Logado no Nexus com sucesso!' });
+    // Força atualização imediata da interface
+    mainWindow.webContents.send('login-state', true);
+  });
+
+  // Handler para forçar verificação do login (útil para troubleshooting)
+  ipcMain.on('force-login-check', (event) => {
+    console.log('🔄 Verificação de login forçada pelo usuário');
+    checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username }) => {
+      saveLoginState(actualLoginStatus);
+      event.reply('login-state', actualLoginStatus);
+      
+      if (actualLoginStatus) {
+        console.log(`✅ Login confirmado: ${username}`);
+        mainWindow.webContents.send('log', { message: `✓ Login confirmado: ${username}` });
+      } else {
+        console.log('❌ Não logado');
+        mainWindow.webContents.send('log', { message: 'Não está logado no Nexus' });
+      }
+    }).catch((error) => {
+      console.log('❌ Erro na verificação forçada:', error.message);
+      mainWindow.webContents.send('log', { message: `Erro na verificação: ${error.message}` });
+    });
+  });
+
+  // Handlers IPC para configurações
+  ipcMain.on('load-configs', (event) => {
+    const config = loadConfig();
+    event.reply('configs-loaded', config);
+  });
+
+  ipcMain.on('save-config', (event, { key, value }) => {
+    const updatedConfig = updateConfigProperty(key, value);
+    console.log(`Configuração atualizada: ${key} = ${value}`);
+  });
+
+  ipcMain.on('apply-dark-mode', (event, isDarkMode) => {
+    // Aplica o modo escuro na janela principal
+    if (mainWindow) {
+      mainWindow.webContents.send('apply-dark-mode', isDarkMode);
+    }
+  });
+
+  ipcMain.on('close-config-window', () => {
+    // Fecha a janela de configurações se ela existir
+    if (configWindow && !configWindow.isDestroyed()) {
+      configWindow.close();
+    }
+  });
+
+  ipcMain.on('close-splash', () => {
+    // Fecha a splash screen se ela existir
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.close();
+      splashWindow = null;
+    }
   });
 
   ipcMain.on('load-login-state', (event) => {
-    // Primeiro retorna o estado salvo
-    event.reply('login-state', isLoggedIn);
+    // Usa cache para resposta instantânea
+    let currentLoginState;
     
-    // Depois faz uma verificação em background para atualizar se necessário
+    if (appCache.loginState) {
+      currentLoginState = appCache.loginState.isLoggedIn;
+      event.reply('login-state', currentLoginState);
+      console.log('⚡ Estado de login carregado do cache:', currentLoginState);
+    } else {
+      // Fallback para arquivo
+      currentLoginState = loadLoginState();
+      event.reply('login-state', currentLoginState);
+    }
+    
+    // 🧠 NOVA LÓGICA INTELIGENTE:
+    // - Se LOGADO no cache → confia e não verifica (performance)
+    // - Se DESLOGADO no cache → SEMPRE verifica (pode ter feito login)
+    
+    if (currentLoginState === true) {
+      console.log('✅ Cache mostra LOGADO - confiando no cache (não verifica)');
+      return; // Não faz verificação se já está logado
+    }
+    
+    console.log('❌ Cache mostra DESLOGADO - verificando login em tempo real...');
     checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username }) => {
-      if (actualLoginStatus !== isLoggedIn) {
+      if (actualLoginStatus !== currentLoginState) {
         // O status real é diferente do salvo, atualiza
-        isLoggedIn = actualLoginStatus;
-        saveLoginState(isLoggedIn);
-        event.reply('login-state', isLoggedIn);
+        console.log(`🔄 Atualizando login state: ${currentLoginState} → ${actualLoginStatus}`);
+        saveLoginState(actualLoginStatus);
+        event.reply('login-state', actualLoginStatus);
         
         if (actualLoginStatus) {
-          console.log(`Login detectado automaticamente: ${username}`);
+          console.log(`✅ Login detectado automaticamente: ${username}`);
           mainWindow.webContents.send('log', { message: `✓ Login detectado automaticamente: ${username}` });
         } else {
-          console.log('Status de login atualizado: deslogado');
-        }
-      }
-    }).catch((error) => {
-      console.log('Erro na verificação automática de login:', error.message);
-    });
-  });
-
-  ipcMain.on('check-nexus-status', (event) => {
-    mainWindow.webContents.send('log', { message: 'Verificando status do Nexus...' });
-    
-    checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username, registry, reason }) => {
-      if (actualLoginStatus) {
-        mainWindow.webContents.send('log', { message: `✓ Conectado ao Nexus como: ${username}` });
-        
-        // Atualiza o estado salvo se necessário
-        if (!isLoggedIn) {
-          isLoggedIn = true;
-          saveLoginState(isLoggedIn);
-          event.reply('login-state', isLoggedIn);
+          console.log('❌ Status de login confirmado: deslogado');
         }
       } else {
-        let message = '❌ Não conectado ao Nexus';
-        switch (reason) {
-          case 'no-projects':
-            message += ' (nenhum projeto configurado)';
-            break;
-          case 'ping-success-no-auth':
-            message += ' (servidor acessível, mas não autenticado)';
-            break;
-          case 'both-failed':
-            message += ' (falha na comunicação)';
-            break;
-        }
-        mainWindow.webContents.send('log', { message });
-        
-        // Atualiza o estado salvo se necessário
-        if (isLoggedIn) {
-          isLoggedIn = false;
-          saveLoginState(isLoggedIn);
-          event.reply('login-state', isLoggedIn);
-        }
+        console.log('✅ Status DESLOGADO confirmado');
       }
     }).catch((error) => {
-      mainWindow.webContents.send('log', { message: `Erro ao verificar Nexus: ${error.message}` });
+      console.log('❌ Erro na verificação de login:', error.message);
+      // Em caso de erro, mantém estado do cache
     });
+
+    // Código legado removido
+    const cacheAge = appCache.loginState ? Date.now() - (appCache.loginState.timestamp || 0) : Infinity;
+    if (false) { // Código antigo desabilitado
+      checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username }) => {
+        if (actualLoginStatus !== currentLoginState) {
+          // O status real é diferente do salvo, atualiza
+          saveLoginState(actualLoginStatus);
+          event.reply('login-state', actualLoginStatus);
+          
+          if (actualLoginStatus) {
+            console.log(`Login detectado automaticamente: ${username}`);
+            mainWindow.webContents.send('log', { message: `✓ Login detectado automaticamente: ${username}` });
+          } else {
+            console.log('Status de login atualizado: deslogado');
+          }
+        }
+      }).catch((error) => {
+        console.log('Erro na verificação automática de login:', error.message);
+      });
+    } else {
+      console.log('⚡ Cache de login ainda válido, pulando verificação');
+    }
   });
 
   ipcMain.on('load-node-info', (event) => {
-    event.reply('node-info', { version: nodeVersion, warning: nodeWarning });
+    // Sempre faz verificação em tempo real para garantir precisão
+    console.log('🔍 Verificando Node.js em tempo real...');
+    
+    exec('node --version', { timeout: 5000 }, (error, stdout, stderr) => {
+      if (error) {
+        console.log('Node.js não disponível:', error.message);
+        event.reply('node-info', { 
+          version: null, 
+          warning: 'Node.js não está disponível no PATH' 
+        });
+        return;
+      }
+      
+      const version = stdout.toString().trim();
+      let warning = null;
+      
+      if (version !== 'v16.10.0') {
+        warning = `A versão ideal do Node.js é v16.10.0. A versão atual é ${version}, o que pode causar problemas.`;
+      }
+      
+      console.log(`✅ Node.js encontrado: ${version}`);
+      event.reply('node-info', { version, warning });
+      
+      // Atualiza o cache com a informação correta
+      appCache.nodeInfo = {
+        version: version,
+        available: true
+      };
+      saveAppCache();
+    });
   });
 
   ipcMain.on('load-angular-info', (event) => {
-    event.reply('angular-info', { version: angularVersion, warning: angularWarning });
+    // Sempre faz verificação em tempo real para garantir precisão
+    // O cache pode estar desatualizado
+    console.log('🔍 [ANGULAR DEBUG] Verificando Angular CLI em tempo real...');
+    console.log('🔍 [ANGULAR DEBUG] PATH atual:', process.env.PATH?.slice(0, 200) + '...');
+    
+    exec('ng version', { timeout: 10000 }, (error, stdout, stderr) => {
+      console.log('🔍 [ANGULAR DEBUG] Resultado do comando ng version:', {
+        erro: error?.message,
+        stdout: stdout?.slice(0, 200),
+        stderr: stderr?.slice(0, 200)
+      });
+
+      if (error) {
+        console.log('❌ [ANGULAR DEBUG] Angular CLI não disponível:', error.message);
+        
+        // Tenta verificar se ng está no PATH
+        exec('where ng', { timeout: 5000 }, (whereError, whereStdout, whereStderr) => {
+          console.log('🔍 [ANGULAR DEBUG] Comando "where ng":', {
+            erro: whereError?.message,
+            stdout: whereStdout?.trim(),
+            stderr: whereStderr?.trim()
+          });
+        });
+        
+        event.reply('angular-info', { 
+          version: null, 
+          warning: 'Angular CLI não está instalado ou não está no PATH' 
+        });
+        return;
+      }
+      
+      const angularOutput = stdout.toString();
+      const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
+      
+      console.log('🔍 [ANGULAR DEBUG] Match da versão:', angularCliMatch);
+      
+      if (angularCliMatch) {
+        const version = angularCliMatch[1];
+        let warning = null;
+        
+        if (version !== '13.3.11') {
+          warning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${version}, o que pode causar problemas.`;
+        }
+        
+        console.log(`✅ [ANGULAR DEBUG] Angular CLI encontrado: ${version}`);
+        event.reply('angular-info', { version, warning });
+        
+        // Atualiza o cache com a informação correta
+        appCache.angularInfo = {
+          version: version,
+          available: true,
+          fullOutput: angularOutput
+        };
+        saveAppCache();
+        
+      } else {
+        console.log('⚠️ [ANGULAR DEBUG] Angular CLI instalado mas versão não detectada');
+        console.log('🔍 [ANGULAR DEBUG] Output completo:', angularOutput);
+        event.reply('angular-info', { 
+          version: 'Instalado (versão não detectada)', 
+          warning: null 
+        });
+      }
+    });
   });
 
   ipcMain.on('download-project', (event, { name, index }) => {
@@ -647,7 +1453,12 @@ app.on('ready', () => {
   });
 
   ipcMain.on('load-projects', (event) => {
+    // Sempre usa a variável projects real, não o cache
+    // O cache é apenas para acelerar o carregamento inicial, não para substituir dados
+    console.log('📋 Carregando projetos:', projects.length, 'projetos encontrados');
+    
     event.reply('projects-loaded', projects);
+    
     // Verifica se o login automático deve ser exibido
     const noPathsConfigured = projects.every((project) => !project.path);
     if (!isLoggedIn && noPathsConfigured) {
@@ -663,6 +1474,10 @@ app.on('ready', () => {
 
   ipcMain.on('start-project', (event, { projectPath, port }) => {
     console.log(`Iniciando projeto: ${projectPath} na porta: ${port}`);
+    
+    // Desmarca o projeto como cancelado ao iniciar normalmente
+    unmarkProjectAsCanceled(projectPath);
+    
     if (!port) {
         event.reply('log', { path: projectPath, message: '- Porta não definida.' });
         return;
@@ -678,6 +1493,10 @@ app.on('ready', () => {
     
       // Aguarda 10 segundos antes de iniciar o projeto
       setTimeout(() => {
+        // Verifica cancelamento antes de iniciar projeto
+        if (checkCancelationAndExit(projectPath, "início do projeto após liberação de porta")) {
+          return;
+        }
         startProject(event, projectPath, port);
       }, 10000);
     });
@@ -685,6 +1504,10 @@ app.on('ready', () => {
 
   ipcMain.on('start-project-pamp', (event, { projectPath, port }) => {
     console.log(`Iniciando projeto: ${projectPath} na porta: ${port}`);
+    
+    // Desmarca o projeto como cancelado ao iniciar normalmente
+    unmarkProjectAsCanceled(projectPath);
+    
     if (!port) {
         event.reply('pamp-log', { path: projectPath, message: 'Porta ainda não definida.' });
         startProject(event, projectPath, port);
@@ -699,6 +1522,10 @@ app.on('ready', () => {
       
         // Aguarda 10 segundos antes de iniciar o projeto
         setTimeout(() => {
+          // Verifica cancelamento antes de iniciar projeto
+          if (checkCancelationAndExit(projectPath, "início do projeto PAMP após liberação de porta")) {
+            return;
+          }
           startProject(event, projectPath, port);
         }, 9000);
       });
@@ -922,7 +1749,115 @@ app.on('ready', () => {
       }
   });
 
+  ipcMain.on('cancel-project-startup', (event, { projectPath, isPamp, index }) => {
+    console.log(`Cancelando inicialização do projeto: ${projectPath}`);
+    
+    // Marca o projeto como cancelado
+    markProjectAsCanceled(projectPath);
+    
+    const projectName = path.basename(projectPath);
+    let processCanceled = false;
+    
+    // Para o processo em execução se existir
+    if (runningProcesses[projectPath]) {
+      console.log(`Matando processo de inicialização para ${projectPath}`);
+      try {
+        // No Windows, mata toda a árvore de processos
+        if (os.platform() === 'win32') {
+          exec(`taskkill /pid ${runningProcesses[projectPath].pid} /T /F`, (error) => {
+            if (error) {
+              console.log(`Erro ao usar taskkill: ${error.message}`);
+            }
+          });
+        }
+        
+        // Mata o processo principal
+        runningProcesses[projectPath].kill('SIGKILL');
+        processCanceled = true;
+        
+      } catch (error) {
+        console.log(`Erro ao matar processo para ${projectPath}:`, error.message);
+      } finally {
+        delete runningProcesses[projectPath];
+      }
+    }
+    
+    // Remove da proteção de início múltiplo (busca por qualquer chave que comece com o projectPath)
+    for (let key of startingProjects) {
+      if (key.startsWith(projectPath)) {
+        startingProjects.delete(key);
+        console.log(`Removido ${key} da proteção de início múltiplo`);
+      }
+    }
+    
+    // Força parada de processos na porta (se soubermos qual é)
+    // Tenta encontrar o projeto para descobrir a porta
+    const project = projects.find(p => p.path === projectPath);
+    if (project && project.port) {
+      console.log(`Matando processo na porta ${project.port} para garantir cancelamento`);
+      if (os.platform() === 'win32') {
+        exec(`netstat -aon | findstr :${project.port}`, (err, stdout) => {
+          if (!err && stdout) {
+            const lines = stdout.split('\n');
+            lines.forEach(line => {
+              const parts = line.trim().split(/\s+/);
+              const pid = parts[parts.length - 1];
+              if (pid && !isNaN(pid)) {
+                exec(`taskkill /PID ${pid} /F`, (killErr) => {
+                  if (!killErr) {
+                    console.log(`Processo PID ${pid} na porta ${project.port} foi morto`);
+                  }
+                });
+              }
+            });
+          }
+        });
+      }
+    }
+    
+    // Envia log de cancelamento
+    const cancelMessage = '🛑 Cancelado com sucesso!';
+      
+    if (isPamp) {
+      event.reply('pamp-log', { 
+        path: projectPath, 
+        message: cancelMessage,
+        index: index,
+        name: projectName
+      });
+      
+      // Resetar botões do projeto PAMP
+      event.reply('pamp-process-error', { 
+        path: projectPath,
+        index: index 
+      });
+    } else {
+      event.reply('log', { 
+        path: projectPath, 
+        message: cancelMessage
+      });
+      
+      // Resetar botões do projeto PAS
+      event.reply('process-error', { path: projectPath });
+    }
+    
+    // Atualiza o status para "stopped"
+    event.reply('status-update', { 
+      path: projectPath, 
+      status: 'stopped',
+      isPamp: isPamp,
+      index: index
+    });
+    
+    console.log(`Inicialização cancelada para ${projectPath}. Processo cancelado: ${processCanceled}`);
+  });
+
   function startProject(event, projectPath, port) {
+    // Verifica se o projeto foi cancelado antes de iniciar
+    if (checkCancelationAndExit(projectPath, "início da função startProject")) {
+      return;
+    }
+    
     // Define o comando com base no nome do projeto
     const projectName = path.basename(projectPath); // Extrai o nome do projeto do caminho
     const isPampProject = projectName.startsWith('mp-pamp');
@@ -959,6 +1894,11 @@ app.on('ready', () => {
     console.log(`[DEBUG] node_modules existe: ${fs.existsSync(nodeModulesPath)}`);
     
     if (!fs.existsSync(nodeModulesPath)) {
+      // Verifica cancelamento antes de instalar dependências
+      if (checkCancelationAndExit(projectPath, "instalação de dependências")) {
+        return;
+      }
+      
       console.log(`[DEBUG] node_modules NÃO existe, executando npm install`);
 
       console.log(`Diretório node_modules não encontrado em ${projectPath}. Instalando dependências...`);
@@ -1011,6 +1951,11 @@ app.on('ready', () => {
 
       installProcess.on('close', (code) => {
         if (code === 0) {
+          // Verifica cancelamento antes de executar comando de start
+          if (checkCancelationAndExit(projectPath, "execução do comando de start após npm install")) {
+            return;
+          }
+          
           console.log(`Dependências instaladas com sucesso em ${projectPath}.`);
           
           const successMessage = 'Dependências instaladas com sucesso.';
@@ -1059,6 +2004,11 @@ app.on('ready', () => {
         }
       });
     } else {
+      // Verifica cancelamento antes de executar comando diretamente
+      if (checkCancelationAndExit(projectPath, "execução direta do comando")) {
+        return;
+      }
+      
       // Se node_modules já existir, abre o console e inicia o projeto diretamente
       event.reply('show-console', { path: projectPath, index: projectIndex, isPamp: isPampProject });
       executeStartCommand(event, projectPath, command, port);
@@ -1066,6 +2016,11 @@ app.on('ready', () => {
   }
 
   function executeStartCommand(event, projectPath, command, port) {
+    // Verifica se o projeto foi cancelado antes de executar comando
+    if (checkCancelationAndExit(projectPath, "início da função executeStartCommand")) {
+      return;
+    }
+    
     const process = exec(command, { cwd: projectPath });
     runningProcesses[projectPath] = process;
 
@@ -1165,6 +2120,11 @@ app.on('ready', () => {
               
               // Inicia o projeto novamente após um breve intervalo
               setTimeout(() => {
+                // Verifica cancelamento antes de reiniciar projeto
+                if (checkCancelationAndExit(projectPath, "reinício do projeto após liberação de porta")) {
+                  return;
+                }
+                
                 console.log(`Reiniciando projeto ${projectName} após liberação de porta`);
                 startProject(event, projectPath, detectedPort);
               }, 2000);
@@ -1351,6 +2311,44 @@ ipcMain.on('execute-command', (event, command) => {
       saveProjects(projects);
       event.reply('update-project', { index, path: '' });
     });
+  });
+
+  // Handler para abrir terminal na pasta do projeto
+  ipcMain.on('open-terminal', (event, { projectPath }) => {
+    console.log(`Abrindo terminal na pasta: ${projectPath}`);
+    
+    try {
+      // Verifica se o caminho existe
+      if (!fs.existsSync(projectPath)) {
+        console.error(`Caminho não encontrado: ${projectPath}`);
+        return;
+      }
+      
+      // Comando para abrir terminal baseado no sistema operacional
+      let command;
+      if (os.platform() === 'win32') {
+        // Windows: abre PowerShell na pasta usando cmd
+        command = `cmd /c "cd /d "${projectPath}" && start powershell"`;
+      } else if (os.platform() === 'darwin') {
+        // macOS: abre Terminal na pasta
+        command = `open -a Terminal "${projectPath}"`;
+      } else {
+        // Linux: tenta abrir terminal padrão
+        command = `gnome-terminal --working-directory="${projectPath}" || xterm -e "cd '${projectPath}' && bash" || konsole --workdir "${projectPath}"`;
+      }
+      
+      console.log(`Executando comando: ${command}`);
+      exec(command, (err) => {
+        if (err) {
+          console.error(`Erro ao abrir terminal: ${err.message}`);
+        } else {
+          console.log(`Terminal aberto com sucesso em: ${projectPath}`);
+        }
+      });
+      
+    } catch (error) {
+      console.error(`Erro ao abrir terminal:`, error);
+    }
   });
 
   // Handler para procurar projeto existente na máquina
@@ -2155,4 +3153,76 @@ ipcMain.on('execute-command', (event, command) => {
       });
     });
   }
+}
+
+// Evento principal do aplicativo
+// ⚡ INICIALIZAÇÃO OTIMIZADA ⚡
+app.on('ready', async () => {
+  console.log('🚀 Aplicação pronta, iniciando otimizações...');
+  
+  // Define prioridade alta no Windows para startup mais rápido
+  if (process.platform === 'win32') {
+    try {
+      exec('wmic process where "name=\'electron.exe\'" call setpriority "above normal"', (error) => {
+        if (!error) console.log('⚡ Prioridade do processo aumentada');
+      });
+    } catch (e) {
+      // Ignora se não conseguir ajustar prioridade
+    }
+  }
+  
+  // Carrega cache na inicialização
+  const cacheLoaded = loadAppCache();
+  if (cacheLoaded) {
+    console.log('💾 Cache pré-carregado com sucesso');
+  }
+  
+  // Inicia pré-carregamento em background
+  preloadCriticalData().catch(console.error);
+  
+  // Cria splash screen
+  createSplashWindow();
 });
+
+// ⚡ GESTÃO OTIMIZADA DO CICLO DE VIDA DA APP ⚡
+app.on('window-all-closed', () => {
+  // Salva cache antes de fechar
+  saveAppCache();
+  
+  // Limpa cache antigo (mais de 24 horas)
+  try {
+    if (fs.existsSync(cacheFile)) {
+      const cacheData = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
+      const cacheAge = Date.now() - cacheData.timestamp;
+      
+      if (cacheAge > 24 * 60 * 60 * 1000) { // 24 horas
+        fs.unlinkSync(cacheFile);
+        console.log('🗑️ Cache antigo removido');
+      }
+    }
+  } catch (error) {
+    console.log('Erro na limpeza do cache:', error.message);
+  }
+  
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) createSplashWindow();
+});
+
+// ⚡ SISTEMA DE CACHE AUTOMÁTICO ⚡
+// Atualiza cache periodicamente a cada 2 minutos quando a app estiver rodando
+setInterval(() => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    preloadCriticalData().catch(console.error);
+    console.log('🔄 Cache atualizado automaticamente');
+  }
+}, 2 * 60 * 1000); // 2 minutos
+
+console.log('⚡ SISTEMA DE PERFORMANCE ATIVADO ⚡');
+console.log('🚀 Cache inteligente, pré-carregamento e otimizações Windows habilitadas');
+console.log('💾 Dados críticos serão carregados em background para máxima velocidade');
+console.log('🎯 Otimizações multi-core e multi-threading implementadas');

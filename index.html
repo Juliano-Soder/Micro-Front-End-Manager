@@ -15,6 +15,13 @@
       color: #333; /* Cor do texto */
       max-width: 1200px; /* Limita a largura máxima */
       margin: 0 auto;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    /* Modo Escuro */
+    body.dark-mode {
+      background-color: #1e1e1e;
+      color: #ffffff;
     }
 
     h1, h2, h3, h4, h5, h6 {
@@ -25,6 +32,11 @@
      h1 {
       padding-bottom: 10px;
       border-bottom: 1px solid #ddd;
+      transition: border-color 0.3s ease;
+    }
+
+    body.dark-mode h1 {
+      border-bottom-color: #555;
     }
 
     input, button {
@@ -67,6 +79,13 @@
       border-radius: 5px;
       background-color: #fff; /* Fundo branco para os cards */
       box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+
+    body.dark-mode .project-card {
+      background-color: #2d2d2d;
+      border-color: #555;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
 
     /* Status indicators */
@@ -140,6 +159,27 @@
       padding-left: 8px !important;
       padding-top: 6px !important;
       padding-bottom: 6px !important;
+      background-color: #ffffff;
+      border: 1px solid #ccc;
+      color: #333;
+      transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+    }
+
+    /* Estilos para inputs no modo escuro */
+    body.dark-mode input {
+      background-color: #3a3a3a;
+      border-color: #555;
+      color: #ffffff;
+    }
+
+    body.dark-mode input::placeholder {
+      color: #aaa;
+    }
+
+    /* Console logs no modo escuro já estão com fundo preto, então mantemos eles */
+    body.dark-mode div[id*="log-"] {
+      background: #000 !important;
+      color: #0f0 !important;
     }
   </style>
 </head>
@@ -193,6 +233,25 @@
 
   ipcRenderer.send('load-projects');
 
+  // Carrega as configurações (incluindo modo escuro)
+  ipcRenderer.send('load-configs');
+  
+  // Recebe as configurações e aplica o modo escuro se necessário
+  ipcRenderer.on('configs-loaded', (event, configs) => {
+    if (configs.darkMode) {
+      document.body.classList.add('dark-mode');
+    }
+  });
+
+  // Escuta mudanças do modo escuro vindas da janela de configurações
+  ipcRenderer.on('apply-dark-mode', (event, isDarkMode) => {
+    if (isDarkMode) {
+      document.body.classList.add('dark-mode');
+    } else {
+      document.body.classList.remove('dark-mode');
+    }
+  });
+
   ipcRenderer.on('projects-loaded', (event, projects) => {
 
     // PAMP
@@ -206,13 +265,17 @@
     const div = document.createElement('div');
     div.innerHTML = `
        <div class="project-card">
-        <p><strong>${project.name}</strong></p>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <p style="margin: 0;"><strong>${project.name}</strong></p>
+          <img id="pamp-btn-terminal-${realIndex}" src="terminal.png" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+        </div>
         <div class="input-with-folder" style="margin-bottom: 10px;">
           <input id="pamp-input-${realIndex}" data-path="${project.path}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
           <img id="pamp-folder-icon-${realIndex}" src="pasta.png" class="folder-icon" title="Procurar projeto existente" alt="Procurar pasta" />
         </div>
         <button id="pamp-btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
         <button id="pamp-btn-start-${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
+        <button id="pamp-btn-cancel-${realIndex}" style="display: none; margin-right: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
         <button id="pamp-btn-stop-${realIndex}" style="display: none;">Parar</button>
         <button id="pamp-btn-move-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #007acc; color: white;">Mover para...</button>
         <button id="pamp-btn-delete-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
@@ -225,7 +288,9 @@
     const pampDownloadButton = document.getElementById(`pamp-btn-download-${realIndex}`);
     const pampFolderIcon = document.getElementById(`pamp-folder-icon-${realIndex}`);
     const pampStartButton = document.getElementById(`pamp-btn-start-${realIndex}`);
+    const pampCancelButton = document.getElementById(`pamp-btn-cancel-${realIndex}`);
     const pampStopButton = document.getElementById(`pamp-btn-stop-${realIndex}`);
+    const pampTerminalButton = document.getElementById(`pamp-btn-terminal-${realIndex}`);
     const pampMoveButton = document.getElementById(`pamp-btn-move-${realIndex}`);
     const pampDeleteButton = document.getElementById(`pamp-btn-delete-${realIndex}`);
     const pampLogDiv = document.getElementById(`pamp-log-${realIndex}`);
@@ -377,9 +442,43 @@
     pampStartButton.addEventListener('click', (event) => {
       pampStartButton.disabled = true;
       pampStartButton.innerText = 'Executando...';
+      pampCancelButton.style.display = 'inline-block'; // Mostra botão cancelar
       pampFolderIcon.classList.add('disabled'); // Desabilita durante a execução
       if (pampDeleteButton) pampDeleteButton.disabled = true;      
       ipcRenderer.send('start-project-pamp', { projectPath: pampInput.value, port: project.port });
+    });
+
+    pampCancelButton.addEventListener('click', () => {
+      // Cancela o processo de inicialização
+      ipcRenderer.send('cancel-project-startup', { projectPath: pampInput.value, isPamp: true, index: realIndex });
+      
+      // Restaura o estado dos botões
+      pampStartButton.disabled = false;
+      pampStartButton.innerText = 'Iniciar';
+      pampCancelButton.style.display = 'none';
+      pampFolderIcon.classList.remove('disabled');
+      if (pampDeleteButton) pampDeleteButton.disabled = false;
+    });
+
+    pampTerminalButton.addEventListener('click', () => {
+      if (pampInput.value.trim()) {
+        // Desabilita o ícone temporariamente para evitar cliques múltiplos
+        pampTerminalButton.style.opacity = '0.5';
+        pampTerminalButton.style.pointerEvents = 'none';
+        pampTerminalButton.title = 'Abrindo terminal...';
+        
+        // Envia comando para abrir terminal
+        ipcRenderer.send('open-terminal', { projectPath: pampInput.value });
+        
+        // Reabilita o ícone após 5 segundos
+        setTimeout(() => {
+          pampTerminalButton.style.opacity = '1';
+          pampTerminalButton.style.pointerEvents = 'auto';
+          pampTerminalButton.title = 'Abrir terminal na pasta do projeto';
+        }, 5000);
+      } else {
+        alert('Projeto precisa ter um caminho válido para abrir o terminal.');
+      }
     });
 
     pampStopButton.addEventListener('click', () => {
@@ -417,13 +516,17 @@
     const div = document.createElement('div');
     div.innerHTML = `
       <div class="project-card">
-        <p><strong>${project.name}</strong></p>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <p style="margin: 0;"><strong>${project.name}</strong></p>
+          <img id="btn-terminal-${realIndex}" src="terminal.png" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+        </div>
         <div class="input-with-folder" style="margin-bottom: 10px;">
           <input id="input-${realIndex}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
           <img id="folder-icon-${realIndex}" src="pasta.png" class="folder-icon" title="Procurar projeto existente" alt="Procurar pasta" />
         </div>
         <button id="btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
         <button id="btn-start-${realIndex}" data-index="${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
+        <button id="btn-cancel-${realIndex}" style="display: none; margin-right: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
         <button id="btn-stop-${realIndex}" style="display: none;">Parar</button>
         <button id="btn-move-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #007acc; color: white;">Mover para...</button>
         <button id="btn-delete-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
@@ -436,7 +539,9 @@
     const downloadButton = document.getElementById(`btn-download-${realIndex}`);
     const folderIcon = document.getElementById(`folder-icon-${realIndex}`);
     const startButton = document.getElementById(`btn-start-${realIndex}`);
+    const cancelButton = document.getElementById(`btn-cancel-${realIndex}`);
     const stopButton = document.getElementById(`btn-stop-${realIndex}`);
+    const terminalButton = document.getElementById(`btn-terminal-${realIndex}`);
     const moveButton = document.getElementById(`btn-move-${realIndex}`);
     const deleteButton = document.getElementById(`btn-delete-${realIndex}`);
     const logDiv = document.getElementById(`log-${realIndex}`);
@@ -467,10 +572,44 @@
     startButton.addEventListener('click', (event) => {
       startButton.disabled = true;
       startButton.innerText = 'Executando...';
+      cancelButton.style.display = 'inline-block'; // Mostra botão cancelar
       // Desabilite o botão de delete correspondente
       const deleteButton = document.getElementById(`btn-delete-${event.currentTarget.getAttribute('data-index')}`);
       if (deleteButton) deleteButton.disabled = true;      
       ipcRenderer.send('start-project', { projectPath: input.value, port: project.port });
+    });
+  
+    cancelButton.addEventListener('click', () => {
+      // Cancela o processo de inicialização
+      ipcRenderer.send('cancel-project-startup', { projectPath: input.value, isPamp: false, index: realIndex });
+      
+      // Restaura o estado dos botões
+      startButton.disabled = false;
+      startButton.innerText = 'Iniciar';
+      cancelButton.style.display = 'none';
+      const deleteButton = document.getElementById(`btn-delete-${realIndex}`);
+      if (deleteButton) deleteButton.disabled = false;
+    });
+
+    terminalButton.addEventListener('click', () => {
+      if (input.value.trim()) {
+        // Desabilita o ícone temporariamente para evitar cliques múltiplos
+        terminalButton.style.opacity = '0.5';
+        terminalButton.style.pointerEvents = 'none';
+        terminalButton.title = 'Abrindo terminal...';
+        
+        // Envia comando para abrir terminal
+        ipcRenderer.send('open-terminal', { projectPath: input.value });
+        
+        // Reabilita o ícone após 5 segundos
+        setTimeout(() => {
+          terminalButton.style.opacity = '1';
+          terminalButton.style.pointerEvents = 'auto';
+          terminalButton.title = 'Abrir terminal na pasta do projeto';
+        }, 5000);
+      } else {
+        alert('Projeto precisa ter um caminho válido para abrir o terminal.');
+      }
     });
   
     stopButton.addEventListener('click', () => {
@@ -548,6 +687,7 @@
     if (isPamp) {
       // Tratamento para projetos PAMP
       const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
+      const pampCancelButton = document.getElementById(`pamp-btn-cancel-${index}`);
       const pampStopButton = document.getElementById(`pamp-btn-stop-${index}`);
       const pampMoveButton = document.getElementById(`pamp-btn-move-${index}`);
       const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
@@ -562,6 +702,7 @@
           pampStartButton.style.backgroundColor = 'green';
           pampStartButton.style.color = 'white';
         }
+        if (pampCancelButton) pampCancelButton.style.display = 'none'; // Esconde botão cancelar
         if (pampMoveButton) pampMoveButton.style.display = 'none';
         if (pampDeleteButton) pampDeleteButton.style.display = 'none';
         if (pampStopButton) pampStopButton.style.display = 'inline-block';
@@ -581,6 +722,7 @@
           pampStartButton.style.backgroundColor = '';
           pampStartButton.style.color = '';
         }
+        if (pampCancelButton) pampCancelButton.style.display = 'none'; // Esconde botão cancelar
         if (pampStopButton) {
           pampStopButton.style.display = 'none';
           pampStopButton.disabled = false;
@@ -606,6 +748,7 @@
       
       if (projectIndex !== -1) {
         const startButton = document.getElementById(`btn-start-${projectIndex}`);
+        const cancelButton = document.getElementById(`btn-cancel-${projectIndex}`);
         const stopButton = document.getElementById(`btn-stop-${projectIndex}`);
         const moveButton = document.getElementById(`btn-move-${projectIndex}`);
         const deleteButton = document.getElementById(`btn-delete-${projectIndex}`);
@@ -617,6 +760,7 @@
             startButton.style.backgroundColor = 'green';
             startButton.style.color = 'white';
           }
+          if (cancelButton) cancelButton.style.display = 'none'; // Esconde botão cancelar
           if (moveButton) moveButton.style.display = 'none';
           if (deleteButton) deleteButton.style.display = 'none';
           if (stopButton) stopButton.style.display = 'inline-block';
@@ -634,6 +778,7 @@
             startButton.style.backgroundColor = '';
             startButton.style.color = 'black';
           }
+          if (cancelButton) cancelButton.style.display = 'none'; // Esconde botão cancelar
           if (stopButton) {
             stopButton.style.display = 'none';
             stopButton.disabled = false;
@@ -896,12 +1041,17 @@
   ipcRenderer.on('pamp-process-error', (event, { path, index }) => {
     console.log(`Projeto PAMP com erro, resetando botões para índice ${index}`);
     const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
+    const pampCancelButton = document.getElementById(`pamp-btn-cancel-${index}`);
     const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
     const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
     
     if (pampStartButton) {
       pampStartButton.disabled = false;
       pampStartButton.innerText = 'Iniciar';
+    }
+    
+    if (pampCancelButton) {
+      pampCancelButton.style.display = 'none'; // Esconde botão cancelar
     }
     
     if (pampDeleteButton) {
@@ -920,6 +1070,7 @@
     const projectIndex = projects.findIndex(p => p.path === path);
     if (projectIndex !== -1) {
       const startButton = document.getElementById(`btn-start-${projectIndex}`);
+      const cancelButton = document.getElementById(`btn-cancel-${projectIndex}`);
       const deleteButton = document.getElementById(`btn-delete-${projectIndex}`);
       
       if (startButton) {
@@ -927,6 +1078,10 @@
         startButton.innerText = 'Iniciar';
         startButton.style.backgroundColor = '';
         startButton.style.color = 'black';
+      }
+      
+      if (cancelButton) {
+        cancelButton.style.display = 'none'; // Esconde botão cancelar
       }
       
       if (deleteButton) {
