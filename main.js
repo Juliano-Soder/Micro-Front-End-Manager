@@ -287,6 +287,19 @@ function loadLoginState() {
 
 function checkNexusLoginStatus() {
   return new Promise((resolve) => {
+    console.log('🔍 [DEBUG] Iniciando verificação de login...');
+    console.log('🔍 [DEBUG] Total de projetos carregados:', projects.length);
+    
+    // Debug detalhado dos projetos
+    projects.forEach((project, index) => {
+      console.log(`🔍 [DEBUG] Projeto ${index}:`, {
+        name: project.name || 'Sem nome',
+        path: project.path || 'Sem path',
+        pathExists: project.path ? fs.existsSync(project.path) : false,
+        npmrcExists: project.path ? fs.existsSync(path.join(project.path, '.npmrc')) : false
+      });
+    });
+
     const mfePaths = projects
       .filter(
         (project) =>
@@ -297,8 +310,13 @@ function checkNexusLoginStatus() {
       )
       .map((project) => project.path);
 
+    console.log('🔍 [DEBUG] Projetos válidos com .npmrc:', mfePaths.length);
+    mfePaths.forEach((path, index) => {
+      console.log(`🔍 [DEBUG] Path válido ${index}: ${path}`);
+    });
+
     if (mfePaths.length === 0) {
-      console.log('Nenhum projeto com .npmrc encontrado para verificar login.');
+      console.log('❌ [DEBUG] Nenhum projeto com .npmrc encontrado para verificar login.');
       resolve({ isLoggedIn: false, reason: 'no-projects', username: null });
       return;
     }
@@ -307,35 +325,51 @@ function checkNexusLoginStatus() {
     const npmrcPath = path.join(projectPath, '.npmrc');
     let registry = 'http://nexus.viavarejo.com.br/repository/npm-marketplace/';
     
+    console.log(`🔍 [DEBUG] Usando projeto: ${projectPath}`);
+    
     if (fs.existsSync(npmrcPath)) {
       const npmrcContent = fs.readFileSync(npmrcPath, 'utf-8');
+      console.log(`🔍 [DEBUG] Conteúdo .npmrc (primeiras 100 chars): ${npmrcContent.substring(0, 100)}...`);
       if (npmrcContent.includes('https://')) {
         registry = 'https://nexus.viavarejo.com.br/repository/npm-marketplace/';
       }
     }
 
-    console.log(`Verificando status de login no registry: ${registry}`);
+    console.log(`🔍 [DEBUG] Registry detectado: ${registry}`);
 
     // Primeiro tenta npm whoami
+    console.log('🔍 [DEBUG] Executando npm whoami...');
     exec(`npm whoami --registry=${registry}`, { cwd: projectPath, timeout: 10000 }, (whoamiErr, whoamiStdout, whoamiStderr) => {
+      console.log('🔍 [DEBUG] npm whoami resultado:', {
+        erro: whoamiErr?.message,
+        stdout: whoamiStdout?.trim(),
+        stderr: whoamiStderr?.trim()
+      });
+
       if (!whoamiErr && whoamiStdout && whoamiStdout.trim()) {
         const username = whoamiStdout.trim();
-        console.log(`Login verificado via whoami: ${username}`);
+        console.log(`✅ [DEBUG] Login verificado via whoami: ${username}`);
         resolve({ isLoggedIn: true, reason: 'whoami-success', username: username, registry: registry });
         return;
       }
 
-      console.log(`npm whoami falhou, tentando npm ping...`);
+      console.log(`⚠️ [DEBUG] npm whoami falhou, tentando npm ping...`);
       
       // Se whoami falhar, tenta npm ping
       exec(`npm ping --registry=${registry}`, { cwd: projectPath, timeout: 10000 }, (pingErr, pingStdout, pingStderr) => {
+        console.log('🔍 [DEBUG] npm ping resultado:', {
+          erro: pingErr?.message,
+          stdout: pingStdout?.trim(),
+          stderr: pingStderr?.trim()
+        });
+
         if (!pingErr && pingStdout && pingStdout.includes('PONG')) {
-          console.log('npm ping bem-sucedido, mas usuário pode não estar logado');
+          console.log('⚠️ [DEBUG] npm ping bem-sucedido, mas usuário pode não estar logado');
           resolve({ isLoggedIn: false, reason: 'ping-success-no-auth', username: null, registry: registry });
           return;
         }
 
-        console.log('Ambos whoami e ping falharam, usuário provavelmente não está logado');
+        console.log('❌ [DEBUG] Ambos whoami e ping falharam, usuário provavelmente não está logado');
         resolve({ isLoggedIn: false, reason: 'both-failed', username: null, registry: registry });
       });
     });
@@ -1118,6 +1152,28 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
   ipcMain.on('login-success', () => {
     saveLoginState(true);
     mainWindow.webContents.send('log', { message: 'Logado no Nexus com sucesso!' });
+    // Força atualização imediata da interface
+    mainWindow.webContents.send('login-state', true);
+  });
+
+  // Handler para forçar verificação do login (útil para troubleshooting)
+  ipcMain.on('force-login-check', (event) => {
+    console.log('🔄 Verificação de login forçada pelo usuário');
+    checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username }) => {
+      saveLoginState(actualLoginStatus);
+      event.reply('login-state', actualLoginStatus);
+      
+      if (actualLoginStatus) {
+        console.log(`✅ Login confirmado: ${username}`);
+        mainWindow.webContents.send('log', { message: `✓ Login confirmado: ${username}` });
+      } else {
+        console.log('❌ Não logado');
+        mainWindow.webContents.send('log', { message: 'Não está logado no Nexus' });
+      }
+    }).catch((error) => {
+      console.log('❌ Erro na verificação forçada:', error.message);
+      mainWindow.webContents.send('log', { message: `Erro na verificação: ${error.message}` });
+    });
   });
 
   // Handlers IPC para configurações
@@ -1167,10 +1223,40 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       event.reply('login-state', currentLoginState);
     }
     
-    // Depois faz uma verificação em background para atualizar se necessário
-    // Apenas se o cache for antigo (mais de 1 minuto)
+    // 🧠 NOVA LÓGICA INTELIGENTE:
+    // - Se LOGADO no cache → confia e não verifica (performance)
+    // - Se DESLOGADO no cache → SEMPRE verifica (pode ter feito login)
+    
+    if (currentLoginState === true) {
+      console.log('✅ Cache mostra LOGADO - confiando no cache (não verifica)');
+      return; // Não faz verificação se já está logado
+    }
+    
+    console.log('❌ Cache mostra DESLOGADO - verificando login em tempo real...');
+    checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username }) => {
+      if (actualLoginStatus !== currentLoginState) {
+        // O status real é diferente do salvo, atualiza
+        console.log(`🔄 Atualizando login state: ${currentLoginState} → ${actualLoginStatus}`);
+        saveLoginState(actualLoginStatus);
+        event.reply('login-state', actualLoginStatus);
+        
+        if (actualLoginStatus) {
+          console.log(`✅ Login detectado automaticamente: ${username}`);
+          mainWindow.webContents.send('log', { message: `✓ Login detectado automaticamente: ${username}` });
+        } else {
+          console.log('❌ Status de login confirmado: deslogado');
+        }
+      } else {
+        console.log('✅ Status DESLOGADO confirmado');
+      }
+    }).catch((error) => {
+      console.log('❌ Erro na verificação de login:', error.message);
+      // Em caso de erro, mantém estado do cache
+    });
+
+    // Código legado removido
     const cacheAge = appCache.loginState ? Date.now() - (appCache.loginState.timestamp || 0) : Infinity;
-    if (cacheAge > 60000) { // 1 minuto
+    if (false) { // Código antigo desabilitado
       checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username }) => {
         if (actualLoginStatus !== currentLoginState) {
           // O status real é diferente do salvo, atualiza
@@ -1228,11 +1314,28 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
   ipcMain.on('load-angular-info', (event) => {
     // Sempre faz verificação em tempo real para garantir precisão
     // O cache pode estar desatualizado
-    console.log('🔍 Verificando Angular CLI em tempo real...');
+    console.log('🔍 [ANGULAR DEBUG] Verificando Angular CLI em tempo real...');
+    console.log('🔍 [ANGULAR DEBUG] PATH atual:', process.env.PATH?.slice(0, 200) + '...');
     
     exec('ng version', { timeout: 10000 }, (error, stdout, stderr) => {
+      console.log('🔍 [ANGULAR DEBUG] Resultado do comando ng version:', {
+        erro: error?.message,
+        stdout: stdout?.slice(0, 200),
+        stderr: stderr?.slice(0, 200)
+      });
+
       if (error) {
-        console.log('Angular CLI não disponível:', error.message);
+        console.log('❌ [ANGULAR DEBUG] Angular CLI não disponível:', error.message);
+        
+        // Tenta verificar se ng está no PATH
+        exec('where ng', { timeout: 5000 }, (whereError, whereStdout, whereStderr) => {
+          console.log('🔍 [ANGULAR DEBUG] Comando "where ng":', {
+            erro: whereError?.message,
+            stdout: whereStdout?.trim(),
+            stderr: whereStderr?.trim()
+          });
+        });
+        
         event.reply('angular-info', { 
           version: null, 
           warning: 'Angular CLI não está instalado ou não está no PATH' 
@@ -1243,6 +1346,8 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       const angularOutput = stdout.toString();
       const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
       
+      console.log('🔍 [ANGULAR DEBUG] Match da versão:', angularCliMatch);
+      
       if (angularCliMatch) {
         const version = angularCliMatch[1];
         let warning = null;
@@ -1251,7 +1356,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           warning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${version}, o que pode causar problemas.`;
         }
         
-        console.log(`✅ Angular CLI encontrado: ${version}`);
+        console.log(`✅ [ANGULAR DEBUG] Angular CLI encontrado: ${version}`);
         event.reply('angular-info', { version, warning });
         
         // Atualiza o cache com a informação correta
@@ -1263,7 +1368,8 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         saveAppCache();
         
       } else {
-        console.log('Angular CLI instalado mas versão não detectada');
+        console.log('⚠️ [ANGULAR DEBUG] Angular CLI instalado mas versão não detectada');
+        console.log('🔍 [ANGULAR DEBUG] Output completo:', angularOutput);
         event.reply('angular-info', { 
           version: 'Instalado (versão não detectada)', 
           warning: null 
