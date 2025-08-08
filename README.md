@@ -4,6 +4,36 @@
 
 ---
 
+## 📝 Notas de Versão
+
+### Versão 0.0.6 - Agosto 2025
+
+**Novas Funcionalidades:**
+- Sistema de verificação inteligente de login no Nexus com cache otimizado
+- Debug aprimorado para detecção do Angular CLI com logs detalhados
+- Verificação em tempo real do status de autenticação apenas quando necessário
+- Handler para verificação forçada de login via comando interno
+
+**Melhorias de Performance:**
+- Cache inteligente de estado de login: verifica apenas quando necessário
+- Redução significativa de chamadas de verificação desnecessárias
+- Otimização do sistema de detecção de dependências instaladas
+- Melhoria na responsividade da interface durante verificações
+
+**Correções Técnicas:**
+- Corrigido problema de inconsistência no indicador de status de login
+- Aprimorada a detecção do Angular CLI em ambientes buildados
+- Melhorada a verificação de PATH para ferramentas de linha de comando
+- Corrigida sincronização entre cache e estado real de autenticação
+
+**Aprimoramentos de Sistema:**
+- Sistema de certificados com validação de 730 dias de validade
+- Build otimizado sem assinatura digital para compatibilidade ampla
+- Logs de debug estruturados para melhor troubleshooting
+- Verificação automática de projetos com arquivo .npmrc
+
+---
+
 ## 📋 Funcionalidades
 
 - **Gerenciamento de Projetos**:
@@ -530,7 +560,5 @@ Novos recursos:
 - **Confiabilidade**: Menor taxa de falhas durante operações críticas
 
 ---
-
-### Versão 0.0.5 - Novembro 2024
 
 
