@@ -16,11 +16,11 @@ module.exports = {
       CompanyName: "Grupo Casas Bahia",
       LegalCopyright: "Copyright © 2025 Juliano Soder",
     },
-    // Configuração para assinatura automática com novo certificado
-    sign: {
-      certificateFile: "./certs/micro-front-end-manager-new.pfx",
-      certificatePassword: "MicroFE2025!",
-    },
+    // Configuração para assinatura automática com novo certificado - TEMPORARIAMENTE DESABILITADA
+    // sign: {
+    //   certificateFile: "./certs/micro-front-end-manager-new.pfx",
+    //   certificatePassword: "MicroFE2025!",
+    // },
   },
   rebuildConfig: {},
   makers: [

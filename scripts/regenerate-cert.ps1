@@ -14,13 +14,21 @@ if (!(Test-Path $certsDir)) {
 
 # Verificar se já existe um certificado válido
 if (Test-Path $OutputPath) {
-    $existingFile = Get-Item $OutputPath
-    $ageInDays = (Get-Date) - $existingFile.LastWriteTime
-    
-    if ($ageInDays.TotalDays -lt 30) {
-        Write-Host "Certificado existente ainda valido ($([math]::Round($ageInDays.TotalDays, 1)) dias)" -ForegroundColor Green
-        Write-Host "Usando certificado: $OutputPath" -ForegroundColor Green
-        exit 0
+    try {
+        # Carrega o certificado e verifica validade real
+        $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($OutputPath, $Password)
+        $daysUntilExpiry = ($cert.NotAfter - (Get-Date)).TotalDays
+        
+        if ($daysUntilExpiry -gt 90) {
+            Write-Host "Certificado existente ainda valido ($([math]::Round($daysUntilExpiry, 0)) dias restantes)" -ForegroundColor Green
+            Write-Host "Valido ate: $($cert.NotAfter.ToString('dd/MM/yyyy HH:mm'))" -ForegroundColor Green
+            Write-Host "Usando certificado: $OutputPath" -ForegroundColor Green
+            exit 0
+        } else {
+            Write-Host "Certificado expira em $([math]::Round($daysUntilExpiry, 0)) dias. Regenerando..." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "Erro ao verificar certificado existente. Regenerando..." -ForegroundColor Yellow
     }
 }
 
@@ -35,10 +43,13 @@ try {
         Write-Host "Tentando criar certificado mesmo assim..." -ForegroundColor Yellow
     }
     
-    # Versão mais simples sem parâmetros problemáticos
+    # Versão mais robusta com parâmetros adequados para code signing
     $cert = New-SelfSignedCertificate `
-        -Subject "CN=$CertName" `
-        -NotAfter (Get-Date).AddYears(2)
+        -Subject "CN=$CertName, O=Grupo Casas Bahia, C=BR" `
+        -NotAfter (Get-Date).AddYears(2) `
+        -KeyUsage DigitalSignature `
+        -Type CodeSigningCert `
+        -CertStoreLocation "Cert:\CurrentUser\My"
 
     Write-Host "Certificado criado: $($cert.Thumbprint)" -ForegroundColor Green
 
