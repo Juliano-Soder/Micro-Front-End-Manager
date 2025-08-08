@@ -531,4 +531,6 @@ Novos recursos:
 
 ---
 
+### Versão 0.0.5 - Novembro 2024
+
 
