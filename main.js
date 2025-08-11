@@ -143,21 +143,51 @@ async function preloadNodeInfo() {
 }
 
 async function preloadAngularInfo() {
-  return new Promise((resolve) => {
-    exec('ng version', { timeout: 5000 }, (error, stdout, stderr) => {
-      if (error) {
-        appCache.angularInfo = { version: 'N/A', available: false };
-      } else {
-        const versionMatch = stdout.match(/Angular CLI:\s*(\d+\.\d+\.\d+)/);
-        appCache.angularInfo = {
-          version: versionMatch ? versionMatch[1] : 'Instalado',
-          available: true,
-          fullOutput: stdout
-        };
-      }
-      resolve();
+  try {
+    console.log('🔍 Pré-carregando informações do Angular CLI...');
+    
+    return new Promise((resolve) => {
+      // Usar exec assíncrono com timeout maior
+      exec('ng version', { timeout: 10000 }, (error, stdout, stderr) => {
+        if (error) {
+          console.log('❌ Angular CLI não disponível no pré-carregamento:', error.message);
+          
+          // Não marcar como indisponível - deixar para verificação posterior
+          appCache.angularInfo = {
+            version: null,
+            available: false,
+            needsReverification: true // Flag para indicar que precisa reverificar
+          };
+          resolve();
+          return;
+        }
+        
+        const angularOutput = stdout.toString();
+        const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
+        
+        if (angularCliMatch) {
+          const version = angularCliMatch[1];
+          appCache.angularInfo = {
+            version: version,
+            available: true,
+            fullOutput: angularOutput
+          };
+          console.log(`✅ Angular CLI pré-carregado: ${version}`);
+        } else {
+          appCache.angularInfo = {
+            version: 'Instalado (versão não detectada)',
+            available: true,
+            fullOutput: angularOutput
+          };
+        }
+        
+        resolve();
+      });
     });
-  });
+  } catch (error) {
+    console.error('Erro no pré-carregamento do Angular:', error);
+    // Não definir cache em caso de erro
+  }
 }
 
 async function preloadLoginState() {
@@ -770,28 +800,10 @@ async function initializeMainApp() {
     }
   }
   
-  // Usa informações Angular do cache se disponíveis
-  if (appCache.angularInfo && appCache.angularInfo.available) {
-    angularVersion = appCache.angularInfo.version;
-    if (angularVersion !== '13.3.11' && angularVersion !== 'N/A') {
-      angularWarning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${angularVersion}, o que pode causar problemas.`;
-    }
-  } else {
-    // Fallback para verificação síncrona apenas se não tiver cache
-    try {
-      const angularOutput = execSync('ng version', { timeout: 5000 }).toString();
-      const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
-      if (angularCliMatch) {
-        angularVersion = angularCliMatch[1];
-        if (angularVersion !== '13.3.11') {
-          angularWarning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${angularVersion}, o que pode causar problemas.`;
-        }
-      }
-    } catch (err) {
-      console.error('Angular CLI não está instalado:', err.message);
-      angularVersion = null;
-    }
-  }
+  // Não faz verificação síncrona do Angular CLI na inicialização
+  // Deixa que seja verificado apenas quando solicitado via IPC
+  // Isso evita o problema de cache incorreto e bloqueios na inicialização
+  console.log('🔍 Angular CLI será verificado em tempo real quando necessário');
   
   const initTime = Date.now() - startTime;
   console.log(`⚡ Aplicação inicializada em ${initTime}ms`);
@@ -1081,6 +1093,42 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         },
       ],
     },
+    {
+      label: 'Desenvolvimento',
+      submenu: [
+        {
+          label: 'Limpar Cache Angular CLI',
+          id: 'clear-angular-cache',
+          click: () => {
+            const menuItem = appMenu ? appMenu.getMenuItemById('clear-angular-cache') : null;
+            if (menuItem) {
+              menuItem.label = 'Limpando...';
+              menuItem.enabled = false;
+            }
+
+            // Limpa o cache do Angular CLI
+            console.log('🧹 Limpando cache problemático do Angular CLI');
+            if (appCache.angularInfo) {
+              appCache.angularInfo = null;
+            }
+            saveAppCache();
+            
+            // Envia mensagem para a interface
+            mainWindow.webContents.send('log', { 
+              message: '🧹 Cache do Angular CLI foi limpo. A próxima verificação será feita do zero.' 
+            });
+
+            // Reabilita o item do menu
+            setTimeout(() => {
+              if (menuItem) {
+                menuItem.label = 'Limpar Cache Angular CLI';
+                menuItem.enabled = true;
+              }
+            }, 1000);
+          },
+        },
+      ],
+    },
   ];
 
   // Define o menu e armazena a referência
@@ -1312,12 +1360,27 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
   });
 
   ipcMain.on('load-angular-info', (event) => {
-    // Sempre faz verificação em tempo real para garantir precisão
-    // O cache pode estar desatualizado
     console.log('🔍 [ANGULAR DEBUG] Verificando Angular CLI em tempo real...');
+    
+    // Se o cache indica que precisa reverificar, sempre faz nova verificação
+    const needsReverification = appCache.angularInfo && appCache.angularInfo.needsReverification;
+    
+    if (appCache.angularInfo && appCache.angularInfo.available && !needsReverification) {
+      console.log('⚡ [ANGULAR DEBUG] Usando informação do cache');
+      const version = appCache.angularInfo.version;
+      let warning = null;
+      
+      if (version !== '13.3.11' && version !== 'Instalado (versão não detectada)') {
+        warning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${version}, o que pode causar problemas.`;
+      }
+      
+      event.reply('angular-info', { version, warning });
+      return;
+    }
+    
     console.log('🔍 [ANGULAR DEBUG] PATH atual:', process.env.PATH?.slice(0, 200) + '...');
     
-    exec('ng version', { timeout: 10000 }, (error, stdout, stderr) => {
+    exec('ng version', { timeout: 15000 }, (error, stdout, stderr) => { // Timeout aumentado
       console.log('🔍 [ANGULAR DEBUG] Resultado do comando ng version:', {
         erro: error?.message,
         stdout: stdout?.slice(0, 200),
@@ -1326,6 +1389,9 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
 
       if (error) {
         console.log('❌ [ANGULAR DEBUG] Angular CLI não disponível:', error.message);
+        
+        // Limpa o cache problemático
+        appCache.angularInfo = null;
         
         // Tenta verificar se ng está no PATH
         exec('where ng', { timeout: 5000 }, (whereError, whereStdout, whereStderr) => {
@@ -1363,13 +1429,24 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         appCache.angularInfo = {
           version: version,
           available: true,
-          fullOutput: angularOutput
+          fullOutput: angularOutput,
+          needsReverification: false // Remove a flag de reverificação
         };
         saveAppCache();
         
       } else {
         console.log('⚠️ [ANGULAR DEBUG] Angular CLI instalado mas versão não detectada');
         console.log('🔍 [ANGULAR DEBUG] Output completo:', angularOutput);
+        
+        // Atualiza o cache mesmo sem versão detectada
+        appCache.angularInfo = {
+          version: 'Instalado (versão não detectada)',
+          available: true,
+          fullOutput: angularOutput,
+          needsReverification: false
+        };
+        saveAppCache();
+        
         event.reply('angular-info', { 
           version: 'Instalado (versão não detectada)', 
           warning: null 
