@@ -658,6 +658,7 @@ function loadProjects() {
     { name: 'mp-pas-catalogo', path: '', port: 9007 },
     { name: 'mp-pas-logistica', path: '', port: 9008 },
     { name: 'mp-pas-comercial', path: '', port: 9009 },
+    { name: 'mp-pas-via-performance', path: '', port: 9011 },
     { name: 'mp-pas-atendimento', path: '', port: 9012 },
     { name: 'mp-pamp', path: '', port: 4200 },
     { name: 'mp-pamp-setup', path: '', port: '' },
@@ -1945,7 +1946,18 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     if (projectName === 'mp-pas-root') {
       command = 'npm run start'; // Comando específico para o mp-pas-root
     } else if (projectName.startsWith('mp-pas-')) {
-      command = `npm run serve:single-spa:${projectName.replace('mp-', '')}`;
+      // Para projetos PAS, usa a porta dinamicamente se disponível
+      const project = projects.find(p => p.path === projectPath);
+      const projectPort = project ? project.port : port;
+      
+      if (projectPort) {
+        // Constrói o comando com a porta específica do projeto
+        const projectKey = projectName.replace('mp-', '');
+        command = `ng s --project ${projectName} --disable-host-check --port ${projectPort} --live-reload false`;
+      } else {
+        // Fallback para o comando npm run se não houver porta definida
+        command = `npm run serve:single-spa:${projectName.replace('mp-', '')}`;
+      }
     } else if (isPampProject) {
       command = 'ng serve';
     } else {
@@ -1994,39 +2006,71 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       // Abre o console imediatamente antes de começar a instalação
       event.reply('show-console', { path: projectPath, index: projectIndex, isPamp: isPampProject });
 
-      // Executa npm install
-      const installProcess = exec('npm install', { cwd: projectPath });
+      // Executa npm install com configurações otimizadas para logs
+      const installProcess = exec('npm install --progress=true --verbose', { 
+        cwd: projectPath,
+        maxBuffer: 1024 * 1024 * 50, // Buffer maior (50MB)
+        env: { 
+          ...process.env,
+          npm_config_progress: 'true',
+          npm_config_loglevel: 'info' // Mais logs detalhados
+        }
+      });
+      
+      // Força flush do buffer a cada 500ms para logs mais frequentes
+      const logInterval = setInterval(() => {
+        if (installProcess && !installProcess.killed) {
+          console.log('📦 npm install em progresso...');
+          const progressMessage = '📦 Instalando dependências... (processo em andamento)';
+          if (isPampProject) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: progressMessage,
+              index: projectIndex,
+              name: projectName
+            });
+          } else {
+            event.reply('log', { path: projectPath, message: progressMessage });
+          }
+        }
+      }, 3000); // A cada 3 segundos mostra que está em progresso
+
       installProcess.stdout.on('data', (data) => {
         const cleanData = data.toString().trim();
-        console.log(`[npm install] ${cleanData}`);
-        if (isPampProject) {
-          event.reply('pamp-log', { 
-            path: projectPath, 
-            message: `[npm install] ${cleanData}`,
-            index: projectIndex,
-            name: projectName
-          });
-        } else {
-          event.reply('log', { path: projectPath, message: `[npm install] ${cleanData}` });
+        if (cleanData) { // Só loga se não for string vazia
+          console.log(`[npm install] ${cleanData}`);
+          if (isPampProject) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: `[npm install] ${cleanData}`,
+              index: projectIndex,
+              name: projectName
+            });
+          } else {
+            event.reply('log', { path: projectPath, message: `[npm install] ${cleanData}` });
+          }
         }
       });
 
       installProcess.stderr.on('data', (data) => {
         const cleanData = data.toString().trim();
-        console.error(`[npm install] ${cleanData}`);
-        if (isPampProject) {
-          event.reply('pamp-log', { 
-            path: projectPath, 
-            message: `[npm install] ${cleanData}`,
-            index: projectIndex,
-            name: projectName
-          });
-        } else {
-          event.reply('log', { path: projectPath, message: `[npm install] ${cleanData}` });
+        if (cleanData) { // Só loga se não for string vazia
+          console.error(`[npm install] ${cleanData}`);
+          if (isPampProject) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: `[npm install] ${cleanData}`,
+              index: projectIndex,
+              name: projectName
+            });
+          } else {
+            event.reply('log', { path: projectPath, message: `[npm install] ${cleanData}` });
+          }
         }
       });
 
       installProcess.on('close', (code) => {
+        clearInterval(logInterval); // Para o interval de progresso
         if (code === 0) {
           // Verifica cancelamento antes de executar comando de start
           if (checkCancelationAndExit(projectPath, "execução do comando de start após npm install")) {
@@ -2098,8 +2142,12 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       return;
     }
     
-    const process = exec(command, { cwd: projectPath });
-    runningProcesses[projectPath] = process;
+    const childProcess = exec(command, { 
+      cwd: projectPath,
+      maxBuffer: 1024 * 1024 * 50, // Buffer maior (50MB)
+      env: { ...process.env } // Preserva todas as variáveis de ambiente
+    });
+    runningProcesses[projectPath] = childProcess;
 
     // Determine se é um projeto PAMP pelo nome do diretório
     const projectName = path.basename(projectPath);
@@ -2113,7 +2161,30 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     // Variável para controle de mensagens "Compiled successfully" apenas
     let lastSuccessTime = 0;
 
-    process.stdout.on('data', (data) => {
+    // Função helper para enviar logs
+    const sendLog = (message, isError = false) => {
+      if (!message || !message.trim()) return; // Ignora mensagens vazias
+      
+      console.log(`[${isError ? 'STDERR' : 'STDOUT'}] ${message}`);
+      
+      if (isPampProject) {
+        event.reply('pamp-log', { 
+          path: projectPath, 
+          message: message,
+          index: projectIndex,
+          name: projectName,
+          error: isError
+        });
+      } else {
+        event.reply('log', { 
+          path: projectPath, 
+          message: message,
+          error: isError
+        });
+      }
+    };
+
+    childProcess.stdout.on('data', (data) => {
       let cleanData;
       try {
         cleanData = removeAnsiCodes(data.toString().trim());
@@ -2131,7 +2202,8 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         lastSuccessTime = now;
       }
 
-      console.log(`[STDOUT] ${cleanData}`);
+      // Usa a função helper para enviar logs
+      sendLog(cleanData);
 
       // Detecta se uma porta está em uso
       const portInUseMatch = cleanData.match(/Port (\d+) is already in use/);
@@ -2152,16 +2224,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           
           // Informa o usuário
           const message = `Porta ${detectedPort} em uso. Tentando matar o processo nessa porta...`;
-          if (isPampProject) {
-            event.reply('pamp-log', { 
-              path: projectPath, 
-              message,
-              index: projectIndex,
-              name: projectName
-            });
-          } else {
-            event.reply('log', { path: projectPath, message });
-          }
+          sendLog(message);
           
           // Encerra o processo atual que está esperando input
           if (runningProcesses[projectPath]) {
@@ -2183,17 +2246,8 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
                 console.log(nextMessage);
               }
               
-              // Informa o usuário
-              if (isPampProject) {
-                event.reply('pamp-log', { 
-                  path: projectPath, 
-                  message: nextMessage,
-                  index: projectIndex,
-                  name: projectName
-                });
-              } else {
-                event.reply('log', { path: projectPath, message: nextMessage });
-              }
+              // Informa o usuário usando sendLog
+              sendLog(nextMessage);
               
               // Inicia o projeto novamente após um breve intervalo
               setTimeout(() => {
@@ -2212,18 +2266,6 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         }
       }
 
-      // Envia o log para o frontend - SEMPRE envia, removendo a lógica de duplicação problemática
-      if (isPampProject) {
-        event.reply('pamp-log', { 
-          path: projectPath, 
-          message: cleanData,
-          index: projectIndex,
-          name: projectName
-        });
-      } else {
-        event.reply('log', { path: projectPath, message: cleanData });
-      }
-
       // Detecta palavras-chave para atualizar o status 
       if (
         cleanData.toLowerCase().includes('successfully') || 
@@ -2232,7 +2274,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         cleanData.includes('✓ Compiled successfully') ||
         cleanData.includes('ÔêÜ Compiled successfully') ||
         cleanData.includes('webpack compiled successfully') ||
-        cleanData.includes('webpack') && cleanData.includes('compiled successfully')
+        (cleanData.includes('webpack') && cleanData.includes('compiled successfully'))
       ) {
         console.log(`Projeto detectado como rodando: ${projectPath}`);
         event.reply('status-update', { 
@@ -2244,7 +2286,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       }
     });
 
-    process.stderr.on('data', (data) => {
+    childProcess.stderr.on('data', (data) => {
       let cleanData;
       try {
         cleanData = removeAnsiCodes(data.toString().trim());
@@ -2253,19 +2295,11 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         cleanData = data.toString().trim();
       }
 
-      if (isPampProject) {
-        event.reply('pamp-log', { 
-          path: projectPath, 
-          message: `- ${cleanData}`,
-          index: projectIndex,
-          name: projectName
-        });
-      } else {
-        event.reply('log', { path: projectPath, message: `- ${cleanData}` });
-      }
+      // Usa sendLog também para stderr
+      sendLog(cleanData, true);
     });
     
-    process.on('close', (code) => {
+    childProcess.on('close', (code) => {
       delete runningProcesses[projectPath];
       
       // Remove proteção de início múltiplo
