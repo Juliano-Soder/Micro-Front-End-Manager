@@ -11,9 +11,9 @@
       font-family: 'Fira Code', monospace;
       margin: 0;
       padding: 20px;
-      background-color: #f4f4f4;
-      color: #333;
-      max-width: 1200px;
+      background-color: #f4f4f4; /* Cor de fundo suave */
+      color: #333; /* Cor do texto */
+      max-width: 1200px; /* Limita a largura máxima */
       margin: 0 auto;
       transition: background-color 0.3s ease, color 0.3s ease;
     }
@@ -78,7 +78,7 @@
       border: 1px solid #ccc;
       padding: 15px;
       border-radius: 5px;
-      background-color: #fff;
+      background-color: #fff; /* Fundo branco para os cards */
       box-shadow: 0 2px 4px rgba(0,0,0,0.05);
       transition: background-color 0.3s ease, border-color 0.3s ease;
     }
@@ -88,6 +88,8 @@
       border-color: #555;
       box-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
+
+
 
     /* Status indicators */
     #pinter-status {
@@ -177,7 +179,7 @@
       color: #aaa;
     }
 
-    /* Console logs no modo escuro */
+    /* Console logs no modo escuro já estão com fundo preto, então mantemos eles */
     body.dark-mode div[id*="log-"] {
       background: #000 !important;
       color: #0f0 !important;
@@ -209,18 +211,8 @@
   
   <div id="pamp-mfes" style="display: none;"></div>
   <div id="projects" style="display: none;"></div>
-  
   <script>
   const { ipcRenderer } = require('electron');
-  
-  // Store projects globally for reference
-  let currentProjects = [];
-
-  // Função para aplicar tema
-  function applyTheme() {
-    // Carrega as configurações (incluindo modo escuro)
-    ipcRenderer.send('load-configs');
-  }
 
   const togglePampBtn = document.getElementById('toggle-pamp-mfes');
   const pampContainer = document.getElementById('pamp-mfes');
@@ -243,6 +235,9 @@
   });
 
   ipcRenderer.send('load-projects');
+
+  // Carrega as configurações (incluindo modo escuro)
+  ipcRenderer.send('load-configs');
   
   // Recebe as configurações e aplica o modo escuro se necessário
   ipcRenderer.on('configs-loaded', (event, configs) => {
@@ -261,8 +256,6 @@
   });
 
   ipcRenderer.on('projects-loaded', (event, projects) => {
-    // Store projects globally
-    currentProjects = projects;
 
     // PAMP
     const pampProjects = projects.filter(p => p.name && p.name.startsWith('mp-pamp'));
@@ -305,7 +298,98 @@
     const pampDeleteButton = document.getElementById(`pamp-btn-delete-${realIndex}`);
     const pampLogDiv = document.getElementById(`pamp-log-${realIndex}`);
 
-    // Event listeners para projetos PAMP
+    // Listener específico para este projeto PAMP
+    ipcRenderer.on('pamp-log', (event, { path, message, index, name, error, nodeVersionError }) => {
+      // Só processa se for para ESTE projeto específico
+      if (index !== realIndex) {
+        return;
+      }
+      
+      // Se for uma linha em branco, ignore
+      if (!message.trim()) {
+        return;
+      }
+      
+      // Verifica se a mensagem é igual à última mensagem adicionada
+      if (pampLogDiv) {
+        const currentText = pampLogDiv.innerText;
+        const lines = currentText.split('\n');
+        const lastLine = lines[lines.length - 1];
+        
+        // Se a mensagem for igual à última linha, ignore (exceto mensagens importantes)
+        if (lastLine === message && 
+            !message.includes('npm install') &&
+            !message.includes('Compiled successfully')) {
+          return;
+        }
+      }
+
+      console.log(`Recebeu pamp-log: ${message} para índice ${index}`);
+      
+      if (pampLogDiv) {
+        pampLogDiv.style.display = 'block';
+        pampLogDiv.innerText += `\n${message}`;
+        pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
+        
+        if (message.includes('existe em')) {
+          console.log('Mensagem contém "existe em", tentando extrair caminho');
+          try {
+            const existingPath = path;
+            console.log(`Caminho extraído: ${existingPath}`);
+            
+            if (pampInput) {
+              pampInput.value = existingPath;
+              console.log(`Input atualizado com caminho: ${existingPath}`);
+              
+              if (pampDownloadButton) pampDownloadButton.style.display = 'none';
+              if (pampStartButton) pampStartButton.disabled = false;
+              if (pampDeleteButton) pampDeleteButton.style.display = 'inline-block';
+              
+              ipcRenderer.send('update-project-path', { index: realIndex, path: existingPath });
+            }
+          } catch (error) {
+            console.error('Erro ao extrair caminho:', error);
+          }
+        }
+
+        if (message.includes('terminou com código') && message.includes('1')) {
+          // Adiciona um aviso sobre a versão do Node.js
+          const nodeVersionSpan = document.getElementById('node-version');
+          const currentNodeVersion = nodeVersionSpan.innerText.replace('Node.js: ', '');
+          
+          let warningMessage;
+  
+          if (currentNodeVersion === 'v16.10.0') {
+            // Se a versão é correta, sugere verificar problemas de compilação
+            warningMessage = `\n\n⚠️ AVISO: O projeto apresentou erro de compilação. 
+            Verifique seu código fonte por possíveis problemas como:
+            • Dependências incompatíveis
+            • Erros de sintaxe
+            • Problemas de configuração
+            • Comandos de shell não disponíveis (como 'sed')`;
+          } else {
+            // Se a versão é incorreta, mantém o aviso sobre a versão do Node.js
+            warningMessage = `\n\n⚠️ AVISO: O erro acima pode ser causado pela versão incompatível do Node.js (${currentNodeVersion}).
+            Projetos PAMP requerem Node.js v16.10.0. Por favor, instale a versão correta para evitar erros de sintaxe.`;
+          }
+          
+          if (pampLogDiv) {
+            pampLogDiv.style.display = 'block';
+            
+            // Adicionar estilo para destacar o aviso
+            pampLogDiv.innerHTML += `<div style="color: yellow; margin-top: 10px; border-top: 1px solid #444; padding-top: 10px;">${warningMessage}</div>`;
+            pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
+          }
+        }
+        
+        if (message.includes('Caminho do projeto:') || message.includes('Projeto baixado')) {
+          if (pampDownloadButton) pampDownloadButton.style.display = 'none';
+        }
+      } else {
+        console.error(`Elemento log não encontrado para índice ${realIndex}`);
+      }
+    });
+
     pampInput.addEventListener('blur', () => {
       ipcRenderer.send('update-project-path', { index: realIndex, path: pampInput.value });
       if (pampInput.value.trim()) {
@@ -322,7 +406,7 @@
     });
 
     pampDownloadButton.addEventListener('click', () => {
-      pampFolderIcon.classList.add('disabled');
+      pampFolderIcon.classList.add('disabled'); // Desabilita durante o download
       ipcRenderer.send('download-project', { name: project.name, index: realIndex });
     });
 
@@ -332,6 +416,7 @@
 
     pampMoveButton.addEventListener('click', () => {
       if (pampInput.value.trim()) {
+        // Verifica se o projeto está rodando
         if (pampStartButton.innerText === 'Rodando ✓') {
           alert('Não é possível mover o projeto enquanto ele estiver rodando. Pare o projeto primeiro.');
           return;
@@ -352,7 +437,7 @@
     pampDeleteButton.addEventListener('click', () => {
       if (confirm(`Tem certeza que deseja deletar o projeto ${project.name}?`)) {
         pampDeleteButton.disabled = true;
-        pampFolderIcon.classList.add('disabled');
+        pampFolderIcon.classList.add('disabled'); // Desabilita o ícone durante a deleção
         ipcRenderer.send('delete-project', { index: realIndex, path: pampInput.value });
       }
     });
@@ -360,15 +445,17 @@
     pampStartButton.addEventListener('click', (event) => {
       pampStartButton.disabled = true;
       pampStartButton.innerText = 'Executando...';
-      pampCancelButton.style.display = 'inline-block';
-      pampFolderIcon.classList.add('disabled');
+      pampCancelButton.style.display = 'inline-block'; // Mostra botão cancelar
+      pampFolderIcon.classList.add('disabled'); // Desabilita durante a execução
       if (pampDeleteButton) pampDeleteButton.disabled = true;      
       ipcRenderer.send('start-project-pamp', { projectPath: pampInput.value, port: project.port });
     });
 
     pampCancelButton.addEventListener('click', () => {
+      // Cancela o processo de inicialização
       ipcRenderer.send('cancel-project-startup', { projectPath: pampInput.value, isPamp: true, index: realIndex });
       
+      // Restaura o estado dos botões
       pampStartButton.disabled = false;
       pampStartButton.innerText = 'Iniciar';
       pampCancelButton.style.display = 'none';
@@ -378,12 +465,15 @@
 
     pampTerminalButton.addEventListener('click', () => {
       if (pampInput.value.trim()) {
+        // Desabilita o ícone temporariamente para evitar cliques múltiplos
         pampTerminalButton.style.opacity = '0.5';
         pampTerminalButton.style.pointerEvents = 'none';
         pampTerminalButton.title = 'Abrindo terminal...';
         
+        // Envia comando para abrir terminal
         ipcRenderer.send('open-terminal', { projectPath: pampInput.value });
         
+        // Reabilita o ícone após 5 segundos
         setTimeout(() => {
           pampTerminalButton.style.opacity = '1';
           pampTerminalButton.style.pointerEvents = 'auto';
@@ -399,13 +489,32 @@
     });
 
   });  
-    
+    // FIM PAMP Projects
+
+  // Listener global para logs de deleção do PAMP (independente do índice)
+  ipcRenderer.on('pamp-log', (event, { path, message, index, name, error, nodeVersionError }) => {
+    // Só processa mensagens de deleção ou erro que não foram capturadas pelos listeners específicos
+    if (message && (message.includes('Deletando') || message.includes('Erro ao deletar') || message.includes('deletado com sucesso') || message.includes('pode encontrar o arquivo especificado'))) {
+      console.log(`Log global de deleção PAMP: ${message} para índice ${index}`);
+      
+      const pampLogDiv = document.getElementById(`pamp-log-${index}`);
+      if (pampLogDiv) {
+        pampLogDiv.style.display = 'block';
+        pampLogDiv.innerText += `\n${message}`;
+        pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
+      } else {
+        console.error(`Elemento log PAMP não encontrado para índice ${index} (log global)`);
+      }
+    }
+  });
+
   // Projects PAS
   const pasProjects = projects.filter(p => p.name && !p.name.startsWith('mp-pamp'));
   const container = document.getElementById('projects');
   container.innerHTML = '';
 
   pasProjects.forEach((project, pasIndex) => {
+    // Descubra o índice real no array projects
     const realIndex = projects.findIndex(p => p.name === project.name);
     const div = document.createElement('div');
     div.innerHTML = `
@@ -440,9 +549,9 @@
     const deleteButton = document.getElementById(`btn-delete-${realIndex}`);
     const logDiv = document.getElementById(`log-${realIndex}`);
   
-    // Event listeners para projetos PAS
     input.addEventListener('blur', () => {
       ipcRenderer.send('update-project-path', { index: realIndex, path: input.value });
+      // Oculta o botão "Baixar Projeto" se o path for preenchido
       if (input.value.trim()) {
           downloadButton.style.display = 'none';
           startButton.disabled = false;
@@ -466,15 +575,18 @@
     startButton.addEventListener('click', (event) => {
       startButton.disabled = true;
       startButton.innerText = 'Executando...';
-      cancelButton.style.display = 'inline-block';
+      cancelButton.style.display = 'inline-block'; // Mostra botão cancelar
+      // Desabilite o botão de delete correspondente
       const deleteButton = document.getElementById(`btn-delete-${event.currentTarget.getAttribute('data-index')}`);
       if (deleteButton) deleteButton.disabled = true;      
       ipcRenderer.send('start-project', { projectPath: input.value, port: project.port });
     });
   
     cancelButton.addEventListener('click', () => {
+      // Cancela o processo de inicialização
       ipcRenderer.send('cancel-project-startup', { projectPath: input.value, isPamp: false, index: realIndex });
       
+      // Restaura o estado dos botões
       startButton.disabled = false;
       startButton.innerText = 'Iniciar';
       cancelButton.style.display = 'none';
@@ -484,12 +596,15 @@
 
     terminalButton.addEventListener('click', () => {
       if (input.value.trim()) {
+        // Desabilita o ícone temporariamente para evitar cliques múltiplos
         terminalButton.style.opacity = '0.5';
         terminalButton.style.pointerEvents = 'none';
         terminalButton.title = 'Abrindo terminal...';
         
+        // Envia comando para abrir terminal
         ipcRenderer.send('open-terminal', { projectPath: input.value });
         
+        // Reabilita o ícone após 5 segundos
         setTimeout(() => {
           terminalButton.style.opacity = '1';
           terminalButton.style.pointerEvents = 'auto';
@@ -506,6 +621,7 @@
 
     moveButton.addEventListener('click', () => {
       if (input.value.trim()) {
+        // Verifica se o projeto está rodando
         if (startButton.innerText === 'Rodando ✓') {
           alert('Não é possível mover o projeto enquanto ele estiver rodando. Pare o projeto primeiro.');
           return;
@@ -525,103 +641,49 @@
 
     deleteButton.addEventListener('click', () => {
       if (confirm(`Tem certeza que deseja deletar o projeto ${project.name}?`)) {
-        deleteButton.disabled = true;
+        deleteButton.disabled = true; // Desabilita o botão durante a execução
         ipcRenderer.send('delete-project', { index: realIndex, path: input.value });
       }
     });
     
+    ipcRenderer.on('delete-project-log', (event, { path, message, success }) => {
+      const input = document.querySelector(`#projects input[value="${path}"]`);
+      if (input) {
+        const logDiv = input.nextElementSibling.nextElementSibling.nextElementSibling.nextElementSibling;
+        const deleteButton = input.nextElementSibling.nextElementSibling;
+        const startButton = input.nextElementSibling;
+    
+        logDiv.style.display = 'block';
+        logDiv.innerText += `\n${message}`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+    
+        if (success) {
+          input.value = ''; // Limpa o caminho do input
+          window.location.reload();
+        } else {
+          deleteButton.disabled = false; // Reabilita o botão em caso de erro
+        }
+      }
+    });
+  
+    ipcRenderer.on('log', (event, { path, message }) => {
+      if (project.path === path || message.includes(project.name)) {
+          logDiv.style.display = 'block';
+          logDiv.innerText += `\n${message}`;
+          logDiv.scrollTop = logDiv.scrollHeight;
+
+          // Oculta o botão "Baixar Projeto" se o path for definido
+          if (message.includes('Caminho do projeto:')) {
+              downloadButton.style.display = 'none';
+          }
+      }
+    });
     });
   });
 
-  // IPC Listeners globais
-  
-  // Listener específico para este projeto PAMP
-  ipcRenderer.on('pamp-log', (event, { path, message, index, name, error, nodeVersionError }) => {
-    const pampLogDiv = document.getElementById(`pamp-log-${index}`);
-    
-    if (!message || !message.trim()) {
-      return;
-    }
-    
-    // Verifica se a mensagem é igual à última mensagem adicionada
-    if (pampLogDiv) {
-      const currentText = pampLogDiv.innerText;
-      const lines = currentText.split('\n');
-      const lastLine = lines[lines.length - 1];
-      
-      if (lastLine === message && 
-          !message.includes('npm install') &&
-          !message.includes('Compiled successfully')) {
-        return;
-      }
-    }
+  // Note: Drag and drop is initialized per card when created
 
-    console.log(`Recebeu pamp-log: ${message} para índice ${index}`);
-    
-    if (pampLogDiv) {
-      pampLogDiv.style.display = 'block';
-      pampLogDiv.innerText += `\n${message}`;
-      pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
-      
-      if (message.includes('existe em')) {
-        console.log('Mensagem contém "existe em", tentando extrair caminho');
-        try {
-          const existingPath = path;
-          console.log(`Caminho extraído: ${existingPath}`);
-          
-          const pampInput = document.getElementById(`pamp-input-${index}`);
-          const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
-          const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
-          const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
-          
-          if (pampInput) {
-            pampInput.value = existingPath;
-            console.log(`Input atualizado com caminho: ${existingPath}`);
-            
-            if (pampDownloadButton) pampDownloadButton.style.display = 'none';
-            if (pampStartButton) pampStartButton.disabled = false;
-            if (pampDeleteButton) pampDeleteButton.style.display = 'inline-block';
-            
-            ipcRenderer.send('update-project-path', { index: index, path: existingPath });
-          }
-        } catch (error) {
-          console.error('Erro ao extrair caminho:', error);
-        }
-      }
-
-      if (message.includes('terminou com código') && message.includes('1')) {
-        const nodeVersionSpan = document.getElementById('node-version');
-        const currentNodeVersion = nodeVersionSpan.innerText.replace('Node.js: ', '');
-        
-        let warningMessage;
-
-        if (currentNodeVersion === 'v16.10.0') {
-          warningMessage = `\n\n⚠️ AVISO: O projeto apresentou erro de compilação. 
-          Verifique seu código fonte por possíveis problemas como:
-          • Dependências incompatíveis
-          • Erros de sintaxe
-          • Problemas de configuração
-          • Comandos de shell não disponíveis (como 'sed')`;
-        } else {
-          warningMessage = `\n\n⚠️ AVISO: O erro acima pode ser causado pela versão incompatível do Node.js (${currentNodeVersion}).
-          Projetos PAMP requerem Node.js v16.10.0. Por favor, instale a versão correta para evitar erros de sintaxe.`;
-        }
-        
-        if (pampLogDiv) {
-          pampLogDiv.style.display = 'block';
-          pampLogDiv.innerHTML += `<div style="color: yellow; margin-top: 10px; border-top: 1px solid #444; padding-top: 10px;">${warningMessage}</div>`;
-          pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
-        }
-      }
-      
-      if (message.includes('Caminho do projeto:') || message.includes('Projeto baixado')) {
-        const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
-        if (pampDownloadButton) pampDownloadButton.style.display = 'none';
-      }
-    } else {
-      console.error(`Elemento log não encontrado para índice ${index}`);
-    }
-  });
+  // Listeners globais movidos para fora do loop para evitar duplicação
   
   // Listener para atualizações de status de projetos
   ipcRenderer.on('status-update', (event, { path, status, isPamp, index }) => {
@@ -645,7 +707,7 @@
           pampStartButton.style.backgroundColor = 'green';
           pampStartButton.style.color = 'white';
         }
-        if (pampCancelButton) pampCancelButton.style.display = 'none';
+        if (pampCancelButton) pampCancelButton.style.display = 'none'; // Esconde botão cancelar
         if (pampMoveButton) pampMoveButton.style.display = 'none';
         if (pampDeleteButton) pampDeleteButton.style.display = 'none';
         if (pampStopButton) pampStopButton.style.display = 'inline-block';
@@ -665,7 +727,7 @@
           pampStartButton.style.backgroundColor = '';
           pampStartButton.style.color = '';
         }
-        if (pampCancelButton) pampCancelButton.style.display = 'none';
+        if (pampCancelButton) pampCancelButton.style.display = 'none'; // Esconde botão cancelar
         if (pampStopButton) {
           pampStopButton.style.display = 'none';
           pampStopButton.disabled = false;
@@ -683,9 +745,10 @@
       }
     } else {
       // Tratamento para projetos PAS
+      // Usa o índice fornecido ou tenta encontrar pelo path como fallback
       let projectIndex = index;
       if (projectIndex === undefined || projectIndex === null) {
-        projectIndex = currentProjects.findIndex((project) => project.path === path);
+        projectIndex = projects.findIndex((project) => project.path === path);
       }
       
       if (projectIndex !== -1) {
@@ -702,7 +765,7 @@
             startButton.style.backgroundColor = 'green';
             startButton.style.color = 'white';
           }
-          if (cancelButton) cancelButton.style.display = 'none';
+          if (cancelButton) cancelButton.style.display = 'none'; // Esconde botão cancelar
           if (moveButton) moveButton.style.display = 'none';
           if (deleteButton) deleteButton.style.display = 'none';
           if (stopButton) stopButton.style.display = 'inline-block';
@@ -720,7 +783,7 @@
             startButton.style.backgroundColor = '';
             startButton.style.color = 'black';
           }
-          if (cancelButton) cancelButton.style.display = 'none';
+          if (cancelButton) cancelButton.style.display = 'none'; // Esconde botão cancelar
           if (stopButton) {
             stopButton.style.display = 'none';
             stopButton.disabled = false;
@@ -739,70 +802,37 @@
     }
   });
 
-  // Outros listeners IPC necessários
+  ipcRenderer.on('delete-project-log', (event, { path, message, success }) => {
+    const input = document.querySelector(`#projects input[value="${path}"]`);
+    if (input) {
+      const logDiv = input.nextElementSibling.nextElementSibling.nextElementSibling.nextElementSibling;
+      const deleteButton = input.nextElementSibling.nextElementSibling;
+      const startButton = input.nextElementSibling;
   
-  ipcRenderer.on('delete-project-log', (event, { path, message, success, index }) => {
-    let console = document.getElementById(`pamp-log-${index}`);
-    if (!console) {
-      console = document.getElementById(`log-${index}`);
-    }
-    
-    if (console && message) {
-      console.style.display = 'block';
-      console.innerText += `\n${message}`;
-      console.scrollTop = console.scrollHeight;
-    }
-    
-    if(message && message.includes('pode encontrar o arquivo especificado')) {
-      const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`) || document.getElementById(`btn-delete-${index}`);
-      const folderIcon = document.getElementById(`pamp-folder-icon-${index}`) || document.getElementById(`folder-icon-${index}`);
-      if (deleteBtn) deleteBtn.disabled = false;
-      if (folderIcon) folderIcon.classList.remove('disabled');
-      return;
-    }
-    
-     if (success) {
-      const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`) || document.getElementById(`btn-delete-${index}`);
-      const moveBtn = document.getElementById(`pamp-btn-move-${index}`) || document.getElementById(`btn-move-${index}`);
-      const downloadBtn = document.getElementById(`pamp-btn-download-${index}`) || document.getElementById(`btn-download-${index}`);
-      const startBtn = document.getElementById(`pamp-btn-start-${index}`) || document.getElementById(`btn-start-${index}`);
-      const stopBtn = document.getElementById(`pamp-btn-stop-${index}`) || document.getElementById(`btn-stop-${index}`);
-      const input = document.getElementById(`pamp-input-${index}`) || document.getElementById(`input-${index}`);
-      const folderIcon = document.getElementById(`pamp-folder-icon-${index}`) || document.getElementById(`folder-icon-${index}`);
-      
-      if (deleteBtn) deleteBtn.style.display = 'none';
-      if (moveBtn) moveBtn.style.display = 'none';
-      if (downloadBtn) downloadBtn.style.display = 'inline-block';
-      if (startBtn) {
-        startBtn.style.display = 'inline-block';
-        startBtn.disabled = true;
+      logDiv.style.display = 'block';
+      logDiv.innerText += `\n${message}`;
+      logDiv.scrollTop = logDiv.scrollHeight;
+  
+      if (success) {
+        input.value = ''; // Limpa o caminho do input
+        window.location.reload();
+      } else {
+        deleteButton.disabled = false; // Reabilita o botão em caso de erro
       }
-      if (stopBtn) stopBtn.style.display = 'none';
-      if (input) {
-        input.value = '';
-      }
-      if (folderIcon) folderIcon.classList.remove('disabled');
-      
-      setTimeout(() => {
-        if (console) {
-          console.innerText = '';
-          console.style.display = 'none';
-        }
-      }, 2000);
-    } else {
-      const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`) || document.getElementById(`btn-delete-${index}`);
-      if (deleteBtn) deleteBtn.disabled = false;
     }
-    });
+  });
 
   // Listeners para o processo de mover projetos
   ipcRenderer.on('move-project-log', (event, { index, message, success }) => {
+    // Tenta encontrar os elementos tanto para PAMP quanto para PAS
     const pampLogDiv = document.getElementById(`pamp-log-${index}`);
     const pampMoveButton = document.getElementById(`pamp-btn-move-${index}`);
     const logDiv = document.getElementById(`log-${index}`);
     const moveButton = document.getElementById(`btn-move-${index}`);
     
+    // Prioriza elementos PAMP se existirem, caso contrário usa PAS
     if (pampLogDiv && pampMoveButton) {
+      // É um projeto PAMP
       pampLogDiv.style.display = 'block';
       pampLogDiv.innerText += `\n${message}`;
       pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
@@ -810,6 +840,7 @@
       pampMoveButton.disabled = false;
       pampMoveButton.innerText = 'Mover para...';
     } else if (logDiv && moveButton) {
+      // É um projeto PAS
       logDiv.style.display = 'block';
       logDiv.innerText += `\n${message}`;
       logDiv.scrollTop = logDiv.scrollHeight;
@@ -820,7 +851,8 @@
   });
 
   ipcRenderer.on('update-project-path', (event, { index, path }) => {
-    const project = currentProjects[index];
+    // Verifica se é um projeto PAMP pelo índice
+    const project = projects[index];
     const isPampProject = project && project.name && project.name.startsWith('mp-pamp');
     
     if (isPampProject) {
@@ -847,7 +879,7 @@
         pampLogDiv.style.display = 'block';
       }
     } else {
-      const projectIndex = currentProjects.findIndex((project) => project.path === path);
+      const projectIndex = projects.findIndex((project) => project.path === path);
       if (projectIndex !== -1) {
         const logDiv = document.getElementById(`log-${projectIndex}`);
         if (logDiv) {
@@ -857,8 +889,62 @@
     }
   });
 
+  ipcRenderer.on('delete-project-log', (event, { path, message, success, index }) => {
+    const console = document.getElementById(`pamp-log-${index}`);
+    
+    // Sempre exibe a mensagem de log primeiro
+    if (console && message) {
+      console.style.display = 'block';
+      console.innerText += `\n${message}`;
+      console.scrollTop = console.scrollHeight;
+    }
+    
+    if(message.includes('pode encontrar o arquivo especificado')) {
+      // Em caso de erro, reabilita o botão deletar e o ícone
+      const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`);
+      const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
+      if (deleteBtn) deleteBtn.disabled = false;
+      if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
+      return;
+    }
+    
+     if (success) {
+      // Use querySelector para buscar os elementos mesmo que não existam variáveis de referência
+      const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`);
+      const moveBtn = document.getElementById(`pamp-btn-move-${index}`);
+      const downloadBtn = document.getElementById(`pamp-btn-download-${index}`);
+      const startBtn = document.getElementById(`pamp-btn-start-${index}`);
+      const stopBtn = document.getElementById(`pamp-btn-stop-${index}`);
+      const pampInput = document.getElementById(`pamp-input-${index}`);
+      const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
+      
+      if (deleteBtn) deleteBtn.style.display = 'none';
+      if (moveBtn) moveBtn.style.display = 'none';
+      if (downloadBtn) downloadBtn.style.display = 'inline-block';
+      if (startBtn) {
+        startBtn.style.display = 'inline-block';
+        startBtn.disabled = true;
+      }
+      if (stopBtn) stopBtn.style.display = 'none';
+      if (pampInput) {
+        pampInput.value = '';
+      }
+      if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
+      
+      setTimeout(() => {
+        if (console) {
+          console.innerText = ''; // Limpa o conteúdo
+          console.style.display = 'none';
+        }
+      }, 2000); // Aumentei para 2 segundos para dar tempo de ler
+    } else {
+      const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`);
+      if (deleteBtn) deleteBtn.disabled = false;
+    }
+    });
+
   // Atualiza o status de login
-  ipcRenderer.on('log', (event, { message, path }) => {
+  ipcRenderer.on('log', (event, { message }) => {
       const statusDiv = document.getElementById('status');
       if (message.includes('Logado no Nexus com sucesso')) {
         statusDiv.innerText = 'Logado no Nexus ✓';
@@ -867,23 +953,6 @@
         statusDiv.innerText = 'Erro no login ✗';
         statusDiv.style.background = 'red';
       }
-      
-      // Log messages para projetos específicos
-      currentProjects.forEach((project, index) => {
-        if (project.path === path || message.includes(project.name)) {
-            const logDiv = document.getElementById(`log-${index}`);
-            if (logDiv) {
-              logDiv.style.display = 'block';
-              logDiv.innerText += `\n${message}`;
-              logDiv.scrollTop = logDiv.scrollHeight;
-
-              if (message.includes('Caminho do projeto:')) {
-                  const downloadButton = document.getElementById(`btn-download-${index}`);
-                  if (downloadButton) downloadButton.style.display = 'none';
-              }
-            }
-        }
-      });
   });
 
   ipcRenderer.send('load-login-state');
@@ -901,7 +970,6 @@
 
   ipcRenderer.send('load-node-info');
   ipcRenderer.send('load-angular-info');
-  
   ipcRenderer.on('node-info', (event, { version, warning }) => {
     const nodeVersionSpan = document.getElementById('node-version');
     const nodeWarningDiv = document.getElementById('node-warning');
@@ -938,9 +1006,9 @@
     }
   });
 
-  // Outros handlers IPC necessários
   ipcRenderer.on('update-project', (event, { index, path }) => {
-    const project = currentProjects[index];
+    // Verifica se é um projeto PAMP pelo índice no array de projetos
+    const project = projects[index];
     const isPampProject = project && project.name && project.name.startsWith('mp-pamp');
     
     if(isPampProject) {
@@ -950,12 +1018,13 @@
       const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
       const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
   
-      if (pampInput) pampInput.value = path;
-      if (pampInput) pampInput.disabled = false;
-      if (pampMoveButton) pampMoveButton.style.display = 'none';
-      if (pampDeleteButton) pampDeleteButton.style.display = 'none';
-      if (pampDownloadButton) pampDownloadButton.style.display = 'inline-block';
-      if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
+      // Atualiza o valor do input e os botões relacionados ao projeto deletado
+      pampInput.value = path;
+      pampInput.disabled = false;
+      pampMoveButton.style.display = 'none'; // Oculta o botão "Mover para..."
+      pampDeleteButton.style.display = 'none'; // Oculta o botão "Deletar"
+      pampDownloadButton.style.display = 'inline-block'; // Reexibe o botão "Baixar Projeto"
+      if (pampFolderIcon) pampFolderIcon.classList.remove('disabled'); // Habilita o ícone da pasta
     }else {
       const input = document.getElementById(`input-${index}`);
       const moveButton = document.getElementById(`btn-move-${index}`);
@@ -963,15 +1032,17 @@
       const browseButton = document.getElementById(`btn-browse-${index}`);
       const downloadButton = document.getElementById(`btn-download-${index}`);
     
-      if (input) input.value = path;
-      if (input) input.disabled = false;
-      if (moveButton) moveButton.style.display = 'none';
-      if (deleteButton) deleteButton.style.display = 'none';
-      if (browseButton) browseButton.style.display = 'inline-block';
-      if (downloadButton) downloadButton.style.display = 'inline-block';
+      // Atualiza o valor do input e os botões relacionados ao projeto deletado
+      input.value = path;
+      input.disabled = false;
+      moveButton.style.display = 'none'; // Oculta o botão "Mover para..."
+      deleteButton.style.display = 'none'; // Oculta o botão "Deletar"
+      browseButton.style.display = 'inline-block'; // Reexibe o botão "Procurar"
+      downloadButton.style.display = 'inline-block'; // Reexibe o botão "Baixar Projeto"
     }
   });
   
+  // Para projetos PAMP
   ipcRenderer.on('pamp-process-error', (event, { path, index }) => {
     console.log(`Projeto PAMP com erro, resetando botões para índice ${index}`);
     const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
@@ -985,7 +1056,7 @@
     }
     
     if (pampCancelButton) {
-      pampCancelButton.style.display = 'none';
+      pampCancelButton.style.display = 'none'; // Esconde botão cancelar
     }
     
     if (pampDeleteButton) {
@@ -998,8 +1069,10 @@
     }
   });
   
+  // Para projetos PAS
   ipcRenderer.on('process-error', (event, { path }) => {
-    const projectIndex = currentProjects.findIndex(p => p.path === path);
+    // Encontre o projeto pelo caminho
+    const projectIndex = projects.findIndex(p => p.path === path);
     if (projectIndex !== -1) {
       const startButton = document.getElementById(`btn-start-${projectIndex}`);
       const cancelButton = document.getElementById(`btn-cancel-${projectIndex}`);
@@ -1013,7 +1086,7 @@
       }
       
       if (cancelButton) {
-        cancelButton.style.display = 'none';
+        cancelButton.style.display = 'none'; // Esconde botão cancelar
       }
       
       if (deleteButton) {
@@ -1023,15 +1096,18 @@
     }
   });
 
+  // Handler para resposta do browse de projeto
   ipcRenderer.on('project-path-selected', (event, { index, path, projectName }) => {
     console.log(`Recebida resposta do browse: projeto ${projectName}, índice ${index}, caminho ${path}`);
     
+    // Atualiza o input correspondente
     const pampInput = document.getElementById(`pamp-input-${index}`);
     const pasInput = document.getElementById(`input-${index}`);
     
     if (pampInput) {
       pampInput.value = path;
       
+      // Atualiza os botões da seção PAMP
       const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
       const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
       const pampMoveButton = document.getElementById(`pamp-btn-move-${index}`);
@@ -1046,6 +1122,7 @@
     if (pasInput) {
       pasInput.value = path;
       
+      // Atualiza os botões da seção PAS
       const downloadButton = document.getElementById(`btn-download-${index}`);
       const startButton = document.getElementById(`btn-start-${index}`);
       const moveButton = document.getElementById(`btn-move-${index}`);
@@ -1057,13 +1134,194 @@
       if (deleteButton) deleteButton.style.display = 'inline-block';
     }
     
+    // Envia a atualização para o backend
     ipcRenderer.send('update-project-path', { index: index, path: path });
   });
 
-  // Initialize UI after DOM is loaded
-  document.addEventListener('DOMContentLoaded', function() {
-    applyTheme();
+  // Handler para verificação manual do status do Nexus
+  ipcRenderer.on('check-nexus-status', () => {
+    ipcRenderer.send('check-nexus-status');
   });
+
+  // Drag and Drop functionality
+  function initializeDragAndDropForCard(card, isPamp) {
+    if (!card) return;
+    
+    const projectName = card.querySelector('strong').textContent.trim();
+    const isRootProject = projectName.includes('root');
+    
+    if (isRootProject) {
+      // Projects with "root" cannot be dragged
+      card.classList.add('fixed-position');
+      return;
+    }
+
+    // Make draggable
+    card.classList.add('draggable');
+    card.draggable = true;
+    
+    // Add drag event listeners
+    card.addEventListener('dragstart', handleDragStart);
+    card.addEventListener('dragend', handleDragEnd);
+  }
+
+  function initializeDragAndDrop() {
+    setupDragAndDrop('projects', false); // PAS projects
+    setupDragAndDrop('pamp-mfes', true); // PAMP projects
+  }
+
+  function setupDragAndDrop(containerId, isPamp) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const projectCards = container.querySelectorAll('.project-card');
+    
+    projectCards.forEach((card) => {
+      initializeDragAndDropForCard(card, isPamp);
+    });
+    
+    // Add container event listeners for better drop handling
+    container.addEventListener('dragover', handleContainerDragOver);
+    container.addEventListener('drop', handleContainerDrop);
+  }
+
+  let draggedElement = null;
+  let draggedProjectName = null;
+  let sourceContainer = null;
+  let dragStartY = 0;
+
+  function handleDragStart(e) {
+    draggedElement = e.currentTarget;
+    draggedProjectName = draggedElement.querySelector('strong').textContent.trim();
+    sourceContainer = draggedElement.closest('#projects, #pamp-mfes');
+    
+    // Store initial mouse position
+    dragStartY = e.clientY;
+    
+    draggedElement.classList.add('dragging');
+    
+    // Set drag data
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', draggedElement.outerHTML);
+    
+    console.log(`Iniciando drag de: ${draggedProjectName}`);
+  }
+
+  function handleDragEnd(e) {
+    if (draggedElement) {
+      draggedElement.classList.remove('dragging');
+      console.log(`Finalizando drag de: ${draggedProjectName}`);
+      
+      // Reset variables
+      draggedElement = null;
+      draggedProjectName = null;
+      sourceContainer = null;
+      dragStartY = 0;
+    }
+    
+    // Remove all visual indicators
+    document.querySelectorAll('.project-card.drag-over, .project-card.drag-above, .project-card.drag-below').forEach(card => {
+      card.classList.remove('drag-over', 'drag-above', 'drag-below');
+    });
+  }
+
+  function handleContainerDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    
+    if (!draggedElement) return;
+    
+    // Find the closest card to the mouse position
+    const container = e.currentTarget;
+    const afterElement = getDragAfterElement(container, e.clientY);
+    const cards = Array.from(container.querySelectorAll('.project-card:not(.dragging)'));
+    
+    // Remove previous indicators
+    cards.forEach(card => {
+      card.classList.remove('drag-above', 'drag-below');
+    });
+    
+    if (afterElement == null) {
+      // Dragging at the end
+      const lastCard = cards[cards.length - 1];
+      if (lastCard && !lastCard.querySelector('strong').textContent.includes('root')) {
+        lastCard.classList.add('drag-below');
+      }
+    } else {
+      // Dragging before another element
+      if (!afterElement.querySelector('strong').textContent.includes('root')) {
+        afterElement.classList.add('drag-above');
+      }
+    }
+  }
+
+  function handleContainerDrop(e) {
+    e.preventDefault();
+    
+    if (!draggedElement) return;
+    
+    const container = e.currentTarget;
+    const afterElement = getDragAfterElement(container, e.clientY);
+    
+    console.log('Drop detectado no container, afterElement:', afterElement?.querySelector('strong')?.textContent || 'null');
+    
+    // Only allow reordering within the same type (PAS with PAS, PAMP with PAMP)
+    if (sourceContainer !== container) {
+      console.log('Tentativa de mover entre containers diferentes - cancelado');
+      return;
+    }
+    
+    // Insert the dragged element at the correct position
+    if (afterElement == null) {
+      // Insert at the end
+      container.appendChild(draggedElement);
+      console.log('Elemento movido para o final');
+    } else {
+      // Insert before the afterElement
+      container.insertBefore(draggedElement, afterElement);
+      console.log('Elemento movido antes de:', afterElement.querySelector('strong').textContent);
+    }
+    
+    // Update project order array
+    updateProjectOrder(container);
+  }
+
+  function getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.project-card:not(.dragging):not(.fixed-position)')];
+    
+    return draggableElements.reduce((closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      
+      if (offset < 0 && offset > closest.offset) {
+        return { offset: offset, element: child };
+      } else {
+        return closest;
+      }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+  }
+
+  function updateProjectOrder(container) {
+    const projectOrder = [];
+    const isPamp = container.id === 'pamp-mfes';
+    
+    // Get all project names in the new order (excluding ROOT projects)
+    const reorderedCards = Array.from(container.querySelectorAll('.project-card'));
+    reorderedCards.forEach(card => {
+      const projectName = card.querySelector('strong').textContent.trim();
+      if (!projectName.includes('root')) {
+        projectOrder.push(projectName);
+      }
+    });
+
+    console.log(`Ordem atualizada para ${isPamp ? 'PAMP' : 'PAS'}:`, projectOrder);
+    
+    // Save the new order
+    ipcRenderer.send('save-project-order', { 
+      projectOrder: projectOrder, 
+      isPamp: isPamp 
+    });
+  }
 </script>
 </body>
 </html>

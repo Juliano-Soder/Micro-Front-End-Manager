@@ -148,37 +148,44 @@ async function preloadAngularInfo() {
     
     return new Promise((resolve) => {
       // Usar exec assíncrono com timeout maior
-      exec('ng version', { timeout: 10000 }, (error, stdout, stderr) => {
+      exec('ng version', { timeout: 15000 }, (error, stdout, stderr) => {
         if (error) {
           console.log('❌ Angular CLI não disponível no pré-carregamento:', error.message);
           
-          // Não marcar como indisponível - deixar para verificação posterior
+          // NÃO salva no cache quando há erro - deixa para verificação posterior
           appCache.angularInfo = {
             version: null,
             available: false,
-            needsReverification: true // Flag para indicar que precisa reverificar
+            needsReverification: true, // Flag para indicar que precisa reverificar
+            cacheSkipped: true // Indica que o cache foi pulado por erro
           };
           resolve();
           return;
         }
         
         const angularOutput = stdout.toString();
+        console.log('✅ Angular CLI encontrado no pré-carregamento');
         const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
         
         if (angularCliMatch) {
           const version = angularCliMatch[1];
+          // SOMENTE salva no cache quando CONFIRMADO como disponível
           appCache.angularInfo = {
             version: version,
             available: true,
+            confirmed: true, // Flag para indicar que foi confirmado
             fullOutput: angularOutput
           };
-          console.log(`✅ Angular CLI pré-carregado: ${version}`);
+          console.log(`✅ Angular CLI pré-carregado e confirmado: ${version}`);
         } else {
+          // Mesmo sem versão detectada, se chegou aqui é porque está instalado
           appCache.angularInfo = {
             version: 'Instalado (versão não detectada)',
             available: true,
+            confirmed: true,
             fullOutput: angularOutput
           };
+          console.log('✅ Angular CLI pré-carregado (versão não detectada mas confirmado)');
         }
         
         resolve();
@@ -186,7 +193,13 @@ async function preloadAngularInfo() {
     });
   } catch (error) {
     console.error('Erro no pré-carregamento do Angular:', error);
-    // Não definir cache em caso de erro
+    // NÃO define cache em caso de erro
+    appCache.angularInfo = {
+      version: null,
+      available: false,
+      needsReverification: true,
+      cacheSkipped: true
+    };
   }
 }
 
@@ -223,7 +236,10 @@ require('events').EventEmitter.defaultMaxListeners = 50;
 // Funções para gerenciar configurações (OTIMIZADAS COM CACHE)
 function getDefaultConfig() {
   return {
-    darkMode: false
+    darkMode: false,
+    projectOrder: [], // Array para armazenar a ordem customizada dos projetos (deprecated)
+    pasOrder: [], // Ordem específica dos projetos PAS
+    pampOrder: [] // Ordem específica dos projetos PAMP
   };
 }
 
@@ -668,13 +684,15 @@ function loadProjects() {
     { name: 'mp-pamp-marketplace', path: '', port: '' }
   ];
 
+  let loadedProjects = defaultProjects;
+
   if (fs.existsSync(projectsFile)) {
     const data = fs.readFileSync(projectsFile, 'utf-8');
     if (data.trim()) {
       const savedProjects = JSON.parse(data);
 
       // Mescla os projetos salvos com os padrões
-      return defaultProjects.map((defaultProject) => {
+      loadedProjects = defaultProjects.map((defaultProject) => {
         const savedProject = savedProjects.find(
           (project) => project.name === defaultProject.name
         );
@@ -685,8 +703,8 @@ function loadProjects() {
     }
   }
 
-  // Retorna apenas os projetos padrão se o arquivo não existir ou estiver vazio
-  return defaultProjects;
+  // Aplica a ordem customizada antes de retornar
+  return applyCustomProjectOrder(loadedProjects);
 }
 
 // Função para salvar os projetos
@@ -696,6 +714,96 @@ function saveProjects(projects) {
     fs.mkdirSync(dir, { recursive: true });
   }
   fs.writeFileSync(projectsFile, JSON.stringify(projects, null, 2), 'utf-8');
+}
+
+// Função para aplicar ordem customizada dos projetos (NOVA VERSÃO)
+function applyCustomProjectOrder(projects) {
+  // FORÇA UMA RELEITURA FRESH DA CONFIGURAÇÃO (sem cache)
+  let config;
+  try {
+    if (fs.existsSync(configFile)) {
+      const data = fs.readFileSync(configFile, 'utf-8');
+      config = JSON.parse(data);
+      // Mescla com configurações padrão para garantir que todas as propriedades existam
+      config = { ...getDefaultConfig(), ...config };
+    } else {
+      config = getDefaultConfig();
+    }
+  } catch (error) {
+    console.error('Erro ao carregar configuração fresh:', error);
+    config = getDefaultConfig();
+  }
+  
+  console.log('🔄 Aplicando ordenação personalizada dos projetos');
+  
+  // Separa projetos PAS e PAMP
+  const pasProjects = projects.filter(p => p.name && !p.name.startsWith('mp-pamp'));
+  const pampProjects = projects.filter(p => p.name && p.name.startsWith('mp-pamp'));
+  
+  // Aplica ordem personalizada aos projetos PAS
+  let orderedPasProjects = [];
+  if (config.pasOrder && config.pasOrder.length > 0) {
+    console.log('� Aplicando ordem personalizada PAS:', config.pasOrder);
+    // Primeiro, adiciona projetos na ordem salva
+    config.pasOrder.forEach(projectName => {
+      const project = pasProjects.find(p => p.name === projectName);
+      if (project && !orderedPasProjects.includes(project)) {
+        orderedPasProjects.push(project);
+      }
+    });
+    
+    // Depois, adiciona projetos que não estão na ordem salva (novos projetos)
+    pasProjects.forEach(project => {
+      if (!orderedPasProjects.includes(project)) {
+        orderedPasProjects.push(project);
+      }
+    });
+  } else {
+    console.log('📋 Usando ordem padrão para projetos PAS');
+    orderedPasProjects = pasProjects;
+  }
+  
+  // Aplica ordem personalizada aos projetos PAMP
+  let orderedPampProjects = [];
+  if (config.pampOrder && config.pampOrder.length > 0) {
+    console.log('📋 Aplicando ordem personalizada PAMP:', config.pampOrder);
+    // Primeiro, adiciona projetos na ordem salva
+    config.pampOrder.forEach(projectName => {
+      const project = pampProjects.find(p => p.name === projectName);
+      if (project && !orderedPampProjects.includes(project)) {
+        orderedPampProjects.push(project);
+      }
+    });
+    
+    // Depois, adiciona projetos que não estão na ordem salva (novos projetos)
+    pampProjects.forEach(project => {
+      if (!orderedPampProjects.includes(project)) {
+        orderedPampProjects.push(project);
+      }
+    });
+  } else {
+    console.log('📋 Usando ordem padrão para projetos PAMP');
+    orderedPampProjects = pampProjects;
+  }
+  
+  // Combina projetos ordenados: PAS primeiro, depois PAMP
+  return [...orderedPasProjects, ...orderedPampProjects];
+}
+
+// Nova função para aplicar ordenação aos projetos em memória
+function applyProjectOrdering() {
+  console.log('🔄 Reaplicando ordenação dos projetos...');
+  projects = applyCustomProjectOrder(projects);
+  console.log('✅ Ordenação aplicada aos projetos em memória');
+}
+
+// Função para salvar ordem customizada dos projetos (DEPRECIADA - mantida para compatibilidade)
+function saveCustomProjectOrder(projectOrder) {
+  console.log('⚠️  Função saveCustomProjectOrder está depreciada. Use a nova configuração separada para PAS e PAMP.');
+  const config = loadConfig();
+  config.projectOrder = projectOrder;
+  saveConfig(config);
+  console.log('💾 Ordem customizada dos projetos salva (modo compatibilidade):', projectOrder);
 }
 
 let projects = loadProjects();
@@ -856,6 +964,8 @@ function createSplashWindow() {
             const steps = [
                 'Inicializando sistema...',
                 'Carregando configurações...',
+                'Verificando Node.js...',
+                'Verificando Angular CLI...',
                 'Verificando dependências...',
                 'Preparando interface...',
                 'Finalizando...'
@@ -1514,11 +1624,18 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
   ipcMain.on('load-angular-info', (event) => {
     console.log('🔍 [ANGULAR DEBUG] Verificando Angular CLI em tempo real...');
     
-    // Se o cache indica que precisa reverificar, sempre faz nova verificação
-    const needsReverification = appCache.angularInfo && appCache.angularInfo.needsReverification;
+    // 🧠 LÓGICA INTELIGENTE:
+    // - Se cache mostra CONFIRMADO → usa cache (não verifica)  
+    // - Se cache mostra ERRO/NÃO CONFIRMADO → SEMPRE verifica
+    // - Sucesso SEMPRE sobrescreve falha
+    // - Falha NUNCA sobrescreve sucesso confirmado
     
-    if (appCache.angularInfo && appCache.angularInfo.available && !needsReverification) {
-      console.log('⚡ [ANGULAR DEBUG] Usando informação do cache');
+    const hasConfirmedCache = appCache.angularInfo && 
+                             appCache.angularInfo.available && 
+                             appCache.angularInfo.confirmed;
+    
+    if (hasConfirmedCache) {
+      console.log('⚡ [ANGULAR DEBUG] Cache confirmado - Angular CLI já verificado anteriormente');
       const version = appCache.angularInfo.version;
       let warning = null;
       
@@ -1530,80 +1647,146 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       return;
     }
     
+    console.log('🔍 [ANGULAR DEBUG] Cache não confirmado - verificando Angular CLI...');
     console.log('🔍 [ANGULAR DEBUG] PATH atual:', process.env.PATH?.slice(0, 200) + '...');
     
-    exec('ng version', { timeout: 15000 }, (error, stdout, stderr) => { // Timeout aumentado
-      console.log('🔍 [ANGULAR DEBUG] Resultado do comando ng version:', {
+    // Primeira verificação - tentativa principal
+    exec('ng version', { timeout: 20000 }, (error, stdout, stderr) => {
+      console.log('🔍 [ANGULAR DEBUG] Primeira verificação - Resultado:', {
         erro: error?.message,
         stdout: stdout?.slice(0, 200),
         stderr: stderr?.slice(0, 200)
       });
 
-      if (error) {
-        console.log('❌ [ANGULAR DEBUG] Angular CLI não disponível:', error.message);
+      if (!error && stdout) {
+        // SUCESSO na primeira tentativa
+        const angularOutput = stdout.toString();
+        const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
         
-        // Limpa o cache problemático
-        appCache.angularInfo = null;
+        console.log('✅ [ANGULAR DEBUG] Primeira verificação bem-sucedida');
         
-        // Tenta verificar se ng está no PATH
-        exec('where ng', { timeout: 5000 }, (whereError, whereStdout, whereStderr) => {
-          console.log('🔍 [ANGULAR DEBUG] Comando "where ng":', {
-            erro: whereError?.message,
-            stdout: whereStdout?.trim(),
-            stderr: whereStderr?.trim()
-          });
-        });
-        
-        event.reply('angular-info', { 
-          version: null, 
-          warning: 'Angular CLI não está instalado ou não está no PATH' 
-        });
+        if (angularCliMatch) {
+          const version = angularCliMatch[1];
+          let warning = null;
+          
+          if (version !== '13.3.11') {
+            warning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${version}, o que pode causar problemas.`;
+          }
+          
+          console.log(`✅ [ANGULAR DEBUG] Angular CLI encontrado: ${version}`);
+          
+          // SALVA NO CACHE APENAS QUANDO CONFIRMADO
+          appCache.angularInfo = {
+            version: version,
+            available: true,
+            confirmed: true,
+            fullOutput: angularOutput
+          };
+          saveAppCache();
+          
+          event.reply('angular-info', { version, warning });
+          
+        } else {
+          const version = 'Instalado (versão não detectada)';
+          console.log('✅ [ANGULAR DEBUG] Angular CLI instalado mas versão não detectada');
+          
+          // SALVA NO CACHE MESMO SEM VERSÃO DETECTADA
+          appCache.angularInfo = {
+            version: version,
+            available: true,
+            confirmed: true,
+            fullOutput: angularOutput
+          };
+          saveAppCache();
+          
+          event.reply('angular-info', { version, warning: null });
+        }
         return;
       }
       
-      const angularOutput = stdout.toString();
-      const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
+      // ERRO na primeira tentativa - tenta segunda verificação
+      console.log('⚠️ [ANGULAR DEBUG] Primeira verificação falhou - tentando segunda verificação...');
       
-      console.log('🔍 [ANGULAR DEBUG] Match da versão:', angularCliMatch);
-      
-      if (angularCliMatch) {
-        const version = angularCliMatch[1];
-        let warning = null;
-        
-        if (version !== '13.3.11') {
-          warning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${version}, o que pode causar problemas.`;
-        }
-        
-        console.log(`✅ [ANGULAR DEBUG] Angular CLI encontrado: ${version}`);
-        event.reply('angular-info', { version, warning });
-        
-        // Atualiza o cache com a informação correta
-        appCache.angularInfo = {
-          version: version,
-          available: true,
-          fullOutput: angularOutput,
-          needsReverification: false // Remove a flag de reverificação
-        };
-        saveAppCache();
-        
-      } else {
-        console.log('⚠️ [ANGULAR DEBUG] Angular CLI instalado mas versão não detectada');
-        console.log('🔍 [ANGULAR DEBUG] Output completo:', angularOutput);
-        
-        // Atualiza o cache mesmo sem versão detectada
-        appCache.angularInfo = {
-          version: 'Instalado (versão não detectada)',
-          available: true,
-          fullOutput: angularOutput,
-          needsReverification: false
-        };
-        saveAppCache();
-        
-        event.reply('angular-info', { 
-          version: 'Instalado (versão não detectada)', 
-          warning: null 
+      setTimeout(() => {
+        exec('ng --version', { timeout: 20000 }, (error2, stdout2, stderr2) => {
+          console.log('🔍 [ANGULAR DEBUG] Segunda verificação - Resultado:', {
+            erro: error2?.message,
+            stdout: stdout2?.slice(0, 200),
+            stderr: stderr2?.slice(0, 200)
+          });
+
+          if (!error2 && stdout2) {
+            // SUCESSO na segunda tentativa
+            const angularOutput = stdout2.toString();
+            const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
+            
+            console.log('✅ [ANGULAR DEBUG] Segunda verificação bem-sucedida');
+            
+            if (angularCliMatch) {
+              const version = angularCliMatch[1];
+              let warning = null;
+              
+              if (version !== '13.3.11') {
+                warning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${version}, o que pode causar problemas.`;
+              }
+              
+              console.log(`✅ [ANGULAR DEBUG] Angular CLI encontrado na segunda tentativa: ${version}`);
+              
+              // SALVA NO CACHE APÓS SEGUNDA VERIFICAÇÃO BEM-SUCEDIDA
+              appCache.angularInfo = {
+                version: version,
+                available: true,
+                confirmed: true,
+                fullOutput: angularOutput
+              };
+              saveAppCache();
+              
+              event.reply('angular-info', { version, warning });
+              
+            } else {
+              const version = 'Instalado (versão não detectada)';
+              console.log('✅ [ANGULAR DEBUG] Angular CLI instalado na segunda tentativa (versão não detectada)');
+              
+              appCache.angularInfo = {
+                version: version,
+                available: true,
+                confirmed: true,
+                fullOutput: angularOutput
+              };
+              saveAppCache();
+              
+              event.reply('angular-info', { version, warning: null });
+            }
+            return;
+          }
+          
+          // ERRO em ambas as tentativas
+          console.log('❌ [ANGULAR DEBUG] Ambas verificações falharam');
+          
+          // Se já havia um cache confirmado, NÃO sobrescreve
+          if (appCache.angularInfo && appCache.angularInfo.confirmed) {
+            console.log('� [ANGULAR DEBUG] Mantendo cache confirmado anterior - não sobrescrevendo com erro');
+            const version = appCache.angularInfo.version;
+            let warning = null;
+            
+            if (version !== '13.3.11' && version !== 'Instalado (versão não detectada)') {
+              warning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${version}, o que pode causar problemas.`;
+            }
+            
+            event.reply('angular-info', { version, warning });
+            return;
+          }
+          
+          // Se não há cache confirmado, reporta erro
+          console.log('❌ [ANGULAR DEBUG] Angular CLI não foi encontrado após ambas tentativas');
+          
+          // NÃO salva erro no cache - deixa para próxima verificação
+          event.reply('angular-info', { 
+            version: null, 
+            warning: 'Angular CLI não está disponível ou não está no PATH. Verifique se está instalado globalmente com: npm install -g @angular/cli' 
+          });
         });
-      }
+      }, 2000); // 2 segundos entre tentativas
     });
   });
 
@@ -1686,13 +1869,102 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     // O cache é apenas para acelerar o carregamento inicial, não para substituir dados
     console.log('📋 Carregando projetos:', projects.length, 'projetos encontrados');
     
-    event.reply('projects-loaded', projects);
+    // Aplica ordenação personalizada antes de enviar para o frontend
+    const orderedProjects = applyCustomProjectOrder(projects);
+    
+    event.reply('projects-loaded', orderedProjects);
     
     // Verifica se o login automático deve ser exibido
     const noPathsConfigured = projects.every((project) => !project.path);
     if (!isLoggedIn && noPathsConfigured) {
       console.log('Nenhum login detectado e nenhum projeto configurado. Exibindo login automático.');
       mainWindow.webContents.send('show-login');
+    }
+  });
+
+  // Novos handlers para configuração de ordem dos projetos
+  ipcMain.on('get-project-order', (event, type) => {
+    try {
+      const config = loadConfig();
+      const order = type === 'pas' ? config.pasOrder : config.pampOrder;
+      
+      console.log(`📋 Carregando ordem dos projetos ${type.toUpperCase()}:`, order);
+      event.reply('project-order-loaded', { type, order: order || [] });
+    } catch (error) {
+      console.error(`Erro ao carregar ordem dos projetos ${type}:`, error);
+      event.reply('project-order-loaded', { type, order: [] });
+    }
+  });
+
+  ipcMain.on('save-project-order', (event, { type, order }) => {
+    try {
+      console.log(`🔄 Tentando salvar ordem dos projetos ${type.toUpperCase()}:`, order);
+      
+      const config = loadConfig();
+      console.log('📋 Configuração atual:', JSON.stringify(config, null, 2));
+      
+      if (type === 'pas') {
+        config.pasOrder = order;
+        console.log('✅ pasOrder atualizado:', order);
+      } else if (type === 'pamp') {
+        config.pampOrder = order;
+        console.log('✅ pampOrder atualizado:', order);
+      }
+      
+      saveConfig(config);
+      console.log('💾 Configuração salva com sucesso');
+      
+      console.log(`✅ Ordem dos projetos ${type.toUpperCase()} salva:`, order);
+      
+      // Aplica a nova ordenação aos projetos em memória
+      console.log('🔄 Aplicando nova ordenação aos projetos em memória...');
+      applyProjectOrdering();
+      
+      // Envia os projetos ordenados para a tela principal IMEDIATAMENTE
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        console.log('📡 Enviando projetos reordenados para a tela principal...');
+        const orderedProjects = applyCustomProjectOrder(projects);
+        console.log('📋 Projetos após ordenação:', orderedProjects.map(p => p.name));
+        mainWindow.webContents.send('projects-loaded', orderedProjects);
+        console.log('✅ Projetos reordenados enviados para a tela principal');
+      } else {
+        console.log('⚠️  Janela principal não disponível para atualização');
+      }
+      
+      event.reply('project-order-saved', { success: true, type });
+      
+    } catch (error) {
+      console.error(`❌ Erro ao salvar ordem dos projetos ${type}:`, error);
+      event.reply('project-order-saved', { success: false, type, error: error.message });
+    }
+  });
+
+  ipcMain.on('reload-main-window', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      console.log('🔄 Recarregando janela principal...');
+      mainWindow.webContents.reload();
+    }
+  });
+
+  // Handler para salvar ordem customizada dos projetos
+  ipcMain.on('save-project-order', (event, { projectOrder }) => {
+    try {
+      // Filtra apenas projetos reordenáveis (não ROOT)
+      const reorderableOrder = projectOrder.filter(name => 
+        name !== 'mp-pas-root' && name !== 'mp-pamp'
+      );
+      
+      saveCustomProjectOrder(reorderableOrder);
+      
+      // Aplica a nova ordem aos projetos em memória
+      projects = applyCustomProjectOrder(projects);
+      
+      console.log('✅ Ordem dos projetos atualizada e aplicada');
+      event.reply('project-order-saved', { success: true });
+      
+    } catch (error) {
+      console.error('❌ Erro ao salvar ordem dos projetos:', error);
+      event.reply('project-order-saved', { success: false, error: error.message });
     }
   });
 
@@ -3415,6 +3687,75 @@ ipcMain.on('execute-command', (event, command) => {
       });
     });
   }
+
+  // 🔍 VERIFICAÇÃO DE BACKGROUND DO ANGULAR CLI APÓS APP CARREGAR
+  // Agenda uma verificação adicional do Angular CLI após o app estar totalmente carregado
+  // Isso garante que mesmo se a verificação inicial falhar, teremos uma segunda chance
+  setTimeout(() => {
+    console.log('🔍 [BACKGROUND] Iniciando verificação de background do Angular CLI...');
+    
+    // Só faz a verificação de background se não temos cache confirmado
+    const hasConfirmedCache = appCache.angularInfo && 
+                             appCache.angularInfo.available && 
+                             appCache.angularInfo.confirmed;
+    
+    if (hasConfirmedCache) {
+      console.log('⚡ [BACKGROUND] Cache já confirmado - pulando verificação de background');
+      return;
+    }
+    
+    console.log('🔍 [BACKGROUND] Verificando Angular CLI em background...');
+    exec('ng version', { timeout: 25000 }, (error, stdout, stderr) => {
+      if (!error && stdout) {
+        const angularOutput = stdout.toString();
+        const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
+        
+        if (angularCliMatch) {
+          const version = angularCliMatch[1];
+          console.log(`✅ [BACKGROUND] Angular CLI encontrado em verificação de background: ${version}`);
+          
+          // SALVA NO CACHE - esta é uma confirmação positiva
+          appCache.angularInfo = {
+            version: version,
+            available: true,
+            confirmed: true,
+            fullOutput: angularOutput
+          };
+          saveAppCache();
+          
+          // Notifica a interface sobre a mudança
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            let warning = null;
+            if (version !== '13.3.11') {
+              warning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${version}, o que pode causar problemas.`;
+            }
+            mainWindow.webContents.send('angular-info', { version, warning });
+            console.log('📡 [BACKGROUND] Interface notificada sobre Angular CLI encontrado');
+          }
+          
+        } else {
+          const version = 'Instalado (versão não detectada)';
+          console.log('✅ [BACKGROUND] Angular CLI instalado em background (versão não detectada)');
+          
+          appCache.angularInfo = {
+            version: version,
+            available: true,
+            confirmed: true,
+            fullOutput: angularOutput
+          };
+          saveAppCache();
+          
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('angular-info', { version, warning: null });
+            console.log('📡 [BACKGROUND] Interface notificada sobre Angular CLI (versão não detectada)');
+          }
+        }
+      } else {
+        console.log('❌ [BACKGROUND] Verificação de background do Angular CLI falhou:', error?.message);
+        // Não sobrescreve cache confirmado anterior, apenas ignora este erro
+      }
+    });
+  }, 5000); // 5 segundos após o app carregar
 }
 
 // Evento principal do aplicativo

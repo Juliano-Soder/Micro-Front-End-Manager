@@ -381,10 +381,271 @@
             </div>
         </div>
 
-        <div class="version-info">
-            Micro Front-End Manager v0.0.7
+                <p style="margin-top: 20px; font-size: 14px; color: #666; text-align: center;">
+                    💡 As alterações são salvas automaticamente quando você move os projetos
+                </p>
+            </div>
         </div>
     </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+
+        let currentProjects = [];
+        let currentOrderType = '';
+        let currentOrder = [];
+
+        // Carrega as configurações ao iniciar a página
+        document.addEventListener('DOMContentLoaded', () => {
+            loadConfigs();
+            loadProjects();
+        });
+
+        // Função para carregar as configurações
+        function loadConfigs() {
+            ipcRenderer.send('load-configs');
+        }
+
+        // Função para carregar os projetos
+        function loadProjects() {
+            ipcRenderer.send('load-projects');
+        }
+
+        // Recebe as configurações do processo principal
+        ipcRenderer.on('configs-loaded', (event, configs) => {
+            const darkModeToggle = document.getElementById('darkModeToggle');
+            
+            // Aplica o modo escuro se estiver habilitado
+            if (configs.darkMode) {
+                darkModeToggle.checked = true;
+                document.body.classList.add('dark-mode');
+            }
+        });
+
+        // Recebe os projetos do processo principal
+        ipcRenderer.on('projects-loaded', (event, projects) => {
+            currentProjects = projects;
+        });
+
+        // Função para alternar o modo escuro
+        function toggleDarkMode() {
+            const darkModeToggle = document.getElementById('darkModeToggle');
+            const isDarkMode = darkModeToggle.checked;
+            
+            // Aplica/remove a classe dark-mode
+            if (isDarkMode) {
+                document.body.classList.add('dark-mode');
+            } else {
+                document.body.classList.remove('dark-mode');
+            }
+            
+            // Salva a configuração
+            ipcRenderer.send('save-config', { key: 'darkMode', value: isDarkMode });
+            
+            // Envia para a janela principal aplicar o modo escuro também
+            ipcRenderer.send('apply-dark-mode', isDarkMode);
+        }
+
+        // Função para abrir modal de ordenação
+        function openOrderModal(type) {
+            currentOrderType = type;
+            const modal = document.getElementById('orderModal');
+            const modalTitle = document.getElementById('modalTitle');
+            
+            if (type === 'pas') {
+                modalTitle.textContent = 'Configurar Ordem dos MFEs PAS';
+                loadPasProjects();
+            } else {
+                modalTitle.textContent = 'Configurar Ordem dos MFEs PAMP';
+                loadPampProjects();
+            }
+            
+            modal.style.display = 'block';
+            
+            // Fecha modal ao clicar fora dele
+            modal.onclick = function(event) {
+                if (event.target === modal) {
+                    closeOrderModal();
+                }
+            };
+        }
+
+        // Função para fechar modal
+        function closeOrderModal() {
+            const modal = document.getElementById('orderModal');
+            modal.style.display = 'none';
+            currentOrderType = '';
+            currentOrder = [];
+        }
+
+        // Carrega projetos PAS
+        function loadPasProjects() {
+            const pasProjects = currentProjects.filter(p => p.name && !p.name.startsWith('mp-pamp'));
+            
+            ipcRenderer.send('get-project-order', 'pas');
+            
+            // Listener temporário para receber a ordem
+            ipcRenderer.once('project-order-loaded', (event, { type, order }) => {
+                if (type === 'pas') {
+                    displayProjectOrder(pasProjects, order);
+                }
+            });
+        }
+
+        // Carrega projetos PAMP
+        function loadPampProjects() {
+            const pampProjects = currentProjects.filter(p => p.name && p.name.startsWith('mp-pamp'));
+            
+            ipcRenderer.send('get-project-order', 'pamp');
+            
+            // Listener temporário para receber a ordem
+            ipcRenderer.once('project-order-loaded', (event, { type, order }) => {
+                if (type === 'pamp') {
+                    displayProjectOrder(pampProjects, order);
+                }
+            });
+        }
+
+        // Exibe a ordem dos projetos no modal
+        function displayProjectOrder(projects, savedOrder) {
+            const orderList = document.getElementById('orderList');
+            orderList.innerHTML = '';
+            
+            // Ordena projetos baseado na ordem salva ou ordem padrão
+            let orderedProjects = [...projects];
+            if (savedOrder && savedOrder.length > 0) {
+                orderedProjects = [];
+                // Primeiro, adiciona projetos na ordem salva
+                savedOrder.forEach(projectName => {
+                    const project = projects.find(p => p.name === projectName);
+                    if (project) {
+                        orderedProjects.push(project);
+                    }
+                });
+                // Depois, adiciona projetos que não estão na ordem salva
+                projects.forEach(project => {
+                    if (!savedOrder.includes(project.name)) {
+                        orderedProjects.push(project);
+                    }
+                });
+            }
+            
+            currentOrder = orderedProjects.map(p => p.name);
+            
+            orderedProjects.forEach((project, index) => {
+                const listItem = document.createElement('li');
+                listItem.className = 'order-item';
+                listItem.innerHTML = `
+                    <span class="project-name">${project.name}</span>
+                    <div class="order-controls">
+                        <button class="move-btn" onclick="moveProject(${index}, 'up')" ${index === 0 ? 'disabled' : ''}>▲</button>
+                        <button class="move-btn" onclick="moveProject(${index}, 'down')" ${index === orderedProjects.length - 1 ? 'disabled' : ''}>▼</button>
+                    </div>
+                `;
+                orderList.appendChild(listItem);
+            });
+        }
+
+        // Move projeto para cima ou para baixo
+        function moveProject(index, direction) {
+            if (direction === 'up' && index > 0) {
+                // Troca com o item acima
+                [currentOrder[index], currentOrder[index - 1]] = [currentOrder[index - 1], currentOrder[index]];
+            } else if (direction === 'down' && index < currentOrder.length - 1) {
+                // Troca com o item abaixo
+                [currentOrder[index], currentOrder[index + 1]] = [currentOrder[index + 1], currentOrder[index]];
+            }
+            
+            // Salva automaticamente após o movimento
+            saveOrderAutomatically();
+            
+            // Recarrega a exibição
+            const projects = currentProjects.filter(p => {
+                if (currentOrderType === 'pas') {
+                    return p.name && !p.name.startsWith('mp-pamp');
+                } else {
+                    return p.name && p.name.startsWith('mp-pamp');
+                }
+            });
+            
+            displayProjectOrder(projects, currentOrder);
+        }
+
+        // Salva a ordem automaticamente (nova função)
+        function saveOrderAutomatically() {
+            if (currentOrder.length === 0) {
+                console.log('Nenhuma ordem para salvar automaticamente');
+                return;
+            }
+            
+            console.log(`🔄 Salvamento automático: ${currentOrderType.toUpperCase()}`, currentOrder);
+            
+            ipcRenderer.send('save-project-order', {
+                type: currentOrderType,
+                order: currentOrder
+            });
+            
+            // Listener temporário para confirmar salvamento automático
+            ipcRenderer.once('project-order-saved', (event, { success, type }) => {
+                if (success) {
+                    console.log(`✅ Ordem dos projetos ${type.toUpperCase()} salva automaticamente!`);
+                    // Mostra uma pequena notificação visual sem interromper o usuário
+                    showAutoSaveNotification();
+                } else {
+                    console.error('❌ Erro no salvamento automático');
+                }
+            });
+        }
+
+        // Mostra notificação sutil de salvamento automático
+        function showAutoSaveNotification() {
+            const modalTitle = document.getElementById('modalTitle');
+            const originalText = modalTitle.textContent;
+            
+            // Mostra "Salvo ✓" brevemente
+            modalTitle.textContent = originalText + ' - Salvo ✓';
+            modalTitle.style.color = '#28a745';
+            
+            // Volta ao normal após 1.5 segundos
+            setTimeout(() => {
+                modalTitle.textContent = originalText;
+                modalTitle.style.color = '';
+            }, 1500);
+        }
+
+        // Salva a ordem dos projetos (função mantida para compatibilidade)
+        function saveOrder() {
+            saveOrderAutomatically();
+        }
+
+        // Função para fechar a janela de configurações
+        function closeConfig() {
+            console.log('Fechando janela de configurações...');
+            try {
+                ipcRenderer.send('close-config-window');
+            } catch (error) {
+                console.error('Erro ao fechar janela:', error);
+                // Fallback: tentar fechar via window
+                if (window.close) {
+                    window.close();
+                }
+            }
+        }
+
+        // Também permite fechar com a tecla ESC
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                const modal = document.getElementById('orderModal');
+                if (modal.style.display === 'block') {
+                    closeOrderModal();
+                } else {
+                    closeConfig();
+                }
+            }
+        });
+    </script>
+</body>
+</html>
 
     <!-- Modal para configuração de ordem -->
     <div id="orderModal" class="modal">
@@ -628,6 +889,11 @@
                 modalTitle.textContent = originalText;
                 modalTitle.style.color = '';
             }, 1500);
+        }
+
+        // Salva a ordem dos projetos (função mantida para compatibilidade)
+        function saveOrder() {
+            saveOrderAutomatically();
         }
 
         // Função para fechar a janela de configurações
