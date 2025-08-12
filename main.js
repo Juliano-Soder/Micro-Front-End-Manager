@@ -726,26 +726,209 @@ function checkCancelationAndExit(projectPath, stepName) {
 
 // Função para criar a splash screen
 function createSplashWindow() {
+  console.log('🎬 Criando splash screen...');
   splashWindow = new BrowserWindow({
-    width: 500,
-    height: 400,
+    width: 520, // Aumentado de 500 para evitar barra de rolagem
+    height: 420, // Aumentado de 400 para mais espaço
     frame: false,
     alwaysOnTop: true,
     transparent: false,
+    backgroundColor: '#1e1e1e', // Fundo de fallback
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      backgroundThrottling: false // Impede throttling
     },
     icon: path.join(__dirname, 'OIP.ico'),
-    show: false
+    show: true, // Mostra imediatamente
+    center: true,
+    resizable: false,
+    skipTaskbar: true
   });
 
-  splashWindow.loadFile('splash.html');
+  console.log('📁 Carregando splash.html...');
   
-  splashWindow.once('ready-to-show', () => {
-    splashWindow.show();
-    // Inicia o carregamento da aplicação principal em background
-    setTimeout(initializeMainApp, 100);
+  // Alternativa: carrega HTML diretamente na memória com conteúdo garantido
+  const splashHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {
+                margin: 0;
+                padding: 20px;
+                background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
+                color: white;
+                font-family: Arial, sans-serif;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                text-align: center;
+                overflow: hidden; /* Remove barra de rolagem */
+                box-sizing: border-box;
+                transition: background 0.3s, color 0.3s;
+            }
+            
+            /* Tema claro */
+            body.light-mode {
+                background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%) !important;
+                color: #222222 !important;
+            }
+            
+            .logo { 
+                font-size: 24px; 
+                margin-bottom: 20px;
+                background: linear-gradient(45deg, #0033C6, #E31233);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }
+            .spinner {
+                border: 4px solid #333;
+                border-top: 4px solid #0033C6;
+                border-radius: 50%;
+                width: 40px;
+                height: 40px;
+                animation: spin 1s linear infinite;
+                margin: 20px 0;
+            }
+            body.light-mode .spinner {
+                border: 4px solid #cccccc;
+                border-top: 4px solid #0033C6;
+            }
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            .progress-bar {
+                width: 300px;
+                height: 4px;
+                background: #333;
+                margin: 20px 0;
+                border-radius: 2px;
+                overflow: hidden;
+            }
+            body.light-mode .progress-bar {
+                background: #cccccc;
+            }
+            .progress-fill {
+                height: 100%;
+                background: linear-gradient(90deg, #0033C6, #E31233);
+                width: 0%;
+                transition: width 0.5s ease;
+            }
+            .loading-text {
+                color: #00ff00;
+                margin: 10px 0;
+            }
+            body.light-mode .loading-text {
+                color: #00aa00;
+            }
+            .status {
+                color: #888888;
+                font-size: 14px;
+                margin-top: 10px;
+            }
+            body.light-mode .status {
+                color: #666666;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="logo">🔧 Micro Front-End Manager</div>
+        <div class="spinner"></div>
+        <div class="loading-text">Carregando aplicação...</div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progress"></div>
+        </div>
+        <div class="status" id="status">Inicializando...</div>
+        
+        <script>
+            console.log('Splash screen carregada!');
+            const { ipcRenderer } = require('electron');
+            
+            let progress = 0;
+            const progressBar = document.getElementById('progress');
+            const status = document.getElementById('status');
+            
+            const steps = [
+                'Inicializando sistema...',
+                'Carregando configurações...',
+                'Verificando dependências...',
+                'Preparando interface...',
+                'Finalizando...'
+            ];
+            
+            let currentStep = 0;
+            
+            function updateProgress() {
+                if (currentStep < steps.length) {
+                    status.textContent = steps[currentStep];
+                    progress = ((currentStep + 1) / steps.length) * 90;
+                    progressBar.style.width = progress + '%';
+                    currentStep++;
+                    setTimeout(updateProgress, 800);
+                }
+            }
+            
+            // Função para aplicar tema
+            function applyTheme(isDark) {
+                console.log('Aplicando tema na splash:', isDark ? 'escuro' : 'claro');
+                if (isDark) {
+                    document.body.classList.remove('light-mode');
+                } else {
+                    document.body.classList.add('light-mode');
+                }
+            }
+            
+            // Listener para tema
+            ipcRenderer.on('apply-dark-mode', (event, isDarkMode) => {
+                applyTheme(isDarkMode);
+            });
+            
+            // Inicia imediatamente
+            updateProgress();
+            
+            // Listener para fechar
+            ipcRenderer.on('main-app-ready', () => {
+                progressBar.style.width = '100%';
+                status.textContent = 'Pronto!';
+                setTimeout(() => {
+                    ipcRenderer.send('close-splash');
+                }, 500);
+            });
+        </script>
+    </body>
+    </html>
+  `;
+  
+  splashWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splashHtml)}`);
+  
+  splashWindow.webContents.once('did-finish-load', () => {
+    console.log('💡 Splash screen HTML carregado diretamente');
+    splashWindow.focus();
+    
+    // Detecta e aplica o tema atual usando a função loadConfig() existente
+    try {
+      const config = loadConfig(); // Usa a função que já salva na pasta do usuário
+      const isDarkMode = config.darkMode === true; // Por padrão é false (tema claro)
+      
+      console.log(`🎨 Aplicando tema na splash: ${isDarkMode ? 'escuro' : 'claro'} (config.darkMode: ${config.darkMode})`);
+      
+      // Aguarda um pouco para garantir que o DOM esteja pronto
+      setTimeout(() => {
+        splashWindow.webContents.send('apply-dark-mode', isDarkMode);
+      }, 200);
+      
+    } catch (error) {
+      console.log('Erro ao aplicar tema na splash:', error);
+    }
+    
+    // DELAY MAIOR para garantir que a splash seja vista
+    console.log('⏳ Aguardando 3 segundos antes de iniciar app principal...');
+    setTimeout(initializeMainApp, 3000); // Aumentado para 3000ms
   });
 
   splashWindow.on('closed', () => {
@@ -1094,42 +1277,6 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         },
       ],
     },
-    {
-      label: 'Desenvolvimento',
-      submenu: [
-        {
-          label: 'Limpar Cache Angular CLI',
-          id: 'clear-angular-cache',
-          click: () => {
-            const menuItem = appMenu ? appMenu.getMenuItemById('clear-angular-cache') : null;
-            if (menuItem) {
-              menuItem.label = 'Limpando...';
-              menuItem.enabled = false;
-            }
-
-            // Limpa o cache do Angular CLI
-            console.log('🧹 Limpando cache problemático do Angular CLI');
-            if (appCache.angularInfo) {
-              appCache.angularInfo = null;
-            }
-            saveAppCache();
-            
-            // Envia mensagem para a interface
-            mainWindow.webContents.send('log', { 
-              message: '🧹 Cache do Angular CLI foi limpo. A próxima verificação será feita do zero.' 
-            });
-
-            // Reabilita o item do menu
-            setTimeout(() => {
-              if (menuItem) {
-                menuItem.label = 'Limpar Cache Angular CLI';
-                menuItem.enabled = true;
-              }
-            }, 1000);
-          },
-        },
-      ],
-    },
   ];
 
   // Define o menu e armazena a referência
@@ -1145,19 +1292,23 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     
     // Notifica a splash screen que está pronto
     if (splashWindow) {
+      console.log('📱 Notificando splash que app principal está pronto');
       splashWindow.webContents.send('main-app-ready');
     }
     
-    // Minimiza delay para mostrar a janela
+    // DELAY MAIOR para dar tempo da splash fazer a animação completa
     setTimeout(() => {
+      console.log('🚀 Mostrando janela principal e fechando splash');
       mainWindow.show();
       mainWindow.focus();
       
-      // Fecha a splash screen
-      if (splashWindow) {
-        splashWindow.close();
-      }
-    }, 500);
+      // Fecha a splash screen após mostrar a principal
+      setTimeout(() => {
+        if (splashWindow) {
+          splashWindow.close();
+        }
+      }, 200);
+    }, 2000); // Aumentado de 500ms para 2000ms
   });
 
   // Remove todos os listeners IPC existentes para evitar duplicação
