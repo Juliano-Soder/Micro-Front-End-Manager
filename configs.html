@@ -323,16 +323,37 @@
             cursor: pointer;
             font-size: 12px;
             font-weight: 500;
-            transition: background-color 0.3s ease;
+            transition: all 0.3s ease;
+            outline: none;
         }
 
         .move-btn:hover {
             background: #545b62;
+            transform: scale(1.1);
+        }
+
+        .move-btn:focus {
+            background: #007bff;
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.3);
+            transform: scale(1.1);
+        }
+
+        .move-btn:active {
+            background: #0056b3;
+            transform: scale(0.95);
         }
 
         .move-btn:disabled {
             background: #adb5bd;
             cursor: not-allowed;
+            transform: none;
+        }
+
+        .move-btn:disabled:hover,
+        .move-btn:disabled:focus {
+            background: #adb5bd;
+            transform: none;
+            box-shadow: none;
         }
 
         @keyframes fadeIn {
@@ -565,12 +586,17 @@
 
         // Move projeto para cima ou para baixo
         function moveProject(index, direction) {
+            let newIndex = index;
+            let projectName = currentOrder[index];
+            
             if (direction === 'up' && index > 0) {
                 // Troca com o item acima
                 [currentOrder[index], currentOrder[index - 1]] = [currentOrder[index - 1], currentOrder[index]];
+                newIndex = index - 1;
             } else if (direction === 'down' && index < currentOrder.length - 1) {
                 // Troca com o item abaixo
                 [currentOrder[index], currentOrder[index + 1]] = [currentOrder[index + 1], currentOrder[index]];
+                newIndex = index + 1;
             }
             
             // Salva automaticamente após o movimento
@@ -586,6 +612,63 @@
             });
             
             displayProjectOrder(projects, currentOrder);
+            
+            // Após recarregar, foca no projeto que foi movido
+            setTimeout(() => {
+                focusOnMovedProject(projectName, direction);
+            }, 50);
+        }
+
+        // Foca no projeto que foi movido para manter o cursor na posição correta
+        function focusOnMovedProject(projectName, direction) {
+            const orderList = document.getElementById('orderList');
+            const items = orderList.getElementsByClassName('order-item');
+            
+            // Encontra o item que foi movido pela nova posição
+            for (let i = 0; i < items.length; i++) {
+                const nameElement = items[i].querySelector('.project-name');
+                if (nameElement && nameElement.textContent === projectName) {
+                    // Encontra o botão correto (up ou down) dentro deste item
+                    const buttons = items[i].querySelectorAll('.move-btn');
+                    let targetButton = null;
+                    
+                    if (direction === 'up') {
+                        // Se moveu para cima, foca no botão "▲" da nova posição
+                        targetButton = Array.from(buttons).find(btn => btn.textContent === '▲' && !btn.disabled);
+                    } else if (direction === 'down') {
+                        // Se moveu para baixo, foca no botão "▼" da nova posição
+                        targetButton = Array.from(buttons).find(btn => btn.textContent === '▼' && !btn.disabled);
+                    }
+                    
+                    // Aplica o foco e um destaque visual
+                    if (targetButton) {
+                        targetButton.focus();
+                        
+                        // Adiciona um destaque visual temporário
+                        const item = items[i];
+                        const isDarkMode = document.body.classList.contains('dark-mode');
+                        
+                        // Cores diferentes para modo claro e escuro
+                        const highlightColor = isDarkMode ? '#264653' : '#e3f2fd';
+                        
+                        item.style.backgroundColor = highlightColor;
+                        item.style.transform = 'scale(1.02)';
+                        item.style.transition = 'all 0.3s ease';
+                        item.style.boxShadow = isDarkMode ? '0 0 10px rgba(33, 150, 243, 0.3)' : '0 0 10px rgba(0, 123, 255, 0.2)';
+                        
+                        // Remove o destaque após um tempo
+                        setTimeout(() => {
+                            item.style.backgroundColor = '';
+                            item.style.transform = '';
+                            item.style.boxShadow = '';
+                            setTimeout(() => {
+                                item.style.transition = '';
+                            }, 300);
+                        }, 800);
+                    }
+                    break;
+                }
+            }
         }
 
         // Salva a ordem automaticamente (nova função)
@@ -644,7 +727,7 @@
             }
         }
 
-        // Também permite fechar com a tecla ESC
+        // Também permite fechar com a tecla ESC e navegação por teclado
         document.addEventListener('keydown', (event) => {
             if (event.key === 'Escape') {
                 const modal = document.getElementById('orderModal');
@@ -652,6 +735,47 @@
                     closeOrderModal();
                 } else {
                     closeConfig();
+                }
+            }
+            
+            // Navegação por teclado no modal de ordenação
+            const modal = document.getElementById('orderModal');
+            if (modal.style.display === 'block') {
+                const focusedElement = document.activeElement;
+                
+                // Se está focado em um botão de movimento
+                if (focusedElement && focusedElement.classList.contains('move-btn')) {
+                    const orderList = document.getElementById('orderList');
+                    const items = Array.from(orderList.getElementsByClassName('order-item'));
+                    const currentItem = focusedElement.closest('.order-item');
+                    const currentIndex = items.indexOf(currentItem);
+                    
+                    if (event.key === 'ArrowUp' && currentIndex > 0) {
+                        // Move o foco para o item acima
+                        event.preventDefault();
+                        const prevItem = items[currentIndex - 1];
+                        const upButton = prevItem.querySelector('.move-btn[onclick*="up"]');
+                        if (upButton && !upButton.disabled) {
+                            upButton.focus();
+                        }
+                    } else if (event.key === 'ArrowDown' && currentIndex < items.length - 1) {
+                        // Move o foco para o item abaixo
+                        event.preventDefault();
+                        const nextItem = items[currentIndex + 1];
+                        const downButton = nextItem.querySelector('.move-btn[onclick*="down"]');
+                        if (downButton && !downButton.disabled) {
+                            downButton.focus();
+                        }
+                    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                        // Alterna entre botões ▲ e ▼ do mesmo item
+                        event.preventDefault();
+                        const buttons = currentItem.querySelectorAll('.move-btn:not(:disabled)');
+                        const currentButtonIndex = Array.from(buttons).indexOf(focusedElement);
+                        const nextButtonIndex = currentButtonIndex === 0 ? 1 : 0;
+                        if (buttons[nextButtonIndex]) {
+                            buttons[nextButtonIndex].focus();
+                        }
+                    }
                 }
             }
         });
