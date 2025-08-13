@@ -716,6 +716,26 @@ function handleInstallDependencies() {
     installWindow.webContents.send('start-installation');
   });
 
+  // Tratamento seguro para fechamento da janela
+  const closeHandler = () => {
+    if (!installWindow.isDestroyed()) {
+      try {
+        installWindow.close();
+        console.log('✅ Janela de instalação fechada com sucesso');
+      } catch (error) {
+        console.error('Erro ao fechar janela de instalação:', error);
+      }
+    }
+  };
+
+  // Listener único para esta instância da janela
+  const closeListener = () => {
+    closeHandler();
+    ipcMain.removeListener('close-install-window', closeListener);
+  };
+
+  ipcMain.once('close-install-window', closeListener);
+
   // Quando a janela de instalação é fechada, reabilita o menu
   installWindow.on('closed', () => {
     const menuItem = appMenu ? appMenu.getMenuItemById('install-deps') : null;
@@ -723,10 +743,38 @@ function handleInstallDependencies() {
       menuItem.label = 'Instalar Dependências';
       menuItem.enabled = true;
     }
+    // Remove o listener se ainda existir
+    ipcMain.removeListener('close-install-window', closeListener);
+    console.log('🧹 Limpeza de handlers da janela de instalação concluída');
   });
 
-  ipcMain.on('close-install-window', () => {
-    installWindow.close();
+  // Tratamento para quando a janela é fechada via [x] - PREVINE TRAVAMENTO
+  installWindow.on('close', (event) => {
+    console.log('Janela de instalação sendo fechada pelo usuário...');
+    // Não previne o fechamento - deixa fechar normalmente
+  });
+
+  // Tratamento para quando a janela é destruída - PREVINE VAZAMENTOS
+  installWindow.on('destroy', () => {
+    console.log('Janela de instalação destruída - removendo handlers');
+    ipcMain.removeListener('close-install-window', closeListener);
+  });
+
+  // Tratamento para erros não capturados
+  installWindow.webContents.on('crashed', () => {
+    console.error('Janela de instalação teve crash');
+    if (!installWindow.isDestroyed()) {
+      installWindow.close();
+    }
+  });
+
+  // Tratamento para contexto não responsivo
+  installWindow.webContents.on('unresponsive', () => {
+    console.warn('Janela de instalação não está respondendo');
+  });
+
+  installWindow.webContents.on('responsive', () => {
+    console.log('Janela de instalação voltou a responder');
   });
 }
 
@@ -737,6 +785,40 @@ let appMenu; // Referência global do menu para uso nas funções
 const projectsFile = path.join(userDataPath, 'projects.txt');
 let runningProcesses = {}; // Armazena os processos em execução
 let canceledProjects = new Set(); // Controla projetos que foram cancelados
+
+// Função utilitária para dialogs seguros
+function safeDialog(options) {
+  return new Promise((resolve, reject) => {
+    try {
+      // Verifica se a janela principal ainda existe e não foi destruída
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        resolve({ response: 0 }); // Default to "OK" or first option
+        return;
+      }
+
+      dialog.showMessageBox(mainWindow, options)
+        .then((result) => resolve(result))
+        .catch((error) => {
+          console.error('Dialog error:', error);
+          resolve({ response: 0 }); // Safe fallback
+        });
+        
+    } catch (error) {
+      console.error('Dialog creation error:', error);
+      resolve({ response: 0 }); // Safe fallback
+    }
+  });
+}
+
+// Função global para verificar Git (pode ser usada independentemente)
+function checkGitGlobal() {
+  try {
+    execSync('git --version', { encoding: 'utf8' });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
 
 function removeAnsiCodes(input) {
   return input.replace(
@@ -2705,7 +2787,10 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         'command not found',
         'permission denied',
         'enoent',
-        'eacces'
+        'eacces',
+        'git.*not found',
+        "'git' is not recognized",
+        'fatal: not a git repository'
       ];
       
       // Primeiro verifica se é um erro crítico
@@ -2732,10 +2817,27 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       
       console.log(`[${isError ? 'STDERR' : 'STDOUT'}] ${message}`);
       
+      // Detecta erros relacionados ao Git e adiciona orientação
+      const lowerMessage = message.toLowerCase();
+      let enhancedMessage = message;
+      
+      if (lowerMessage.includes('git') && (
+          lowerMessage.includes('not found') ||
+          lowerMessage.includes('command not found') ||
+          lowerMessage.includes("'git' is not recognized") ||
+          lowerMessage.includes('no such file or directory') ||
+          lowerMessage.includes('fatal: not a git repository')
+        )) {
+        enhancedMessage += '\n\n💡 SOLUÇÃO: Git não está instalado ou não está no PATH do sistema.';
+        enhancedMessage += '\n   • Acesse o menu "Instalar Dependências" para instalação automática';
+        enhancedMessage += '\n   • Ou instale manualmente em: https://git-scm.com/downloads';
+        enhancedMessage += '\n   • Após a instalação, reinicie o Micro Front-End Manager';
+      }
+      
       if (isPampProject) {
         event.reply('pamp-log', { 
           path: projectPath, 
-          message: message,
+          message: enhancedMessage,
           index: projectIndex,
           name: projectName,
           error: isError
@@ -2743,7 +2845,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       } else {
         event.reply('log', { 
           path: projectPath, 
-          message: message,
+          message: enhancedMessage,
           error: isError
         });
       }
@@ -3527,20 +3629,373 @@ ipcMain.on('execute-command', (event, command) => {
     await removeRecursive(dirPath);
   }
 
-  ipcMain.once('start-installation', async (event) => {
+  // Handler para instalação de dependências - usando 'on' em vez de 'once' para permitir múltiplas execuções
+  ipcMain.on('start-installation', async (event) => {
+    // Previne múltiplas execuções simultâneas
+    if (global.installationInProgress) {
+      event.reply('installation-log', '⚠️ Uma instalação já está em progresso...');
+      return;
+    }
 
-    console.log('Iniciando instalação do Node.js e Angular CLI...');
+    global.installationInProgress = true;
 
-    event.reply('installation-log', 'Iniciando instalação do Node.js e Angular CLI...');
-    event.reply('installation-log', 'Passo 1: Verificando Node.js...');
+    console.log('Iniciando instalação de dependências (Git, Node.js e Angular CLI)...');
 
-    const sendLog = (message) => {
-      console.log(message); // Log no console para depuração
-      event.reply('installation-log', message); // Envia o log para a janela de instalação
+    // Função para cleanup quando instalação terminar ou der erro
+    const cleanupInstallation = () => {
+      global.installationInProgress = false;
+      console.log('🧹 Limpeza da instalação concluída');
+    };
+
+    try {
+      event.reply('installation-log', 'Iniciando instalação de dependências...');
+      event.reply('installation-log', 'Verificando Git, Node.js e Angular CLI...');
+
+      const sendLog = (message) => {
+        console.log(message); // Log no console para depuração
+        // Verifica se o event sender ainda existe antes de enviar
+        try {
+          if (event && event.reply && !event.sender.isDestroyed()) {
+            event.reply('installation-log', message);
+          }
+        } catch (error) {
+          console.warn('Não foi possível enviar log para janela (provavelmente fechada):', message);
+        }
+      };
+
+    // Função para verificar Git
+    const checkGit = async () => {
+      sendLog('🔍 Passo 1: Verificando Git...');
+      try {
+        const gitVersion = execSync('git --version', { encoding: 'utf8' }).trim();
+        sendLog(`✅ Git encontrado: ${gitVersion}`);
+        return true;
+      } catch (error) {
+        sendLog('❌ Git não encontrado no sistema.');
+        return false;
+      }
+    };
+
+    // Função para instalar Git
+    const installGit = async () => {
+      const isWindows = os.platform() === 'win32';
+      const isLinux = os.platform() === 'linux';
+      const isMac = os.platform() === 'darwin';
+      
+      sendLog('📥 Iniciando instalação do Git...');
+      
+      if (isWindows) {
+        return await installGitWindows();
+      } else if (isLinux) {
+        return await installGitLinux();
+      } else if (isMac) {
+        return await installGitMac();
+      } else {
+        sendLog('❌ Sistema operacional não suportado para instalação automática do Git.');
+        sendLog('Por favor, instale o Git manualmente em: https://git-scm.com/downloads');
+        return false;
+      }
+    };
+
+    // Instalação do Git no Windows
+    const installGitWindows = async () => {
+      try {
+        sendLog('🪟 Detectado sistema Windows');
+        
+        // Função helper para aguardar confirmação do usuário
+        const waitForUserConfirmation = (message) => {
+          return new Promise((resolve) => {
+            sendLog(message);
+            sendLog('');
+            
+            // Para instalação de dependências, assumimos que o usuário quer continuar
+            // já que ele clicou propositalmente em "Instalar Dependências"
+            sendLog('💡 Prosseguindo automaticamente...');
+            sendLog('   (Usuário já confirmou ao clicar em "Instalar Dependências")');
+            sendLog('');
+            
+            // Pequeno delay para dar tempo de ler a mensagem
+            setTimeout(() => {
+              sendLog('✅ Continuando com a instalação...');
+              resolve(true);
+            }, 1500);
+          });
+        };
+        
+        // Verifica se winget está disponível
+        let hasWinget = false;
+        let hasChoco = false;
+        
+        try {
+          sendLog('🔍 Verificando se winget está instalado...');
+          await execPromise('winget --version');
+          sendLog('✅ winget encontrado!');
+          hasWinget = true;
+        } catch (wingetError) {
+          sendLog('❌ winget não encontrado');
+        }
+        
+        // Verifica se chocolatey está disponível
+        if (!hasWinget) {
+          try {
+            sendLog('🔍 Verificando se chocolatey está instalado...');
+            await execPromise('choco --version');
+            sendLog('✅ chocolatey encontrado!');
+            hasChoco = true;
+          } catch (chocoError) {
+            sendLog('❌ chocolatey não encontrado');
+          }
+        }
+        
+        // Se nenhum gerenciador está disponível, oferece instalação
+        if (!hasWinget && !hasChoco) {
+          sendLog('');
+          sendLog('🛠️ Nenhum gerenciador de pacotes encontrado (winget/chocolatey)');
+          sendLog('Para instalar o Git automaticamente, precisamos de um gerenciador de pacotes.');
+          sendLog('');
+          sendLog('Opções disponíveis:');
+          sendLog('1. winget (recomendado - moderno e integrado ao Windows)');
+          sendLog('2. chocolatey (alternativa popular)');
+          sendLog('');
+          
+          // Tenta instalar winget primeiro
+          const shouldInstallWinget = await waitForUserConfirmation('🔄 Deseja instalar o winget (Microsoft App Installer)?');
+          
+          if (shouldInstallWinget) {
+            try {
+              sendLog('� Instalando winget (Microsoft App Installer)...');
+              sendLog('Isso pode levar alguns minutos...');
+              
+              // Método 1: Tenta via Microsoft Store (mais confiável)
+              try {
+                sendLog('🏪 Abrindo Microsoft Store...');
+                await execPromise('start ms-windows-store://pdp/?ProductId=9NBLGGH4NNS1');
+                sendLog('ℹ️ Microsoft Store aberta para instalar "App Installer".');
+                sendLog('Após a instalação na Store, volte aqui.');
+                
+                const continueAfterStore = await waitForUserConfirmation('✅ Instalou o App Installer via Microsoft Store?');
+                if (continueAfterStore) {
+                  // Verifica se winget agora está disponível
+                  await execPromise('winget --version');
+                  sendLog('✅ winget instalado e funcionando!');
+                  hasWinget = true;
+                } else {
+                  throw new Error('Usuário não confirmou instalação via Store');
+                }
+                
+              } catch (storeError) {
+                sendLog('⚠️ Método via Store não funcionou, tentando download direto...');
+                
+                // Método 2: Download direto do pacote
+                try {
+                  const downloadWingetCommand = [
+                    '$ProgressPreference = "SilentlyContinue"',
+                    'Write-Output "Baixando Microsoft App Installer..."',
+                    '$url = "https://github.com/microsoft/winget-cli/releases/latest/download/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"',
+                    '$output = "$env:TEMP\\Microsoft.DesktopAppInstaller.msixbundle"',
+                    'Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing',
+                    'Write-Output "Instalando Microsoft App Installer..."',
+                    'Add-AppxPackage -Path $output',
+                    'Write-Output "winget instalado com sucesso!"'
+                  ].join('; ');
+                  
+                  await execPromise(`powershell -ExecutionPolicy Bypass -Command "${downloadWingetCommand}"`);
+                  
+                  // Verifica se a instalação funcionou
+                  await execPromise('winget --version');
+                  sendLog('✅ winget instalado com sucesso via download direto!');
+                  hasWinget = true;
+                } catch (downloadError) {
+                  throw new Error(`Falha no download: ${downloadError.message}`);
+                }
+              }
+            } catch (error) {
+              sendLog(`❌ Erro na instalação do winget: ${error.message}`);
+            }
+          }
+          
+          // Se winget falhou, tenta chocolatey
+          if (!hasWinget) {
+            const shouldInstallChoco = await waitForUserConfirmation('🔄 winget não disponível. Deseja instalar o chocolatey?');
+            
+            if (shouldInstallChoco) {
+              try {
+                sendLog('📥 Instalando chocolatey...');
+                sendLog('Isso pode levar alguns minutos...');
+                
+                const installChocoCommand = [
+                  'Set-ExecutionPolicy Bypass -Scope Process -Force',
+                  '[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072',
+                  'iex ((New-Object System.Net.WebClient).DownloadString("https://community.chocolatey.org/install.ps1"))'
+                ].join('; ');
+                
+                await execPromise(`powershell -ExecutionPolicy Bypass -Command "${installChocoCommand}"`);
+                sendLog('✅ chocolatey instalado com sucesso!');
+                hasChoco = true;
+                
+                // Recarrega PATH para chocolatey
+                sendLog('🔄 Recarregando variáveis de ambiente...');
+                process.env.PATH = process.env.PATH + ';C:\\ProgramData\\chocolatey\\bin';
+                
+              } catch (chocoInstallError) {
+                sendLog(`❌ Erro na instalação do chocolatey: ${chocoInstallError.message}`);
+                sendLog('💡 Instalação manual do chocolatey:');
+                sendLog('1. Abra PowerShell como Administrador');
+                sendLog('2. Execute: Set-ExecutionPolicy Bypass -Scope Process -Force');
+                sendLog('3. Execute: iex ((New-Object System.Net.WebClient).DownloadString("https://chocolatey.org/install.ps1"))');
+                sendLog('4. Reinicie este processo');
+              }
+            }
+          }
+        }
+        
+        // Agora tenta instalar Git com o gerenciador disponível
+        sendLog('');
+        sendLog('📥 Tentando instalar Git...');
+        
+        if (hasWinget) {
+          try {
+            sendLog('🔄 Instalando Git via winget...');
+            await execPromise('winget install --id Git.Git -e --source winget --silent');
+            sendLog('✅ Git instalado com sucesso via winget!');
+            return true;
+          } catch (wingetGitError) {
+            sendLog(`⚠️ Falha na instalação via winget: ${wingetGitError.message}`);
+            hasWinget = false; // Marca como não disponível para próxima tentativa
+          }
+        }
+        
+        if (hasChoco) {
+          try {
+            sendLog('🔄 Instalando Git via chocolatey...');
+            await execPromise('choco install git -y');
+            sendLog('✅ Git instalado com sucesso via chocolatey!');
+            return true;
+          } catch (chocoGitError) {
+            sendLog(`⚠️ Falha na instalação via chocolatey: ${chocoGitError.message}`);
+          }
+        }
+        
+        // Se chegou aqui, todos os métodos falharam
+        sendLog('');
+        sendLog('❌ Instalação automática do Git falhou');
+        sendLog('💡 Instalação manual recomendada:');
+        sendLog('');
+        sendLog('📋 OPÇÕES DE INSTALAÇÃO MANUAL:');
+        sendLog('1. Site oficial: https://git-scm.com/download/win');
+        sendLog('2. Via Microsoft Store: procure "Git"');
+        sendLog('3. Via GitHub Desktop (inclui Git): https://desktop.github.com/');
+        sendLog('');
+        sendLog('⚠️ Após a instalação manual:');
+        sendLog('• Reinicie o Micro Front-End Manager');
+        sendLog('• Ou adicione Git ao PATH do sistema');
+        sendLog('');
+        
+        return false;
+        
+      } catch (error) {
+        sendLog(`❌ Erro crítico na instalação do Git no Windows: ${error.message}`);
+        return false;
+      }
+    };
+
+    // Instalação do Git no Linux
+    const installGitLinux = async () => {
+      try {
+        sendLog('🐧 Detectado sistema Linux');
+        
+        // Tenta detectar a distribuição
+        let installCommand = '';
+        
+        try {
+          // Ubuntu/Debian
+          await execPromise('which apt-get');
+          installCommand = 'sudo apt-get update && sudo apt-get install -y git';
+          sendLog('📦 Usando apt-get (Ubuntu/Debian)...');
+        } catch {
+          try {
+            // CentOS/RHEL/Fedora
+            await execPromise('which yum');
+            installCommand = 'sudo yum install -y git';
+            sendLog('📦 Usando yum (CentOS/RHEL)...');
+          } catch {
+            try {
+              // Fedora moderno
+              await execPromise('which dnf');
+              installCommand = 'sudo dnf install -y git';
+              sendLog('📦 Usando dnf (Fedora)...');
+            } catch {
+              try {
+                // Arch Linux
+                await execPromise('which pacman');
+                installCommand = 'sudo pacman -S --noconfirm git';
+                sendLog('📦 Usando pacman (Arch Linux)...');
+              } catch {
+                sendLog('❌ Gerenciador de pacotes não identificado.');
+                sendLog('Por favor, instale o Git manualmente usando seu gerenciador de pacotes.');
+                return false;
+              }
+            }
+          }
+        }
+        
+        sendLog(`🔄 Executando: ${installCommand}`);
+        await execPromise(installCommand);
+        sendLog('✅ Git instalado com sucesso no Linux!');
+        return true;
+        
+      } catch (error) {
+        sendLog(`❌ Erro na instalação do Git no Linux: ${error.message}`);
+        sendLog('💡 Tente executar manualmente:');
+        sendLog('   Ubuntu/Debian: sudo apt-get install git');
+        sendLog('   CentOS/RHEL: sudo yum install git');
+        sendLog('   Fedora: sudo dnf install git');
+        sendLog('   Arch: sudo pacman -S git');
+        return false;
+      }
+    };
+
+    // Instalação do Git no macOS
+    const installGitMac = async () => {
+      try {
+        sendLog('🍎 Detectado sistema macOS');
+        
+        // Tenta usar Homebrew primeiro
+        try {
+          sendLog('🔄 Tentando instalar via Homebrew...');
+          await execPromise('brew install git');
+          sendLog('✅ Git instalado com sucesso via Homebrew!');
+          return true;
+        } catch (brewError) {
+          sendLog('⚠️ Homebrew não disponível ou falhou');
+        }
+        
+        // Se Homebrew falhou, usa Xcode Command Line Tools
+        try {
+          sendLog('🔄 Tentando instalar via Xcode Command Line Tools...');
+          await execPromise('xcode-select --install');
+          sendLog('✅ Git será instalado com Xcode Command Line Tools');
+          sendLog('ℹ️ Pode ser necessário confirmar a instalação na janela que abriu');
+          return true;
+        } catch (xcodeError) {
+          sendLog('❌ Erro ao instalar Command Line Tools');
+        }
+        
+        sendLog('💡 Para instalação manual no macOS:');
+        sendLog('1. Instale Homebrew: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"');
+        sendLog('2. Execute: brew install git');
+        sendLog('Ou baixe em: https://git-scm.com/download/mac');
+        
+        return false;
+        
+      } catch (error) {
+        sendLog(`❌ Erro na instalação do Git no macOS: ${error.message}`);
+        return false;
+      }
     };
   
     const installNodeWindows = async () => {
-      sendLog('Passo 1: Verificando Node.js...');
+      sendLog('🔍 Passo 2: Verificando Node.js...');
       
       // Primeira verificação: Node.js já está na versão correta?
       try {
@@ -3767,14 +4222,31 @@ ipcMain.on('execute-command', (event, command) => {
       }
     };
 
-    console.log('Iniciando instalação do Node.js e Angular CLI...');
+    console.log('Iniciando instalação das dependências (Git, Node.js e Angular CLI)...');
     sendLog('=== INSTALAÇÃO DE DEPENDÊNCIAS ===');
+    sendLog('Verificando e instalando: Git, Node.js e Angular CLI');
     sendLog('ATENÇÃO: Este processo pode demorar vários minutos.');
     sendLog('Mantenha a janela aberta e aguarde a conclusão.');
     sendLog('Você pode fechar esta janela a qualquer momento clicando no [X].');
     sendLog('');
   
     try {
+      // Verifica e instala Git primeiro
+      const gitInstalled = await checkGit();
+      if (!gitInstalled) {
+        sendLog('🔧 Git não encontrado. Tentando instalar...');
+        const gitInstallSuccess = await installGit();
+        if (gitInstallSuccess) {
+          sendLog('✅ Git instalado com sucesso!');
+        } else {
+          sendLog('⚠️ Git não foi instalado automaticamente.');
+          sendLog('⚠️ Alguns recursos podem não funcionar corretamente.');
+          sendLog('💡 Instale manualmente em: https://git-scm.com/downloads');
+        }
+        sendLog('');
+      }
+      
+      // Continua com Node.js
       await installNode();
       sendLog('');
       sendLog('✓ Node.js configurado com sucesso!');
@@ -3837,7 +4309,30 @@ ipcMain.on('execute-command', (event, command) => {
       sendLog('- Node.js 16.10.0: https://nodejs.org/dist/v16.10.0/');
       sendLog('- Angular CLI: npm install -g @angular/cli@13.3.11');
     }
+
+    } catch (globalError) {
+      console.error('Erro global na instalação:', globalError);
+      sendLog(`❌ Erro crítico na instalação: ${globalError.message}`);
+    } finally {
+      // Sempre limpa o estado de instalação
+      cleanupInstallation();
+    }
   });
+
+  // Função global para mostrar mensagem sobre Git ausente
+  function showGitInstallationGuidance() {
+    const isGitAvailable = checkGitGlobal();
+    if (!isGitAvailable) {
+      console.log('⚠️ Git não encontrado no sistema');
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.send('log', { 
+          message: '⚠️ Git não encontrado: Use o menu "Instalar Dependências" para instalação automática ou visite https://git-scm.com/downloads'
+        });
+      }
+      return false;
+    }
+    return true;
+  }
 
   function execPromise(command) {
     return new Promise((resolve, reject) => {
@@ -4037,6 +4532,16 @@ app.on('ready', async () => {
   
   // Inicia pré-carregamento em background
   preloadCriticalData().catch(console.error);
+  
+  // Verifica se Git está disponível (não bloqueia a inicialização)
+  setTimeout(() => {
+    const isGitAvailable = checkGitGlobal();
+    if (!isGitAvailable) {
+      console.log('⚠️ Git não detectado - usuário será informado se necessário');
+    } else {
+      console.log('✅ Git detectado no sistema');
+    }
+  }, 2000);
   
   // Cria splash screen
   createSplashWindow();
