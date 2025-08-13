@@ -496,8 +496,18 @@ function performNpmLogin(registry) {
   console.log(`Iniciando processo de login no registry: ${registry}`);
   mainWindow.webContents.send('log', { message: `Iniciando login no Nexus (${registry})...` });
 
+  // Limpa qualquer processo anterior antes de criar nova janela
+  cleanupLoginProcesses();
+
+  // Se já existe uma janela de login, fecha ela primeiro
+  if (loginWindow && !loginWindow.isDestroyed()) {
+    console.log('🔄 Fechando janela de login anterior...');
+    loginWindow.destroy();
+    loginWindow = null;
+  }
+
   // Cria uma nova janela para o terminal
-  const loginWindow = new BrowserWindow({
+  loginWindow = new BrowserWindow({
     width: 600,
     height: 400,
     modal: true,
@@ -512,24 +522,96 @@ function performNpmLogin(registry) {
 
   loginWindow.loadFile(path.join(__dirname, 'login.html'));
 
+  // Event handlers para cleanup quando a janela for fechada
+  loginWindow.on('closed', () => {
+    console.log('🔴 Janela de login foi fechada pelo usuário');
+    cleanupLoginProcesses();
+    loginWindow = null;
+  });
+
+  loginWindow.on('close', () => {
+    console.log('🔴 Janela de login está sendo fechada');
+    cleanupLoginProcesses();
+  });
+
+  // Event handler para caso a janela trave
+  loginWindow.webContents.on('unresponsive', () => {
+    console.log('⚠️ Janela de login não está respondendo');
+    cleanupLoginProcesses();
+  });
+
+  // Event handler para erros na janela
+  loginWindow.webContents.on('crashed', () => {
+    console.log('💥 Janela de login crashou');
+    cleanupLoginProcesses();
+    loginWindow = null;
+  });
+
   loginWindow.webContents.once('did-finish-load', () => {
     loginWindow.webContents.send('start-npm-login', { projectPath, registry });
+    
+    // Timeout de segurança - se o login não completar em 10 minutos, limpa tudo
+    loginTimeout = setTimeout(() => {
+      console.log('⏰ Timeout de login atingido - limpando processos...');
+      if (loginWindow && !loginWindow.isDestroyed()) {
+        loginWindow.webContents.send('command-output', '\n⏰ Timeout de login atingido. Fechando janela...\n');
+        setTimeout(() => {
+          cleanupLoginProcesses();
+          if (loginWindow && !loginWindow.isDestroyed()) {
+            loginWindow.close();
+          }
+        }, 2000);
+      }
+    }, 10 * 60 * 1000); // 10 minutos
   });
 
   ipcMain.once('npm-login-complete', (event, { success, message }) => {
+    console.log(`🔚 Login completado - sucesso: ${success}, mensagem: ${message}`);
+    
+    // Limpa o timeout
+    if (loginTimeout) {
+      clearTimeout(loginTimeout);
+      loginTimeout = null;
+    }
+    
     if (success) {
-      console.log('Login no npm realizado com sucesso.');
+      console.log('✅ Login no npm realizado com sucesso!');
       mainWindow.webContents.send('log', { message: 'Logado no Nexus com sucesso!' });
       saveLoginState(true);
     } else {
-      console.error('Erro ao realizar login no npm:', message);
+      console.error('❌ Erro ao realizar login no npm:', message);
       mainWindow.webContents.send('log', { message: `Erro no login: ${message}` });
     }
-    loginWindow.close();
+    
+    // Limpa processos e fecha janela
+    cleanupLoginProcesses();
+    if (loginWindow && !loginWindow.isDestroyed()) {
+      loginWindow.close();
+    }
+    loginWindow = null;
   });
 
   ipcMain.on('close-login-window', () => {
-    loginWindow.close();
+    console.log('🔴 Solicitação para fechar janela de login');
+    
+    // Limpa todos os processos antes de fechar
+    cleanupLoginProcesses();
+    
+    // Fecha a janela de forma segura
+    if (loginWindow && !loginWindow.isDestroyed()) {
+      try {
+        loginWindow.close();
+        console.log('✅ Janela de login fechada');
+      } catch (error) {
+        console.error('❌ Erro ao fechar janela de login:', error);
+        // Força o fechamento se houver erro
+        if (loginWindow && !loginWindow.isDestroyed()) {
+          loginWindow.destroy();
+        }
+      }
+    }
+    
+    loginWindow = null;
   });
 }
 
@@ -649,6 +731,7 @@ function handleInstallDependencies() {
 }
 
 let mainWindow;
+let loginWindow = null;
 let splashWindow;
 let appMenu; // Referência global do menu para uso nas funções
 const projectsFile = path.join(userDataPath, 'projects.txt');
@@ -2890,31 +2973,113 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       }
     });
   }
-  let terminalProcess;
+
+// Variáveis globais para gerenciar processos de login
+let terminalProcess = null;
+let loginInProgress = false;
+let loginTimeout = null;
+
+// Função para limpar processos de login
+function cleanupLoginProcesses() {
+  console.log('🧹 Limpando processos de login...');
+  
+  // Limpa o timeout se existir
+  if (loginTimeout) {
+    clearTimeout(loginTimeout);
+    loginTimeout = null;
+    console.log('🔴 Timeout de login cancelado');
+  }
+  
+  if (terminalProcess) {
+    try {
+      console.log('🔴 Terminando processo de terminal...');
+      
+      // Tenta finalizar graciosamente primeiro
+      if (terminalProcess.stdin && !terminalProcess.stdin.destroyed) {
+        terminalProcess.stdin.write('\x03\n'); // Ctrl+C
+        terminalProcess.stdin.end();
+      }
+      
+      // Força o término se necessário
+      setTimeout(() => {
+        if (terminalProcess && !terminalProcess.killed) {
+          console.log('🔴 Forçando término do processo...');
+          terminalProcess.kill('SIGTERM');
+          
+          // Se SIGTERM não funcionar, usa SIGKILL
+          setTimeout(() => {
+            if (terminalProcess && !terminalProcess.killed) {
+              console.log('🔴 Usando SIGKILL...');
+              terminalProcess.kill('SIGKILL');
+            }
+          }, 2000);
+        }
+      }, 1000);
+      
+    } catch (error) {
+      console.error('❌ Erro ao limpar processo de terminal:', error);
+    } finally {
+      terminalProcess = null;
+      loginInProgress = false;
+    }
+  }
+  
+  console.log('✅ Limpeza de processos concluída');
+}
 
 ipcMain.on('execute-command', (event, command) => {
+  console.log(`🔧 Executando comando: ${command}`);
+  
   if (!terminalProcess) {
+    console.log('🚀 Inicializando novo processo de terminal...');
+    loginInProgress = true;
+    
     // Inicializa o terminal real
-    terminalProcess = spawn('cmd.exe', [], { shell: true });
+    terminalProcess = spawn('cmd.exe', [], { 
+      shell: true,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
 
     terminalProcess.stdout.on('data', (data) => {
-      event.reply('command-output', data.toString());
+      const output = data.toString();
+      console.log(`📤 Terminal output: ${output.trim()}`);
+      event.reply('command-output', output);
     });
 
     terminalProcess.stderr.on('data', (data) => {
-      event.reply('command-output', `- ${data.toString()}`);
+      const error = data.toString();
+      console.log(`📤 Terminal error: ${error.trim()}`);
+      event.reply('command-output', `${error}`);
     });
 
-    terminalProcess.on('close', () => {
+    terminalProcess.on('close', (code) => {
+      console.log(`🔴 Processo de terminal encerrado com código: ${code}`);
       terminalProcess = null;
+      loginInProgress = false;
+    });
+
+    terminalProcess.on('error', (error) => {
+      console.error('❌ Erro no processo de terminal:', error);
+      event.reply('command-output', `Erro: ${error.message}\n`);
+      terminalProcess = null;
+      loginInProgress = false;
     });
   }
 
   // Envia o comando para o terminal real
-  if (terminalProcess) {
-    terminalProcess.stdin.write(`${command}\n`);
+  if (terminalProcess && terminalProcess.stdin && !terminalProcess.stdin.destroyed) {
+    try {
+      terminalProcess.stdin.write(`${command}\n`);
+      console.log(`✅ Comando enviado: ${command}`);
+    } catch (error) {
+      console.error('❌ Erro ao enviar comando:', error);
+      event.reply('command-output', `Erro ao enviar comando: ${error.message}\n`);
     }
-  });
+  } else {
+    console.error('❌ Terminal não disponível para executar comando');
+    event.reply('command-output', `Erro: Terminal não disponível\n`);
+  }
+});
 
   ipcMain.on('delete-project', (event, { index, path }) => {
     console.log(`Deletando projeto no caminho: ${path}`);

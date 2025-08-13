@@ -37,24 +37,51 @@
       background: #000;
       color: #0f0;
       padding: 10px;
-      width: 95%;
-      height: 85%;
+      width: 100%;
+      height: 100%;
       overflow-y: auto;
       border-radius: 5px;
-      margin-top: 40px;
-      font-family: monospace;
+      margin: 0;
+      font-family: 'Courier New', monospace;
       cursor: text;
+      box-sizing: border-box;
     }
 
     pre:focus {
       outline: 2px solid #0f0;
       background: #001100;
     }
+
+    .input-indicator {
+      position: absolute;
+      bottom: 5px;
+      right: 10px;
+      background: rgba(0, 255, 0, 0.2);
+      color: #0f0;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 12px;
+      font-family: Arial, sans-serif;
+    }
+
+    .cursor-blink {
+      animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+      0%, 50% { opacity: 1; }
+      51%, 100% { opacity: 0; }
+    }
   </style>
 </head>
 <body>
   <button id="close">[x]</button>
-  <pre id="terminal" tabindex="0"></pre>
+  <div style="position: relative; width: 95%; height: 85%; margin-top: 40px;">
+    <pre id="terminal" tabindex="0"></pre>
+    <div class="input-indicator" id="inputIndicator" style="display: none;">
+      Aguardando entrada... (Ctrl+V para colar)
+    </div>
+  </div>
   <script>
     const { ipcRenderer } = require('electron');
 
@@ -63,14 +90,46 @@
     let currentInput = '';
     let hiddenPassword = '';
 
+    // Handler global de erros para evitar travamentos
+    window.addEventListener('error', (e) => {
+      console.error('❌ Erro JavaScript na janela de login:', e.error);
+      e.preventDefault();
+      return true;
+    });
+
+    window.addEventListener('unhandledrejection', (e) => {
+      console.error('❌ Promise rejeitada na janela de login:', e.reason);
+      e.preventDefault();
+    });
+
+    // Função segura para fechar a janela
+    function safeCloseWindow() {
+      try {
+        console.log('🔴 Fechando janela de login de forma segura...');
+        ipcRenderer.send('close-login-window');
+      } catch (error) {
+        console.error('❌ Erro ao fechar janela:', error);
+        // Se IPC falhar, tenta fechar via window
+        try {
+          window.close();
+        } catch (windowError) {
+          console.error('❌ Erro ao fechar via window:', windowError);
+        }
+      }
+    }
+
     ipcRenderer.on('start-npm-login', (event, { projectPath, registry }) => {
       const terminal = document.getElementById('terminal');
       const closeButton = document.getElementById('close');
+      const inputIndicator = document.getElementById('inputIndicator');
 
       // Foca no terminal para capturar eventos de teclado
       terminal.focus();
 
       // Inicializa o terminal com os dois primeiros comandos
+      terminal.innerText = `🚀 Iniciando login no Nexus...\n\n`;
+      terminal.innerText += `📁 Navegando para: ${projectPath}\n`;
+      terminal.innerText += `🌐 Conectando ao registry: ${registry}\n\n`;
       terminal.innerText += `cd ${projectPath}\n`;
       terminal.innerText += `npm login --registry=${registry}\n`;
       terminal.scrollTop = terminal.scrollHeight;
@@ -79,8 +138,12 @@
       ipcRenderer.send('execute-command', `cd ${projectPath}`);
       ipcRenderer.send('execute-command', `npm login --registry=${registry}`);
 
-      // Habilita a entrada do usuário após os comandos iniciais
-      isReadyForInput = true;
+      // Aguarda um pouco antes de habilitar input para dar tempo dos comandos processarem
+      setTimeout(() => {
+        isReadyForInput = true;
+        inputIndicator.style.display = 'block';
+        inputIndicator.textContent = 'Digite suas credenciais (Ctrl+V para colar)';
+      }, 1000);
 
       // Captura a entrada do usuário
       terminal.addEventListener('keydown', (e) => {
@@ -125,6 +188,67 @@
               updateInputDisplay();
             }
           }
+        } else if (e.ctrlKey && e.key === 'v') {
+          // Suporte para Ctrl+V (colar)
+          e.preventDefault();
+          navigator.clipboard.readText().then(text => {
+            if (text) {
+              // Remove quebras de linha do texto colado para evitar problemas
+              const cleanText = text.replace(/\r?\n|\r/g, '');
+              
+              if (isPasswordInput) {
+                hiddenPassword += cleanText;
+                updatePasswordDisplay();
+              } else {
+                currentInput += cleanText;
+                updateInputDisplay();
+              }
+            }
+          }).catch(err => {
+            console.warn('Não foi possível acessar o clipboard:', err);
+            // Fallback para tentar usar document.execCommand (deprecated mas pode funcionar)
+            try {
+              const tempInput = document.createElement('input');
+              tempInput.style.position = 'absolute';
+              tempInput.style.left = '-9999px';
+              document.body.appendChild(tempInput);
+              tempInput.focus();
+              document.execCommand('paste');
+              const pastedText = tempInput.value.replace(/\r?\n|\r/g, '');
+              if (pastedText) {
+                if (isPasswordInput) {
+                  hiddenPassword += pastedText;
+                  updatePasswordDisplay();
+                } else {
+                  currentInput += pastedText;
+                  updateInputDisplay();
+                }
+              }
+              document.body.removeChild(tempInput);
+              terminal.focus();
+            } catch (fallbackErr) {
+              console.warn('Fallback de colar também falhou:', fallbackErr);
+            }
+          });
+        } else if (e.ctrlKey && e.key === 'a') {
+          // Suporte para Ctrl+A (selecionar tudo) - limpa o input atual
+          e.preventDefault();
+          if (isPasswordInput) {
+            hiddenPassword = '';
+            updatePasswordDisplay();
+          } else {
+            currentInput = '';
+            updateInputDisplay();
+          }
+        } else if (e.ctrlKey && e.key === 'c') {
+          // Suporte para Ctrl+C (copiar) - copia o input atual
+          e.preventDefault();
+          const textToCopy = isPasswordInput ? hiddenPassword : currentInput;
+          if (textToCopy) {
+            navigator.clipboard.writeText(textToCopy).catch(err => {
+              console.warn('Não foi possível copiar para o clipboard:', err);
+            });
+          }
         } else if (e.key.length === 1) {
           // Caracteres normais
           e.preventDefault();
@@ -142,13 +266,18 @@
       function updatePasswordDisplay() {
         // Remove a última linha e adiciona asteriscos
         const lines = terminal.innerText.split('\n');
-        const lastLine = lines[lines.length - 1];
         
-        // Verifica se a última linha contém "password:" ou similar
-        if (lastLine.toLowerCase().includes('password:')) {
-          const prompt = lastLine.split(':')[0] + ': ';
-          lines[lines.length - 1] = prompt + '*'.repeat(hiddenPassword.length);
-          terminal.innerText = lines.join('\n');
+        // Encontra a última linha que contém um prompt
+        for (let i = lines.length - 1; i >= 0; i--) {
+          if (lines[i].toLowerCase().includes('password:')) {
+            const promptMatch = lines[i].match(/^(.+password:\s*)/i);
+            if (promptMatch) {
+              const prompt = promptMatch[1];
+              lines[i] = prompt + '*'.repeat(hiddenPassword.length);
+              terminal.innerText = lines.join('\n');
+              break;
+            }
+          }
         }
         terminal.scrollTop = terminal.scrollHeight;
       }
@@ -156,51 +285,110 @@
       function updateInputDisplay() {
         // Remove a última linha e adiciona o input atual
         const lines = terminal.innerText.split('\n');
-        const lastLine = lines[lines.length - 1];
         
-        // Se a última linha contém ":" é um prompt
-        if (lastLine.includes(':') && !lastLine.toLowerCase().includes('password:')) {
-          const promptPart = lastLine.substring(0, lastLine.lastIndexOf(':') + 1) + ' ';
-          lines[lines.length - 1] = promptPart + currentInput;
-          terminal.innerText = lines.join('\n');
-        } else {
-          // Adiciona input na linha atual
-          lines[lines.length - 1] = currentInput;
-          terminal.innerText = lines.join('\n');
+        // Encontra a última linha que contém um prompt (mas não password)
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const line = lines[i];
+          if (line.includes(':') && !line.toLowerCase().includes('password:')) {
+            const promptMatch = line.match(/^(.+:\s*)/);
+            if (promptMatch) {
+              const prompt = promptMatch[1];
+              lines[i] = prompt + currentInput;
+              terminal.innerText = lines.join('\n');
+              break;
+            }
+          } else if (i === lines.length - 1 && !line.includes(':')) {
+            // Se a última linha não contém prompt, substitui toda a linha
+            lines[i] = currentInput;
+            terminal.innerText = lines.join('\n');
+            break;
+          }
         }
         terminal.scrollTop = terminal.scrollHeight;
       }
 
       // Fecha a janela ao clicar no botão "Fechar"
-      closeButton.addEventListener('click', () => {
-        ipcRenderer.send('close-login-window');
+      closeButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        console.log('🔴 Botão fechar clicado');
+        safeCloseWindow();
+      });
+
+      // Também permite fechar com ESC
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          console.log('🔴 ESC pressionado');
+          safeCloseWindow();
+        }
       });
 
       // Exibe a saída do terminal no console
       ipcRenderer.on('command-output', (event, output) => {
-        terminal.innerText += output;
-        terminal.scrollTop = terminal.scrollHeight;
+        try {
+          const inputIndicator = document.getElementById('inputIndicator');
+          
+          terminal.innerText += output;
+          terminal.scrollTop = terminal.scrollHeight;
 
-        // Detecta se o próximo input é uma senha
-        if (output.toLowerCase().includes('password:')) {
-          isPasswordInput = true;
-          currentInput = '';
-          hiddenPassword = '';
-        }
+          // Detecta quando o npm está pedindo credenciais
+          const lowerOutput = output.toLowerCase();
+          
+          if (lowerOutput.includes('username:')) {
+            isPasswordInput = false;
+            if (inputIndicator) {
+              inputIndicator.textContent = '👤 Digite seu usuário/matrícula (Ctrl+V para colar)';
+              inputIndicator.style.backgroundColor = 'rgba(0, 123, 255, 0.2)';
+              inputIndicator.style.color = '#007bff';
+            }
+          } else if (lowerOutput.includes('password:')) {
+            isPasswordInput = true;
+            currentInput = '';
+            hiddenPassword = '';
+            if (inputIndicator) {
+              inputIndicator.textContent = '🔒 Digite sua senha (será oculta)';
+              inputIndicator.style.backgroundColor = 'rgba(255, 193, 7, 0.2)';
+              inputIndicator.style.color = '#ffc107';
+            }
+          } else if (lowerOutput.includes('email:')) {
+            isPasswordInput = false;
+            if (inputIndicator) {
+              inputIndicator.textContent = '📧 Digite seu email (Ctrl+V para colar)';
+              inputIndicator.style.backgroundColor = 'rgba(40, 167, 69, 0.2)';
+              inputIndicator.style.color = '#28a745';
+            }
+          }
 
-        // Detecta login bem-sucedido
-        if (output.toLowerCase().includes('logged in')) {
-          ipcRenderer.send('login-success');
-          setTimeout(() => {
-            ipcRenderer.send('npm-login-complete', { success: true, message: 'Login realizado com sucesso!' });
-          }, 1000);
-        }
+          // Detecta login bem-sucedido
+          if (lowerOutput.includes('logged in')) {
+            if (inputIndicator) {
+              inputIndicator.textContent = '✅ Login realizado com sucesso!';
+              inputIndicator.style.backgroundColor = 'rgba(40, 167, 69, 0.3)';
+              inputIndicator.style.color = '#28a745';
+            }
+            isReadyForInput = false;
+            
+            ipcRenderer.send('login-success');
+            setTimeout(() => {
+              ipcRenderer.send('npm-login-complete', { success: true, message: 'Login realizado com sucesso!' });
+            }, 1000);
+          }
 
-        // Detecta erro de login
-        if (output.toLowerCase().includes('unauthorized') || output.toLowerCase().includes('login failed')) {
-          setTimeout(() => {
-            ipcRenderer.send('npm-login-complete', { success: false, message: 'Falha no login. Verifique suas credenciais.' });
-          }, 1000);
+          // Detecta erro de login
+          if (lowerOutput.includes('unauthorized') || lowerOutput.includes('login failed') || lowerOutput.includes('incorrect username or password')) {
+            if (inputIndicator) {
+              inputIndicator.textContent = '❌ Falha no login - verifique suas credenciais';
+              inputIndicator.style.backgroundColor = 'rgba(220, 53, 69, 0.3)';
+              inputIndicator.style.color = '#dc3545';
+            }
+            isReadyForInput = false;
+            
+            setTimeout(() => {
+              ipcRenderer.send('npm-login-complete', { success: false, message: 'Falha no login. Verifique suas credenciais.' });
+            }, 2000);
+          }
+        } catch (error) {
+          console.error('❌ Erro ao processar command-output:', error);
+          // Continua funcionando mesmo com erro
         }
       });
     });
