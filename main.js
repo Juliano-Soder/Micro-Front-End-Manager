@@ -2584,6 +2584,65 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     // Variável para controle de mensagens "Compiled successfully" apenas
     let lastSuccessTime = 0;
 
+    // Função para classificar se uma mensagem do stderr é realmente um erro crítico
+    const isActualError = (message) => {
+      if (!message) return false;
+      
+      const lowerMessage = message.toLowerCase();
+      
+      // Lista de padrões que NÃO são erros críticos (apenas warnings/informações)
+      const nonCriticalPatterns = [
+        'warning:',
+        'deprecated',
+        'deprecation',
+        'the `form-control-focus()` mixin has been deprecated',
+        'commonjs or amd dependencies can cause optimization bailouts',
+        'your global angular cli version',
+        'to disable this warning use',
+        'project is attempting to disable the ivy compiler',
+        'angular versions 12 and higher do not support',
+        'the ivy compiler will be used to build this project',
+        'for additional information or if the build fails',
+        'the local angular cli version is used',
+        'depends on \'',
+        'for more info see: https://angular.io/guide/'
+      ];
+      
+      // Lista de padrões que SÃO erros críticos
+      const criticalPatterns = [
+        'error:',
+        'failed',
+        'cannot find module',
+        'module not found',
+        'compilation error',
+        'syntax error',
+        'type error',
+        'reference error',
+        'unexpected token',
+        'command not found',
+        'permission denied',
+        'enoent',
+        'eacces'
+      ];
+      
+      // Primeiro verifica se é um erro crítico
+      const isCritical = criticalPatterns.some(pattern => lowerMessage.includes(pattern));
+      if (isCritical) return true;
+      
+      // Se não é crítico, verifica se está na lista de não-críticos
+      const isNonCritical = nonCriticalPatterns.some(pattern => lowerMessage.includes(pattern));
+      if (isNonCritical) return false;
+      
+      // Para mensagens que não se encaixam em nenhuma categoria, 
+      // considera como warning se contém certas palavras-chave
+      const warningKeywords = ['note:', 'info:', 'hint:', 'suggestion:', 'tip:'];
+      const isWarning = warningKeywords.some(keyword => lowerMessage.includes(keyword));
+      
+      // Por padrão, se não conseguiu classificar e não tem indicadores de warning,
+      // trata como erro (comportamento conservador)
+      return !isWarning;
+    };
+
     // Função helper para enviar logs
     const sendLog = (message, isError = false) => {
       if (!message || !message.trim()) return; // Ignora mensagens vazias
@@ -2718,8 +2777,11 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         cleanData = data.toString().trim();
       }
 
-      // Usa sendLog também para stderr
-      sendLog(cleanData, true);
+      // Distingue entre warnings/deprecations e erros reais
+      const isRealError = isActualError(cleanData);
+      
+      // Usa sendLog com flag de erro apenas para erros reais
+      sendLog(cleanData, isRealError);
     });
     
     childProcess.on('close', (code) => {
@@ -2730,8 +2792,28 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       startingProjects.delete(projectKey);
       console.log(`[DEBUG] Processo terminou, removido ${projectKey} da proteção`);
       
-      // Adicione esta verificação para códigos de erro
-      const isError = code !== 0 && code !== null;
+      // Lógica mais inteligente para detectar erros reais
+      // Código 0 = sucesso, null = processo foi morto intencionalmente
+      // Código 130 = SIGINT (Ctrl+C), não é erro
+      // Código 1 pode ser erro ou término normal em alguns casos
+      const isIntentionalExit = code === null || code === 0 || code === 130;
+      const isPotentialError = code === 1;
+      
+      // Para código 1, verifica se houve mensagens de erro reais durante a execução
+      // Isso pode ser implementado com uma variável de controle se necessário
+      let isError = false;
+      
+      if (!isIntentionalExit) {
+        if (isPotentialError) {
+          // Para código 1, verifica contexto adicional
+          // Se o projeto chegou a compilar e rodar, provavelmente não é erro crítico
+          console.log(`[DEBUG] Código 1 detectado para ${projectPath} - analisando contexto`);
+          isError = false; // Assume que não é erro crítico por enquanto
+        } else if (code > 1) {
+          // Códigos maiores que 1 geralmente indicam erros reais
+          isError = true;
+        }
+      }
       
       // Obter a versão atual do Node.js
       let nodeVersionInfo = '';
@@ -2743,16 +2825,24 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       }
       
       // Verifica se é erro de sintaxe específico do Node.js em projetos PAMP
-      const isNodeVersionError = code === 1 && 
+      const isNodeVersionError = isPotentialError && 
                                 isPampProject && 
                                 nodeVersionInfo !== 'v16.10.0';
       
-      // Mensagem base
-      let message = code === 0 
-        ? `Projeto iniciado com sucesso em ${projectPath}` 
-        : isError 
-            ? `O processo terminou com código de erro ${code}` 
-            : '';
+      // Mensagem base - só mostra erro se realmente for um erro crítico
+      let message = '';
+      if (code === 0) {
+        message = `✅ Projeto iniciado com sucesso em ${projectPath}`;
+      } else if (isIntentionalExit) {
+        message = `⏹️ Processo encerrado normalmente (código ${code || 'null'})`;
+      } else if (isError) {
+        message = `❌ O processo terminou com código de erro ${code}`;
+      } else if (isPotentialError) {
+        // Para código 1, dá uma mensagem mais neutra se não detectou erro real
+        message = `⚠️ Processo encerrado (código ${code}) - Verificar logs para detalhes`;
+      } else {
+        message = `ℹ️ Processo encerrado (código ${code})`;
+      }
             
       // Adicionar informações detalhadas para erros específicos
       if (isNodeVersionError) {

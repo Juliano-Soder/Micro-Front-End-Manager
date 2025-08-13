@@ -589,7 +589,8 @@
         }
       }
 
-      if (message.includes('terminou com código') && message.includes('1')) {
+      // Só mostra aviso de erro se a mensagem foi marcada explicitamente como erro
+      if (data.error && message.includes('terminou com código') && message.includes('1')) {
         const nodeVersionSpan = document.getElementById('node-version');
         const currentNodeVersion = nodeVersionSpan.innerText.replace('Node.js: ', '');
         
