@@ -50,6 +50,11 @@
     "port": 9009
   },
   {
+    "name": "mp-pas-via-performance",
+    "path": "",
+    "port": 9011
+  },
+  {
     "name": "mp-pas-atendimento",
     "path": "",
     "port": 9012

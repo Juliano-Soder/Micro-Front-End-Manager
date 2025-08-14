@@ -6,6 +6,21 @@
 
 ## 📝 Notas de Versão
 
+### Versão 0.0.7 - Agosto 2025
+
+**🎨 Modernização Completa da Interface:**
+- **Sistema de Badges do Nexus**: Layout moderno e responsivo substituindo elementos fixos quebrados
+- **Botões Toggle Redesenhados**: "PAS Site" e "PAMP Admin" com gradientes elegantes e contadores dinâmicos
+- **Suporte Completo Dark/Light Mode**: Todos os elementos visuais adaptam automaticamente ao tema
+- **Animações Suaves**: Transições de 0.3s ease em todos os componentes interativos
+- **Contadores Inteligentes**: Atualização automática do número de projetos em tempo real
+- **Arquitetura Corrigida**: Terminologia precisa refletindo PAS (site principal) e PAMP (painel admin)
+
+**🐛 Correções de Bugs:**
+- Resolvido erro "checkGitGlobal is not defined" na inicialização
+- Corrigido crash "Object has been destroyed" nos diálogos IPC
+- Layout quebrado dos indicadores de status completamente reformulado
+
 ### Versão 0.0.6 - Agosto 2025
 
 **Novas Funcionalidades:**
