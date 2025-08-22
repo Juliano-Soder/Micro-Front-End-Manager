@@ -675,12 +675,31 @@ function openConfigWindow() {
     autoHideMenuBar: true,
     resizable: false,
     titleBarStyle: 'hidden',
+    show: false, // Não mostra a janela imediatamente
   });
 
+  // Carrega o arquivo e mostra a janela quando estiver pronta
   configWindow.loadFile(path.join(__dirname, 'configs.html'));
 
   configWindow.webContents.once('did-finish-load', () => {
     console.log('Janela de configurações carregada.');
+    // Mostra a janela com uma pequena animação
+    configWindow.show();
+    configWindow.focus();
+    
+    // Timeout de segurança para garantir que a janela seja mostrada
+    setTimeout(() => {
+      if (configWindow && !configWindow.isDestroyed()) {
+        configWindow.webContents.executeJavaScript(`
+          if (typeof forceHideLoading === 'function') {
+            console.log('🚨 Executando timeout de segurança');
+            forceHideLoading();
+          }
+        `).catch(err => {
+          console.log('Erro ao executar JavaScript de segurança:', err.message);
+        });
+      }
+    }, 3000);
   });
 
   // Limpa a referência quando a janela for fechada e reabilita o menu
@@ -1651,15 +1670,28 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     });
   });
 
-  // Handlers IPC para configurações
-  ipcMain.on('load-configs', (event) => {
-    const config = loadConfig();
-    event.reply('configs-loaded', config);
+  // Handlers IPC para configurações (OTIMIZADOS)
+  ipcMain.on('load-configs', async (event) => {
+    try {
+      // Carrega configurações de forma assíncrona
+      const config = await new Promise((resolve) => {
+        setImmediate(() => {
+          resolve(loadConfig());
+        });
+      });
+      event.reply('configs-loaded', config);
+    } catch (error) {
+      console.error('Erro ao carregar configurações:', error);
+      event.reply('configs-loaded', getDefaultConfig());
+    }
   });
 
   ipcMain.on('save-config', (event, { key, value }) => {
-    const updatedConfig = updateConfigProperty(key, value);
-    console.log(`Configuração atualizada: ${key} = ${value}`);
+    // Salva configuração de forma assíncrona para não bloquear a UI
+    setImmediate(() => {
+      const updatedConfig = updateConfigProperty(key, value);
+      console.log(`Configuração atualizada: ${key} = ${value}`);
+    });
   });
 
   ipcMain.on('apply-dark-mode', (event, isDarkMode) => {
@@ -2029,28 +2061,42 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     });
   });
 
-  ipcMain.on('load-projects', (event) => {
-    // Sempre usa a variável projects real, não o cache
-    // O cache é apenas para acelerar o carregamento inicial, não para substituir dados
-    console.log('📋 Carregando projetos:', projects.length, 'projetos encontrados');
-    
-    // Aplica ordenação personalizada antes de enviar para o frontend
-    const orderedProjects = applyCustomProjectOrder(projects);
-    
-    event.reply('projects-loaded', orderedProjects);
-    
-    // Verifica se o login automático deve ser exibido
-    const noPathsConfigured = projects.every((project) => !project.path);
-    if (!isLoggedIn && noPathsConfigured) {
-      console.log('Nenhum login detectado e nenhum projeto configurado. Exibindo login automático.');
-      mainWindow.webContents.send('show-login');
+  ipcMain.on('load-projects', async (event) => {
+    try {
+      // Carrega projetos de forma assíncrona
+      console.log('📋 Carregando projetos:', projects.length, 'projetos encontrados');
+      
+      // Aplica ordenação personalizada de forma assíncrona
+      const orderedProjects = await new Promise((resolve) => {
+        setImmediate(() => {
+          resolve(applyCustomProjectOrder(projects));
+        });
+      });
+      
+      event.reply('projects-loaded', orderedProjects);
+      
+      // Verifica se o login automático deve ser exibido
+      const noPathsConfigured = projects.every((project) => !project.path);
+      if (!isLoggedIn && noPathsConfigured) {
+        console.log('Nenhum login detectado e nenhum projeto configurado. Exibindo login automático.');
+        mainWindow.webContents.send('show-login');
+      }
+    } catch (error) {
+      console.error('Erro ao carregar projetos:', error);
+      event.reply('projects-loaded', projects); // Fallback para projetos sem ordenação
     }
   });
 
-  // Novos handlers para configuração de ordem dos projetos
-  ipcMain.on('get-project-order', (event, type) => {
+  // Novos handlers para configuração de ordem dos projetos (OTIMIZADOS)
+  ipcMain.on('get-project-order', async (event, type) => {
     try {
-      const config = loadConfig();
+      // Carrega configuração de forma assíncrona
+      const config = await new Promise((resolve) => {
+        setImmediate(() => {
+          resolve(loadConfig());
+        });
+      });
+      
       const order = type === 'pas' ? config.pasOrder : config.pampOrder;
       
       console.log(`📋 Carregando ordem dos projetos ${type.toUpperCase()}:`, order);
