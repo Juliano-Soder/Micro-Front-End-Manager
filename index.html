@@ -466,7 +466,10 @@
     div.innerHTML = `
        <div class="project-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <p style="margin: 0;"><strong>${project.name}</strong></p>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <p style="margin: 0;"><strong>${project.name}</strong></p>
+            ${project.gitBranch ? `<span id="pamp-branch-${realIndex}" style="background: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
+          </div>
           <img id="pamp-btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
         </div>
         <div class="input-with-folder" style="margin-bottom: 10px;">
@@ -601,7 +604,10 @@
     div.innerHTML = `
       <div class="project-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <p style="margin: 0;"><strong>${project.name}</strong></p>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <p style="margin: 0;"><strong>${project.name}</strong></p>
+            ${project.gitBranch ? `<span id="pas-branch-${realIndex}" style="background: #007bff; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
+          </div>
           <img id="btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
         </div>
         <div class="input-with-folder" style="margin-bottom: 10px;">
@@ -1454,6 +1460,65 @@
     
     ipcRenderer.send('update-project-path', { index: index, path: path });
   });
+
+  // ⚡ LISTENERS PARA ATUALIZAÇÃO DE BRANCHES GIT ⚡
+  
+  // Listener para atualização de branch enviada do main process quando projeto é iniciado
+  ipcRenderer.on('update-project-branch', (event, { index, branch, path }) => {
+    console.log(`🌿 [Frontend] Atualizando branch do projeto ${index}: ${branch}`);
+    updateProjectBranchDisplay(index, branch, path);
+  });
+
+  // Listener para resposta da atualização manual de branch
+  ipcRenderer.on('project-branch-updated', (event, { index, branch, path }) => {
+    console.log(`🌿 [Frontend] Branch atualizada manualmente para projeto ${index}: ${branch}`);
+    updateProjectBranchDisplay(index, branch, path);
+  });
+
+  // ⚡ FUNÇÃO PARA ATUALIZAR EXIBIÇÃO DA BRANCH ⚡
+  function updateProjectBranchDisplay(index, branch, path) {
+    // Atualiza em projetos PAMP
+    const pampBranchElement = document.getElementById(`pamp-branch-${index}`);
+    if (pampBranchElement) {
+      pampBranchElement.innerHTML = `<img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${branch}`;
+      console.log(`🌿 Branch PAMP atualizada para índice ${index}: ${branch}`);
+    }
+
+    // Atualiza em projetos PAS
+    const pasBranchElement = document.getElementById(`pas-branch-${index}`);
+    if (pasBranchElement) {
+      pasBranchElement.innerHTML = `<img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${branch}`;
+      console.log(`🌿 Branch PAS atualizada para índice ${index}: ${branch}`);
+    }
+
+    // Se não existe elemento de branch, cria um novo
+    if (!pampBranchElement && !pasBranchElement) {
+      const projectCard = document.querySelector(`#pamp-input-${index}, #input-${index}`)?.closest('.project-card');
+      if (projectCard) {
+        const projectNameContainer = projectCard.querySelector('div > div');
+        if (projectNameContainer) {
+          // Determina se é projeto PAMP ou PAS
+          const isPamp = !!document.getElementById(`pamp-input-${index}`);
+          const branchColor = isPamp ? '#28a745' : '#007bff';
+          const branchId = isPamp ? `pamp-branch-${index}` : `pas-branch-${index}`;
+          
+          // Cria o elemento de branch
+          const branchElement = document.createElement('span');
+          branchElement.id = branchId;
+          branchElement.style.cssText = `background: ${branchColor}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;`;
+          branchElement.innerHTML = `<img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${branch}`;
+          
+          projectNameContainer.appendChild(branchElement);
+          console.log(`🌿 Novo elemento de branch criado para índice ${index}: ${branch}`);
+        }
+      }
+    }
+
+    // Atualiza o array de projetos local
+    if (currentProjects[index]) {
+      currentProjects[index].gitBranch = branch;
+    }
+  }
 
   // Initialize UI after DOM is loaded
   document.addEventListener('DOMContentLoaded', function() {

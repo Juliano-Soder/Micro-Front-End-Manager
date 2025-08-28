@@ -16,10 +16,18 @@ app.commandLine.appendSwitch('--enable-zero-copy');
 app.commandLine.appendSwitch('--disable-dev-shm-usage');
 app.commandLine.appendSwitch('--max_old_space_size', '4096');
 
+// Fix para problemas de cache no Windows
+app.commandLine.appendSwitch('--disable-http-cache');
+app.commandLine.appendSwitch('--disable-application-cache');
+
 // Otimizações do Windows
 if (process.platform === 'win32') {
   app.commandLine.appendSwitch('--high-dpi-support', '1');
   app.commandLine.appendSwitch('--force-device-scale-factor', '1');
+  // Fix para encoding UTF-8 no Windows
+  if (process.stdout && process.stdout.setDefaultEncoding) {
+    process.stdout.setDefaultEncoding('utf8');
+  }
 }
 
 const userDataPath = app.getPath('userData');
@@ -36,6 +44,38 @@ let appCache = {
   lastUpdate: 0
 };
 
+// ⚡ FUNÇÃO HELPER PARA LOGS COMPATÍVEIS COM WINDOWS ⚡
+function safeLog(message, type = 'info') {
+  // Remove emojis problemáticos e substitui por texto
+  const cleanMessage = message
+    .replace(/🚀/g, '[ROCKET]')
+    .replace(/⚡/g, '[LIGHTNING]')
+    .replace(/💾/g, '[DISK]')
+    .replace(/📁/g, '[FOLDER]')
+    .replace(/🔍/g, '[SEARCH]')
+    .replace(/❌/g, '[ERROR]')
+    .replace(/✅/g, '[SUCCESS]')
+    .replace(/🌿/g, '[BRANCH]')
+    .replace(/💡/g, '[IDEA]')
+    .replace(/🔧/g, '[TOOL]')
+    .replace(/🎯/g, '[TARGET]')
+    .replace(/🔄/g, '[RELOAD]')
+    .replace(/⏹️/g, '[STOP]')
+    .replace(/ℹ️/g, '[INFO]')
+    .replace(/⚠️/g, '[WARNING]');
+
+  switch(type) {
+    case 'error':
+      console.error(cleanMessage);
+      break;
+    case 'warn':
+      console.warn(cleanMessage);
+      break;
+    default:
+      console.log(cleanMessage);
+  }
+}
+
 // Carrega cache na inicialização
 function loadAppCache() {
   try {
@@ -46,7 +86,7 @@ function loadAppCache() {
       // Cache é válido por 5 minutos
       if (cacheAge < 5 * 60 * 1000) {
         appCache = { ...cacheData };
-        console.log('🚀 Cache carregado com sucesso');
+        safeLog('[CACHE] Cache carregado com sucesso');
         return true;
       }
     }
@@ -64,7 +104,7 @@ function saveAppCache() {
       timestamp: Date.now()
     };
     fs.writeFileSync(cacheFile, JSON.stringify(cacheData, null, 2));
-    console.log('💾 Cache salvo com sucesso');
+    safeLog('[CACHE] Cache salvo com sucesso');
   } catch (error) {
     console.error('Erro ao salvar cache:', error);
   }
@@ -72,7 +112,7 @@ function saveAppCache() {
 
 // ⚡ FUNÇÕES DE PRÉ-CARREGAMENTO E CACHE ⚡
 async function preloadCriticalData() {
-  console.log('🚀 Pré-carregando dados críticos...');
+  safeLog('[ROCKET] Pre-carregando dados criticos...');
   const startTime = Date.now();
   
   try {
@@ -103,7 +143,7 @@ async function preloadCriticalData() {
     saveAppCache();
     
     const loadTime = Date.now() - startTime;
-    console.log(`⚡ Pré-carregamento concluído em ${loadTime}ms`);
+    safeLog(`[LIGHTNING] Pre-carregamento concluido em ${loadTime}ms`);
     
   } catch (error) {
     console.error('Erro durante pré-carregamento:', error);
@@ -119,7 +159,7 @@ async function preloadProjects() {
     
     // Não sobrescreve a variável projects global, apenas salva no cache
     appCache.projects = projectNames;
-    console.log(`📁 ${projectNames.length} projetos carregados no cache para pré-carregamento`);
+    console.log(`[FOLDER] ${projectNames.length} projetos carregados no cache para pre-carregamento`);
   } catch (error) {
     console.log('Arquivo projects.txt não encontrado, será criado quando necessário');
     appCache.projects = [];
@@ -150,7 +190,7 @@ async function preloadAngularInfo() {
       // Usar exec assíncrono com timeout maior
       exec('ng version', { timeout: 15000 }, (error, stdout, stderr) => {
         if (error) {
-          console.log('❌ Angular CLI não disponível no pré-carregamento:', error.message);
+          console.log('[ERROR] Angular CLI nao disponivel no pre-carregamento:', error.message);
           
           // NÃO salva no cache quando há erro - deixa para verificação posterior
           appCache.angularInfo = {
@@ -164,7 +204,7 @@ async function preloadAngularInfo() {
         }
         
         const angularOutput = stdout.toString();
-        console.log('✅ Angular CLI encontrado no pré-carregamento');
+        console.log('[SUCCESS] Angular CLI encontrado no pre-carregamento');
         const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
         
         if (angularCliMatch) {
@@ -176,7 +216,7 @@ async function preloadAngularInfo() {
             confirmed: true, // Flag para indicar que foi confirmado
             fullOutput: angularOutput
           };
-          console.log(`✅ Angular CLI pré-carregado e confirmado: ${version}`);
+          console.log(`[SUCCESS] Angular CLI pre-carregado e confirmado: ${version}`);
         } else {
           // Mesmo sem versão detectada, se chegou aqui é porque está instalado
           appCache.angularInfo = {
@@ -185,7 +225,7 @@ async function preloadAngularInfo() {
             confirmed: true,
             fullOutput: angularOutput
           };
-          console.log('✅ Angular CLI pré-carregado (versão não detectada mas confirmado)');
+          console.log('[SUCCESS] Angular CLI pre-carregado (versao nao detectada mas confirmado)');
         }
         
         resolve();
@@ -214,6 +254,71 @@ async function preloadLoginState() {
   } catch (error) {
     appCache.loginState = { isLoggedIn: false };
   }
+}
+
+// ⚡ FUNÇÃO PARA OBTER BRANCH GIT DO PROJETO (TEMPORARIAMENTE DESABILITADA) ⚡
+async function getProjectGitBranch(projectPath) {
+  // Temporariamente retorna null para evitar problemas de encoding
+  return null;
+  /*
+  return new Promise((resolve) => {
+    if (!projectPath || !fs.existsSync(projectPath)) {
+      resolve(null);
+      return;
+    }
+
+    // Verifica se é um repositório Git
+    const gitPath = path.join(projectPath, '.git');
+    if (!fs.existsSync(gitPath)) {
+      resolve(null);
+      return;
+    }
+
+    exec('git branch --show-current', { 
+      cwd: projectPath, 
+      timeout: 5000,
+      encoding: 'utf8'
+    }, (error, stdout, stderr) => {
+      if (error) {
+        console.log(`[Git Branch] Erro ao obter branch para ${projectPath}: ${error.message}`);
+        resolve(null);
+        return;
+      }
+
+      const branch = stdout.trim();
+      if (branch) {
+        console.log(`[Git Branch] ${path.basename(projectPath)}: ${branch}`);
+        resolve(branch);
+      } else {
+        resolve(null);
+      }
+    });
+  });
+  */
+}
+
+// ⚡ FUNÇÃO PARA OBTER BRANCHES DE TODOS OS PROJETOS (TEMPORARIAMENTE DESABILITADA) ⚡
+async function getAllProjectsBranches(projects) {
+  console.log('[BRANCH] Funcionalidade de branches Git temporariamente desabilitada');
+  // Retorna projetos sem branches para evitar problemas de encoding
+  return projects.map(project => ({
+    ...project,
+    gitBranch: null
+  }));
+  /*
+  console.log('🌿 Obtendo branches Git de todos os projetos...');
+  const branchPromises = projects.map(async (project) => {
+    const branch = await getProjectGitBranch(project.path);
+    return {
+      ...project,
+      gitBranch: branch
+    };
+  });
+
+  const projectsWithBranches = await Promise.all(branchPromises);
+  console.log('[SUCCESS] Branches Git obtidas com sucesso');
+  return projectsWithBranches;
+  */
 }
 
 // Impede múltiplas instâncias do app
@@ -306,7 +411,7 @@ function saveLoginState(isLoggedIn) {
   appCache.loginState = loginState;
   saveAppCache();
   
-  console.log(`💾 Estado de login salvo: ${isLoggedIn}`);
+  console.log(`[SAVE] Estado de login salvo: ${isLoggedIn}`);
 }
 
 // Carrega o estado de login (OTIMIZADO COM CACHE)
@@ -501,7 +606,7 @@ function performNpmLogin(registry) {
 
   // Se já existe uma janela de login, fecha ela primeiro
   if (loginWindow && !loginWindow.isDestroyed()) {
-    console.log('🔄 Fechando janela de login anterior...');
+    console.log('[CLOSE] Fechando janela de login anterior...');
     loginWindow.destroy();
     loginWindow = null;
   }
@@ -918,7 +1023,7 @@ function applyCustomProjectOrder(projects) {
     config = getDefaultConfig();
   }
   
-  console.log('🔄 Aplicando ordenação personalizada dos projetos');
+  console.log('[RELOAD] Aplicando ordenacao personalizada dos projetos');
   
   // Separa projetos PAS e PAMP
   const pasProjects = projects.filter(p => p.name && !p.name.startsWith('mp-pamp'));
@@ -927,7 +1032,7 @@ function applyCustomProjectOrder(projects) {
   // Aplica ordem personalizada aos projetos PAS
   let orderedPasProjects = [];
   if (config.pasOrder && config.pasOrder.length > 0) {
-    console.log('� Aplicando ordem personalizada PAS:', config.pasOrder);
+    console.log('[TARGET] Aplicando ordem personalizada PAS: ' + JSON.stringify(config.pasOrder));
     // Primeiro, adiciona projetos na ordem salva
     config.pasOrder.forEach(projectName => {
       const project = pasProjects.find(p => p.name === projectName);
@@ -943,14 +1048,14 @@ function applyCustomProjectOrder(projects) {
       }
     });
   } else {
-    console.log('📋 Usando ordem padrão para projetos PAS');
+    console.log('[FOLDER] Usando ordem padrao para projetos PAS');
     orderedPasProjects = pasProjects;
   }
   
   // Aplica ordem personalizada aos projetos PAMP
   let orderedPampProjects = [];
   if (config.pampOrder && config.pampOrder.length > 0) {
-    console.log('📋 Aplicando ordem personalizada PAMP:', config.pampOrder);
+    console.log('[FOLDER] Aplicando ordem personalizada PAMP: ' + JSON.stringify(config.pampOrder));
     // Primeiro, adiciona projetos na ordem salva
     config.pampOrder.forEach(projectName => {
       const project = pampProjects.find(p => p.name === projectName);
@@ -966,7 +1071,7 @@ function applyCustomProjectOrder(projects) {
       }
     });
   } else {
-    console.log('📋 Usando ordem padrão para projetos PAMP');
+    console.log('[FOLDER] Usando ordem padrao para projetos PAMP');
     orderedPampProjects = pampProjects;
   }
   
@@ -976,9 +1081,9 @@ function applyCustomProjectOrder(projects) {
 
 // Nova função para aplicar ordenação aos projetos em memória
 function applyProjectOrdering() {
-  console.log('🔄 Reaplicando ordenação dos projetos...');
+  console.log('[RELOAD] Reaplicando ordenacao dos projetos...');
   projects = applyCustomProjectOrder(projects);
-  console.log('✅ Ordenação aplicada aos projetos em memória');
+  console.log('[SUCCESS] Ordenacao aplicada aos projetos em memoria');
 }
 
 // Função para salvar ordem customizada dos projetos (DEPRECIADA - mantida para compatibilidade)
@@ -1018,7 +1123,7 @@ function checkCancelationAndExit(projectPath, stepName) {
 
 // Função para criar a splash screen
 function createSplashWindow() {
-  console.log('🎬 Criando splash screen...');
+  safeLog('[TOOL] Criando splash screen...');
   splashWindow = new BrowserWindow({
     width: 520, // Aumentado de 500 para evitar barra de rolagem
     height: 420, // Aumentado de 400 para mais espaço
@@ -1038,7 +1143,7 @@ function createSplashWindow() {
     skipTaskbar: true
   });
 
-  console.log('📁 Carregando splash.html...');
+  safeLog('[FOLDER] Carregando splash.html...');
   
   // Alternativa: carrega HTML diretamente na memória com conteúdo garantido
   const splashHtml = `
@@ -1232,7 +1337,7 @@ function createSplashWindow() {
 
 // Função para inicializar a aplicação principal (OTIMIZADA)
 async function initializeMainApp() {
-  console.log('🚀 Iniciando aplicação principal com otimizações...');
+  console.log('[START] Iniciando aplicacao principal com otimizacoes...');
   const startTime = Date.now();
   
   // Carrega cache se ainda não foi carregado
@@ -1652,7 +1757,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
 
   // Handler para forçar verificação do login (útil para troubleshooting)
   ipcMain.on('force-login-check', (event) => {
-    console.log('🔄 Verificação de login forçada pelo usuário');
+    console.log('[CHECK] Verificacao de login forcada pelo usuario');
     checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username }) => {
       saveLoginState(actualLoginStatus);
       event.reply('login-state', actualLoginStatus);
@@ -1743,7 +1848,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username }) => {
       if (actualLoginStatus !== currentLoginState) {
         // O status real é diferente do salvo, atualiza
-        console.log(`🔄 Atualizando login state: ${currentLoginState} → ${actualLoginStatus}`);
+        console.log(`[UPDATE] Atualizando login state: ${currentLoginState} → ${actualLoginStatus}`);
         saveLoginState(actualLoginStatus);
         event.reply('login-state', actualLoginStatus);
         
@@ -2066,17 +2171,20 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       // Carrega projetos de forma assíncrona
       console.log('📋 Carregando projetos:', projects.length, 'projetos encontrados');
       
+      // ⚡ OBTER BRANCHES GIT DE TODOS OS PROJETOS ⚡
+      const projectsWithBranches = await getAllProjectsBranches(projects);
+      
       // Aplica ordenação personalizada de forma assíncrona
       const orderedProjects = await new Promise((resolve) => {
         setImmediate(() => {
-          resolve(applyCustomProjectOrder(projects));
+          resolve(applyCustomProjectOrder(projectsWithBranches));
         });
       });
       
       event.reply('projects-loaded', orderedProjects);
       
       // Verifica se o login automático deve ser exibido
-      const noPathsConfigured = projects.every((project) => !project.path);
+      const noPathsConfigured = projectsWithBranches.every((project) => !project.path);
       if (!isLoggedIn && noPathsConfigured) {
         console.log('Nenhum login detectado e nenhum projeto configurado. Exibindo login automático.');
         mainWindow.webContents.send('show-login');
@@ -2109,7 +2217,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
 
   ipcMain.on('save-project-order', (event, { type, order }) => {
     try {
-      console.log(`🔄 Tentando salvar ordem dos projetos ${type.toUpperCase()}:`, order);
+      console.log(`[SAVE] Tentando salvar ordem dos projetos ${type.toUpperCase()}:`, order);
       
       const config = loadConfig();
       console.log('📋 Configuração atual:', JSON.stringify(config, null, 2));
@@ -2128,7 +2236,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       console.log(`✅ Ordem dos projetos ${type.toUpperCase()} salva:`, order);
       
       // Aplica a nova ordenação aos projetos em memória
-      console.log('🔄 Aplicando nova ordenação aos projetos em memória...');
+      console.log('[APPLY] Aplicando nova ordenacao aos projetos em memoria...');
       applyProjectOrdering();
       
       // Envia os projetos ordenados para a tela principal IMEDIATAMENTE
@@ -2152,7 +2260,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
 
   ipcMain.on('reload-main-window', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      console.log('🔄 Recarregando janela principal...');
+      console.log('[RELOAD] Recarregando janela principal...');
       mainWindow.webContents.reload();
     }
   });
@@ -2570,6 +2678,35 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       return;
     }
     
+    // ⚡ ATUALIZA BRANCH GIT QUANDO PROJETO É INICIADO (TEMPORARIAMENTE DESABILITADO) ⚡
+    /*
+    const updateProjectBranch = async () => {
+      try {
+        const currentBranch = await getProjectGitBranch(projectPath);
+        const projectIndex = projects.findIndex(p => p.path === projectPath);
+        
+        if (projectIndex !== -1 && currentBranch) {
+          // Atualiza a branch do projeto localmente
+          projects[projectIndex].gitBranch = currentBranch;
+          
+          // Envia atualização para o frontend
+          event.reply('update-project-branch', { 
+            index: projectIndex, 
+            branch: currentBranch,
+            path: projectPath
+          });
+          
+          console.log(`🌿 Branch atualizada para ${path.basename(projectPath)}: ${currentBranch}`);
+        }
+      } catch (error) {
+        console.error(`Erro ao atualizar branch do projeto ${projectPath}:`, error);
+      }
+    };
+    
+    // Executa atualização da branch de forma assíncrona
+    updateProjectBranch();
+    */
+    
     // Define o comando com base no nome do projeto
     const projectName = path.basename(projectPath); // Extrai o nome do projeto do caminho
     const isPampProject = projectName.startsWith('mp-pamp');
@@ -2820,7 +2957,17 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         'for additional information or if the build fails',
         'the local angular cli version is used',
         'depends on \'',
-        'for more info see: https://angular.io/guide/'
+        'for more info see: https://angular.io/guide/',
+        '[webpack-dev-server]',
+        'project is running at:',
+        'loopback:',
+        'on your network:',
+        'content not from webpack is served from',
+        '404s will fallback to',
+        'webpack output is served from',
+        'generating browser application bundles',
+        'generating browser application bundles (phase: setup)',
+        'generating browser application bundles (phase: building)'
       ];
       
       // Lista de padrões que SÃO erros críticos
@@ -2922,7 +3069,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         if (isRebuildMessage && !isCompilationComplete) {
           compilationInProgress = true;
           lastRebuildTime = now;
-          console.log(`🔄 [REBUILD DETECTADO] ${message}`);
+          console.log(`[REBUILD] [REBUILD DETECTADO] ${message}`);
         }
         // Para rebuilds, sempre mostra a mensagem
         sendLogToUI(message, isError, true);
@@ -3173,7 +3320,12 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           lowerData.includes('angular') ||
           lowerData.includes('typescript') ||
           lowerData.includes('webpack')
-        )) ||
+        ) && 
+        // Exclui mensagens informativas do webpack-dev-server
+        !lowerData.includes('[webpack-dev-server]') &&
+        !lowerData.includes('project is running at') &&
+        !lowerData.includes('loopback:') &&
+        !lowerData.includes('on your network:')) ||
         (lowerData.includes('compiled with') && lowerData.includes('error'));
       
       // ⚡ FORÇA EXIBIÇÃO PARA ERROS DE COMPILAÇÃO ⚡
@@ -4727,13 +4879,16 @@ ipcMain.on('execute-command', (event, command) => {
 // Evento principal do aplicativo
 // ⚡ INICIALIZAÇÃO OTIMIZADA ⚡
 app.on('ready', async () => {
-  console.log('🚀 Aplicação pronta, iniciando otimizações...');
+  safeLog('[ROCKET] Aplicacao pronta, iniciando otimizacoes...');
+  
+  // ⚡ LIMPA CACHE PROBLEMÁTICO DO ELECTRON NO WINDOWS ⚡
+  clearElectronCacheIfNeeded();
   
   // Define prioridade alta no Windows para startup mais rápido
   if (process.platform === 'win32') {
     try {
       exec('wmic process where "name=\'electron.exe\'" call setpriority "above normal"', (error) => {
-        if (!error) console.log('⚡ Prioridade do processo aumentada');
+        if (!error) safeLog('[LIGHTNING] Prioridade do processo aumentada');
       });
     } catch (e) {
       // Ignora se não conseguir ajustar prioridade
@@ -4743,7 +4898,7 @@ app.on('ready', async () => {
   // Carrega cache na inicialização
   const cacheLoaded = loadAppCache();
   if (cacheLoaded) {
-    console.log('💾 Cache pré-carregado com sucesso');
+    safeLog('[DISK] Cache pre-carregado com sucesso');
   }
   
   // Inicia pré-carregamento em background
@@ -4753,14 +4908,40 @@ app.on('ready', async () => {
   setTimeout(() => {
     const isGitAvailable = checkGitGlobal();
     if (!isGitAvailable) {
-      console.log('⚠️ Git não detectado - usuário será informado se necessário');
+      safeLog('[WARNING] Git nao detectado - usuario sera informado se necessario', 'warn');
     } else {
-      console.log('✅ Git detectado no sistema');
+      safeLog('[SUCCESS] Git detectado no sistema');
     }
   }, 2000);
   
   // Cria splash screen
   createSplashWindow();
+
+  // ⚡ HANDLER PARA ATUALIZAR BRANCH DE PROJETO ESPECÍFICO (TEMPORARIAMENTE DESABILITADO) ⚡
+  /*
+  ipcMain.on('update-project-branch', async (event, { index }) => {
+    try {
+      if (index >= 0 && index < projects.length) {
+        const project = projects[index];
+        const currentBranch = await getProjectGitBranch(project.path);
+        
+        if (currentBranch) {
+          projects[index].gitBranch = currentBranch;
+          
+          event.reply('project-branch-updated', { 
+            index: index, 
+            branch: currentBranch,
+            path: project.path
+          });
+          
+          console.log(`🌿 Branch atualizada manualmente para ${project.name}: ${currentBranch}`);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar branch do projeto:', error);
+    }
+  });
+  */
 });
 
 // ⚡ GESTÃO OTIMIZADA DO CICLO DE VIDA DA APP ⚡
@@ -4776,7 +4957,7 @@ app.on('window-all-closed', () => {
       
       if (cacheAge > 24 * 60 * 60 * 1000) { // 24 horas
         fs.unlinkSync(cacheFile);
-        console.log('🗑️ Cache antigo removido');
+        safeLog('[TOOL] Cache antigo removido');
       }
     }
   } catch (error) {
@@ -4797,11 +4978,28 @@ app.on('activate', () => {
 setInterval(() => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     preloadCriticalData().catch(console.error);
-    console.log('🔄 Cache atualizado automaticamente');
+    console.log('[CACHE] Cache atualizado automaticamente');
   }
 }, 2 * 60 * 1000); // 2 minutos
 
-console.log('⚡ SISTEMA DE PERFORMANCE ATIVADO ⚡');
-console.log('🚀 Cache inteligente, pré-carregamento e otimizações Windows habilitadas');
-console.log('💾 Dados críticos serão carregados em background para máxima velocidade');
-console.log('🎯 Otimizações multi-core e multi-threading implementadas');
+console.log('[LIGHTNING] SISTEMA DE PERFORMANCE ATIVADO [LIGHTNING]');
+console.log('[ROCKET] Cache inteligente, pre-carregamento e otimizacoes Windows habilitadas');
+console.log('[DISK] Dados criticos serao carregados em background para maxima velocidade');
+console.log('[TARGET] Otimizacoes multi-core e multi-threading implementadas');
+
+// ⚡ FUNÇÃO PARA LIMPAR CACHE PROBLEMÁTICO DO ELECTRON NO WINDOWS ⚡
+function clearElectronCacheIfNeeded() {
+  if (process.platform === 'win32') {
+    try {
+      const session = require('electron').session;
+      if (session && session.defaultSession) {
+        session.defaultSession.clearCache(() => {
+          safeLog('[TOOL] Cache do Electron limpo no Windows');
+        });
+      }
+    } catch (error) {
+      // Ignora erros de limpeza de cache
+      safeLog('[WARNING] Nao foi possivel limpar cache do Electron: ' + error.message, 'warn');
+    }
+  }
+}
