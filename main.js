@@ -256,69 +256,98 @@ async function preloadLoginState() {
   }
 }
 
-// ⚡ FUNÇÃO PARA OBTER BRANCH GIT DO PROJETO (TEMPORARIAMENTE DESABILITADA) ⚡
+// ⚡ FUNÇÃO PARA OBTER BRANCH GIT DO PROJETO ⚡
 async function getProjectGitBranch(projectPath) {
-  // Temporariamente retorna null para evitar problemas de encoding
-  return null;
-  /*
-  return new Promise((resolve) => {
-    if (!projectPath || !fs.existsSync(projectPath)) {
-      resolve(null);
-      return;
+  if (!projectPath || projectPath.trim() === '') {
+    return null; // Não há path definido
+  }
+
+  try {
+    // Verifica se o diretório existe
+    if (!fs.existsSync(projectPath)) {
+      return null; // Diretório não existe
     }
 
     // Verifica se é um repositório Git
     const gitPath = path.join(projectPath, '.git');
     if (!fs.existsSync(gitPath)) {
-      resolve(null);
-      return;
+      return null; // Não é um repositório Git
     }
 
-    exec('git branch --show-current', { 
-      cwd: projectPath, 
-      timeout: 5000,
-      encoding: 'utf8'
-    }, (error, stdout, stderr) => {
-      if (error) {
-        console.log(`[Git Branch] Erro ao obter branch para ${projectPath}: ${error.message}`);
-        resolve(null);
-        return;
-      }
+    return new Promise((resolve) => {
+      exec('git branch --show-current', { 
+        cwd: projectPath, 
+        timeout: 5000,
+        encoding: 'utf8'
+      }, (error, stdout, stderr) => {
+        if (error) {
+          console.log(`[GIT] Erro ao obter branch para ${projectPath}: ${error.message}`);
+          resolve(null);
+          return;
+        }
 
-      const branch = stdout.trim();
-      if (branch) {
-        console.log(`[Git Branch] ${path.basename(projectPath)}: ${branch}`);
-        resolve(branch);
-      } else {
-        resolve(null);
-      }
+        const branch = stdout.trim();
+        if (branch) {
+          console.log(`[GIT] ${path.basename(projectPath)}: ${branch}`);
+          resolve(branch);
+        } else {
+          console.log(`[GIT] Nenhuma branch para ${projectPath}`);
+          resolve(null);
+        }
+      });
     });
-  });
-  */
+  } catch (error) {
+    console.log(`[GIT] Erro geral ao verificar branch para ${projectPath}: ${error.message}`);
+    return null;
+  }
 }
 
-// ⚡ FUNÇÃO PARA OBTER BRANCHES DE TODOS OS PROJETOS (TEMPORARIAMENTE DESABILITADA) ⚡
+// ⚡ FUNÇÃO PARA OBTER BRANCHES DE TODOS OS PROJETOS DE FORMA SEGURA ⚡
 async function getAllProjectsBranches(projects) {
-  console.log('[BRANCH] Funcionalidade de branches Git temporariamente desabilitada');
-  // Retorna projetos sem branches para evitar problemas de encoding
-  return projects.map(project => ({
-    ...project,
-    gitBranch: null
-  }));
-  /*
-  console.log('🌿 Obtendo branches Git de todos os projetos...');
-  const branchPromises = projects.map(async (project) => {
-    const branch = await getProjectGitBranch(project.path);
-    return {
-      ...project,
-      gitBranch: branch
-    };
-  });
+  console.log('[GIT] Iniciando detecção de branches...');
+  
+  // Filtra apenas projetos que têm path definido
+  const projectsWithPaths = projects.filter(project => 
+    project.path && project.path.trim() !== ''
+  );
 
-  const projectsWithBranches = await Promise.all(branchPromises);
-  console.log('[SUCCESS] Branches Git obtidas com sucesso');
-  return projectsWithBranches;
-  */
+  if (projectsWithPaths.length === 0) {
+    console.log('[GIT] Nenhum projeto com path definido, pulando detecção de branches');
+    return projects.map(project => ({
+      ...project,
+      gitBranch: null
+    }));
+  }
+
+  try {
+    console.log(`[GIT] Verificando branches para ${projectsWithPaths.length} projeto(s) com path`);
+    
+    const branchPromises = projects.map(async (project) => {
+      if (!project.path || project.path.trim() === '') {
+        return {
+          ...project,
+          gitBranch: null
+        };
+      }
+
+      const branch = await getProjectGitBranch(project.path);
+      return {
+        ...project,
+        gitBranch: branch
+      };
+    });
+
+    const projectsWithBranches = await Promise.all(branchPromises);
+    console.log('[GIT] Detecção de branches concluída');
+    return projectsWithBranches;
+  } catch (error) {
+    console.log(`[GIT] Erro durante detecção de branches: ${error.message}`);
+    // Em caso de erro, retorna projetos sem branches
+    return projects.map(project => ({
+      ...project,
+      gitBranch: null
+    }));
+  }
 }
 
 // Impede múltiplas instâncias do app
@@ -1707,6 +1736,25 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           splashWindow.close();
         }
       }, 200);
+
+      // ⚡ DETECÇÃO DE BRANCHES GIT COMO ÚLTIMA ETAPA ⚡
+      setTimeout(async () => {
+        try {
+          console.log('[GIT] Iniciando detecção de branches em background...');
+          const projectsWithBranches = await getAllProjectsBranches(projects);
+          
+          // Atualiza a variável global
+          projects = projectsWithBranches;
+          
+          // Envia os projetos atualizados para a UI
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('projects-loaded', projectsWithBranches);
+            console.log('[GIT] Projetos com branches enviados para a UI');
+          }
+        } catch (error) {
+          console.log(`[GIT] Erro na detecção de branches: ${error.message}`);
+        }
+      }, 3000); // Aguarda 3 segundos após mostrar a janela
     }, 2000); // Aumentado de 500ms para 2000ms
   });
 
