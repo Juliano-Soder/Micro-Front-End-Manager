@@ -2792,8 +2792,12 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     let portInUseDetected = false;
     let detectedPort = null;
     let portInUseTimer = null;
-    // Variável para controle de mensagens "Compiled successfully" apenas
-    let lastSuccessTime = 0;
+    // ⚡ VARIÁVEIS PARA CONTROLE INTELIGENTE DE LOGS ⚡
+    let lastLogTime = 0;
+    let consecutiveErrors = 0;
+    let lastRebuildTime = 0;
+    let compilationInProgress = false;
+    const errorThreshold = 3; // Máximo de erros consecutivos antes de alertar
 
     // Função para classificar se uma mensagem do stderr é realmente um erro crítico
     const isActualError = (message) => {
@@ -2857,11 +2861,108 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       return !isWarning;
     };
 
-    // Função helper para enviar logs
-    const sendLog = (message, isError = false) => {
+    // ⚡ FUNÇÃO MELHORADA PARA ENVIAR LOGS COM DETECÇÃO DE REBUILDS ⚡
+    const sendLog = (message, isError = false, forceShow = false) => {
       if (!message || !message.trim()) return; // Ignora mensagens vazias
       
-      console.log(`[${isError ? 'STDERR' : 'STDOUT'}] ${message}`);
+      const now = Date.now();
+      const lowerMessage = message.toLowerCase();
+      
+      // ⚡ DETECÇÃO INTELIGENTE DE REBUILDS E RECOMPILAÇÕES ⚡
+      const isRebuildMessage = 
+        lowerMessage.includes('file change detected') ||
+        lowerMessage.includes('rebuilding') ||
+        lowerMessage.includes('recompiling') ||
+        lowerMessage.includes('compilation started') ||
+        lowerMessage.includes('webpack compilation started') ||
+        lowerMessage.includes('webpack building') ||
+        lowerMessage.includes('compiling') ||
+        lowerMessage.includes('building') ||
+        lowerMessage.includes('recompiling') ||
+        lowerMessage.includes('webpack compiled') ||
+        lowerMessage.includes('bundle generation') ||
+        lowerMessage.includes('chunk ') ||
+        lowerMessage.includes('emitted') ||
+        lowerMessage.includes('hash:') ||
+        lowerMessage.includes('time:') ||
+        lowerMessage.includes('built at:') ||
+        (lowerMessage.includes('compiled') && (
+          lowerMessage.includes('successfully') || 
+          lowerMessage.includes('with') || 
+          lowerMessage.includes('error') ||
+          lowerMessage.includes('warnings')
+        ));
+      
+      // ⚡ DETECÇÃO DE COMPILAÇÃO COMPLETA ⚡
+      const isCompilationComplete = 
+        lowerMessage.includes('compiled successfully') ||
+        lowerMessage.includes('compilation complete') ||
+        lowerMessage.includes('webpack compiled') ||
+        lowerMessage.includes('build complete') ||
+        lowerMessage.includes('√ compiled successfully') ||
+        lowerMessage.includes('✓ compiled successfully') ||
+        lowerMessage.includes('webpack: compiled successfully') ||
+        lowerMessage.includes('compiled with') ||
+        lowerMessage.includes('warnings but no errors') ||
+        (lowerMessage.includes('compiled') && lowerMessage.includes('ms'));
+
+      // ⚡ DETECÇÃO DE ERROS DE COMPILAÇÃO ⚡
+      const isCompilationError = 
+        lowerMessage.includes('compilation error') ||
+        lowerMessage.includes('build error') ||
+        lowerMessage.includes('webpack error') ||
+        (lowerMessage.includes('error') && (
+          lowerMessage.includes('ts') || 
+          lowerMessage.includes('typescript') ||
+          lowerMessage.includes('angular')
+        ));
+
+      // ⚡ LÓGICA ESPECIAL PARA REBUILDS - SEMPRE MOSTRA ⚡
+      if (isRebuildMessage || forceShow) {
+        if (isRebuildMessage && !isCompilationComplete) {
+          compilationInProgress = true;
+          lastRebuildTime = now;
+          console.log(`🔄 [REBUILD DETECTADO] ${message}`);
+        }
+        // Para rebuilds, sempre mostra a mensagem
+        sendLogToUI(message, isError, true);
+        return;
+      }
+
+      // ⚡ LÓGICA ESPECIAL PARA ERROS DE COMPILAÇÃO - SEMPRE MOSTRA ⚡
+      if (isCompilationError || isError) {
+        consecutiveErrors++;
+        console.log(`❌ [ERRO COMPILAÇÃO] ${message} (Erro ${consecutiveErrors})`);
+        sendLogToUI(message, true, true);
+        compilationInProgress = false;
+        return;
+      }
+
+      // ⚡ LÓGICA ESPECIAL PARA SUCESSO DE COMPILAÇÃO ⚡
+      if (isCompilationComplete) {
+        if (compilationInProgress || (now - lastRebuildTime < 30000)) {
+          // Se há compilação em andamento ou rebuild recente, sempre mostra
+          console.log(`✅ [COMPILAÇÃO SUCESSO] ${message}`);
+          sendLogToUI(message, false, true);
+          compilationInProgress = false;
+          consecutiveErrors = 0; // Reset contador de erros
+          return;
+        } else {
+          // Controle de spam apenas para sucessos sem rebuild recente
+          if (now - lastLogTime < 3000) {
+            return; // Ignora se a última mensagem foi há menos de 3 segundos
+          }
+        }
+      }
+
+      // ⚡ CONTROLE PADRÃO PARA OUTRAS MENSAGENS ⚡
+      lastLogTime = now;
+      sendLogToUI(message, isError, false);
+    };
+
+    // ⚡ FUNÇÃO AUXILIAR PARA ENVIAR LOGS PARA UI ⚡
+    const sendLogToUI = (message, isError = false, isImportant = false) => {
+      console.log(`[${isError ? 'STDERR' : 'STDOUT'}]${isImportant ? ' [IMPORTANTE]' : ''} ${message}`);
       
       // Detecta erros relacionados ao Git e adiciona orientação
       const lowerMessage = message.toLowerCase();
@@ -2886,13 +2987,15 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           message: enhancedMessage,
           index: projectIndex,
           name: projectName,
-          error: isError
+          error: isError,
+          isImportant: isImportant
         });
       } else {
         event.reply('log', { 
           path: projectPath, 
           message: enhancedMessage,
-          error: isError
+          error: isError,
+          isImportant: isImportant
         });
       }
     };
@@ -2906,17 +3009,58 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         cleanData = data.toString().trim();
       }
 
-      // Controle especial para mensagens "Compiled successfully" para evitar spam
-      if (cleanData.includes('Compiled successfully')) {
-        const now = Date.now();
-        if (now - lastSuccessTime < 2000) {
-          return; // Ignora se a última mensagem de sucesso foi há menos de 2 segundos
-        }
-        lastSuccessTime = now;
-      }
+      // ⚡ DETECÇÃO MELHORADA DE REBUILDS E COMPILAÇÕES ⚡
+      const lowerData = cleanData.toLowerCase();
+      
+      // Detecta início de rebuild/recompilação
+      const isRebuildStart = 
+        lowerData.includes('file change detected') ||
+        lowerData.includes('rebuilding') ||
+        lowerData.includes('recompiling') ||
+        lowerData.includes('compilation started') ||
+        lowerData.includes('webpack building') ||
+        lowerData.includes('webpack compilation started') ||
+        lowerData.includes('bundle generation') ||
+        lowerData.includes('chunk ') ||
+        lowerData.includes('emitted') ||
+        lowerData.includes('hash:') ||
+        lowerData.includes('time:') ||
+        lowerData.includes('built at:') ||
+        (lowerData.includes('compiling') && !lowerData.includes('compiled'));
 
-      // Usa a função helper para enviar logs
-      sendLog(cleanData);
+      // Detecta compilação bem-sucedida
+      const isCompilationSuccess = 
+        lowerData.includes('compiled successfully') ||
+        lowerData.includes('√ compiled successfully') ||
+        lowerData.includes('✓ compiled successfully') ||
+        lowerData.includes('webpack compiled successfully') ||
+        lowerData.includes('webpack: compiled successfully') ||
+        lowerData.includes('compiled with') ||
+        lowerData.includes('warnings but no errors') ||
+        (lowerData.includes('compiled') && lowerData.includes('ms'));
+
+      // Detecta erros de compilação
+      const hasCompilationError = 
+        lowerData.includes('compilation error') ||
+        lowerData.includes('build error') ||
+        lowerData.includes('webpack error') ||
+        lowerData.includes('failed to compile') ||
+        lowerData.includes('compilation failed') ||
+        lowerData.includes('build failed') ||
+        (lowerData.includes('error') && (
+          lowerData.includes('ts(') || 
+          lowerData.includes('typescript') ||
+          lowerData.includes('angular') ||
+          lowerData.includes('ng ')
+        )) ||
+        (lowerData.includes('compiled with') && lowerData.includes('error'));
+
+      // ⚡ FORÇA EXIBIÇÃO PARA REBUILDS E COMPILAÇÕES ⚡
+      if (isRebuildStart || isCompilationSuccess || hasCompilationError) {
+        sendLog(cleanData, false, true); // Force show = true
+      } else {
+        sendLog(cleanData, false, false);
+      }
 
       // Detecta se uma porta está em uso
       const portInUseMatch = cleanData.match(/Port (\d+) is already in use/);
@@ -2937,7 +3081,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           
           // Informa o usuário
           const message = `Porta ${detectedPort} em uso. Tentando matar o processo nessa porta...`;
-          sendLog(message);
+          sendLog(message, false, true);
           
           // Encerra o processo atual que está esperando input
           if (runningProcesses[projectPath]) {
@@ -2960,7 +3104,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
               }
               
               // Informa o usuário usando sendLog
-              sendLog(nextMessage);
+              sendLog(nextMessage, false, true);
               
               // Inicia o projeto novamente após um breve intervalo
               setTimeout(() => {
@@ -3008,11 +3152,37 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         cleanData = data.toString().trim();
       }
 
-      // Distingue entre warnings/deprecations e erros reais
+      // ⚡ ANÁLISE MELHORADA DE ERROS NO STDERR ⚡
+      const lowerData = cleanData.toLowerCase();
+      
+      // Detecta se é realmente um erro crítico
       const isRealError = isActualError(cleanData);
       
-      // Usa sendLog com flag de erro apenas para erros reais
-      sendLog(cleanData, isRealError);
+      // Detecta erros de compilação específicos que devem sempre aparecer
+      const isCompilationError = 
+        lowerData.includes('compilation error') ||
+        lowerData.includes('build error') ||
+        lowerData.includes('typescript error') ||
+        lowerData.includes('webpack error') ||
+        lowerData.includes('failed to compile') ||
+        lowerData.includes('compilation failed') ||
+        lowerData.includes('build failed') ||
+        (lowerData.includes('error') && (
+          lowerData.includes('ts(') || 
+          lowerData.includes('ng ') ||
+          lowerData.includes('angular') ||
+          lowerData.includes('typescript') ||
+          lowerData.includes('webpack')
+        )) ||
+        (lowerData.includes('compiled with') && lowerData.includes('error'));
+      
+      // ⚡ FORÇA EXIBIÇÃO PARA ERROS DE COMPILAÇÃO ⚡
+      if (isCompilationError) {
+        sendLog(cleanData, true, true); // Force show = true para erros de compilação
+      } else {
+        // Para outros tipos de stderr, usa a classificação normal
+        sendLog(cleanData, isRealError, false);
+      }
     });
     
     childProcess.on('close', (code) => {

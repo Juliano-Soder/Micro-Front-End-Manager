@@ -742,31 +742,99 @@
   // IPC Listeners globais
   
   // Listener específico para este projeto PAMP
-  ipcRenderer.on('pamp-log', (event, { path, message, index, name, error, nodeVersionError }) => {
+  ipcRenderer.on('pamp-log', (event, { path, message, index, name, error, nodeVersionError, isImportant }) => {
     const pampLogDiv = document.getElementById(`pamp-log-${index}`);
     
     if (!message || !message.trim()) {
       return;
     }
     
-    // Verifica se a mensagem é igual à última mensagem adicionada
-    if (pampLogDiv) {
+    // ⚡ NOVA LÓGICA INTELIGENTE PARA REBUILDS E ERROS ⚡
+    const lowerMessage = message.toLowerCase();
+    
+    // Detecta rebuilds e recompilações
+    const isRebuildMessage = 
+      lowerMessage.includes('file change detected') ||
+      lowerMessage.includes('rebuilding') ||
+      lowerMessage.includes('recompiling') ||
+      lowerMessage.includes('compilation started') ||
+      lowerMessage.includes('webpack building') ||
+      lowerMessage.includes('webpack compilation started') ||
+      lowerMessage.includes('compiling') ||
+      lowerMessage.includes('building') ||
+      lowerMessage.includes('bundle generation') ||
+      lowerMessage.includes('chunk ') ||
+      lowerMessage.includes('emitted') ||
+      lowerMessage.includes('hash:') ||
+      lowerMessage.includes('time:') ||
+      lowerMessage.includes('built at:');
+    
+    // Detecta compilação completa
+    const isCompilationComplete = 
+      lowerMessage.includes('compiled successfully') ||
+      lowerMessage.includes('compilation complete') ||
+      lowerMessage.includes('webpack compiled') ||
+      lowerMessage.includes('build complete') ||
+      lowerMessage.includes('√ compiled successfully') ||
+      lowerMessage.includes('✓ compiled successfully') ||
+      lowerMessage.includes('webpack: compiled successfully') ||
+      lowerMessage.includes('compiled with') ||
+      lowerMessage.includes('warnings but no errors') ||
+      (lowerMessage.includes('compiled') && lowerMessage.includes('ms'));
+    
+    // Detecta erros de compilação
+    const isCompilationError = 
+      lowerMessage.includes('compilation error') ||
+      lowerMessage.includes('build error') ||
+      lowerMessage.includes('typescript error') ||
+      lowerMessage.includes('webpack error') ||
+      lowerMessage.includes('failed to compile') ||
+      lowerMessage.includes('compilation failed') ||
+      lowerMessage.includes('build failed') ||
+      error === true ||
+      (lowerMessage.includes('compiled with') && lowerMessage.includes('error'));
+
+    // ⚡ SEMPRE EXIBE REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
+    let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || error;
+    
+    // Para outras mensagens, verifica duplicação
+    if (!shouldShow && pampLogDiv) {
       const currentText = pampLogDiv.innerText;
       const lines = currentText.split('\n');
       const lastLine = lines[lines.length - 1];
       
+      // Só ignora mensagens duplicadas que NÃO são rebuilds, compilações ou erros
       if (lastLine === message && 
           !message.includes('npm install') &&
-          !message.includes('Compiled successfully')) {
+          !isRebuildMessage &&
+          !isCompilationComplete &&
+          !isCompilationError) {
         return;
       }
+      shouldShow = true;
     }
 
-    console.log(`Recebeu pamp-log: ${message} para índice ${index}`);
+    if (!shouldShow) return;
+
+    console.log(`📝 [PAMP-LOG] ${isImportant ? '[IMPORTANTE] ' : ''}${error ? '[ERRO] ' : ''}${message}`);
     
     if (pampLogDiv) {
       pampLogDiv.style.display = 'block';
-      pampLogDiv.innerText += `\n${message}`;
+      
+      // ⚡ FORMATAÇÃO ESPECIAL PARA DIFERENTES TIPOS DE MENSAGEM ⚡
+      let formattedMessage = message;
+      
+      if (isRebuildMessage) {
+        formattedMessage = `🔄 [REBUILD] ${message}`;
+      } else if (isCompilationComplete) {
+        formattedMessage = `✅ [SUCESSO] ${message}`;
+      } else if (isCompilationError || error) {
+        formattedMessage = `❌ [ERRO] ${message}`;
+      } else if (isImportant) {
+        formattedMessage = `⚡ [IMPORTANTE] ${message}`;
+      }
+      
+      pampLogDiv.innerText += `\n${formattedMessage}`;
       pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
       
       if (message.includes('existe em')) {
@@ -1094,7 +1162,7 @@
   }
 
   // Atualiza o status de login - VERSÃO MELHORADA
-  ipcRenderer.on('log', (event, { message, path }) => {
+  ipcRenderer.on('log', (event, { message, path, error, isImportant }) => {
       // Atualiza sistema antigo para compatibilidade
       const statusDiv = document.getElementById('status');
       if (message.includes('Logado no Nexus com sucesso')) {
@@ -1109,13 +1177,95 @@
         updateNexusStatusBadge(false, 'Erro no login');
       }
       
+      // ⚡ NOVA LÓGICA MELHORADA PARA LOGS DE PROJETOS PAS ⚡
+      const lowerMessage = message.toLowerCase();
+      
+      // Detecta rebuilds e recompilações
+      const isRebuildMessage = 
+        lowerMessage.includes('file change detected') ||
+        lowerMessage.includes('rebuilding') ||
+        lowerMessage.includes('recompiling') ||
+        lowerMessage.includes('compilation started') ||
+        lowerMessage.includes('webpack building') ||
+        lowerMessage.includes('webpack compilation started') ||
+        lowerMessage.includes('compiling') ||
+        lowerMessage.includes('building') ||
+        lowerMessage.includes('bundle generation') ||
+        lowerMessage.includes('chunk ') ||
+        lowerMessage.includes('emitted') ||
+        lowerMessage.includes('hash:') ||
+        lowerMessage.includes('time:') ||
+        lowerMessage.includes('built at:');
+      
+      // Detecta compilação completa
+      const isCompilationComplete = 
+        lowerMessage.includes('compiled successfully') ||
+        lowerMessage.includes('compilation complete') ||
+        lowerMessage.includes('webpack compiled') ||
+        lowerMessage.includes('build complete') ||
+        lowerMessage.includes('√ compiled successfully') ||
+        lowerMessage.includes('✓ compiled successfully') ||
+        lowerMessage.includes('webpack: compiled successfully') ||
+        lowerMessage.includes('compiled with') ||
+        lowerMessage.includes('warnings but no errors') ||
+        (lowerMessage.includes('compiled') && lowerMessage.includes('ms'));
+      
+      // Detecta erros de compilação
+      const isCompilationError = 
+        lowerMessage.includes('compilation error') ||
+        lowerMessage.includes('build error') ||
+        lowerMessage.includes('typescript error') ||
+        lowerMessage.includes('webpack error') ||
+        lowerMessage.includes('failed to compile') ||
+        lowerMessage.includes('compilation failed') ||
+        lowerMessage.includes('build failed') ||
+        error === true ||
+        (lowerMessage.includes('compiled with') && lowerMessage.includes('error'));
+      
       // Log messages para projetos específicos
       currentProjects.forEach((project, index) => {
         if (project.path === path || message.includes(project.name)) {
             const logDiv = document.getElementById(`log-${index}`);
             if (logDiv) {
+              // ⚡ SEMPRE EXIBE REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
+              let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || error;
+              
+              // Para outras mensagens, verifica duplicação
+              if (!shouldShow) {
+                const currentText = logDiv.innerText;
+                const lines = currentText.split('\n');
+                const lastLine = lines[lines.length - 1];
+                
+                // Só ignora mensagens duplicadas que NÃO são rebuilds, compilações ou erros
+                if (lastLine === message && 
+                    !isRebuildMessage &&
+                    !isCompilationComplete &&
+                    !isCompilationError) {
+                  return;
+                }
+                shouldShow = true;
+              }
+
+              if (!shouldShow) return;
+
+              console.log(`📝 [PAS-LOG] ${isImportant ? '[IMPORTANTE] ' : ''}${error ? '[ERRO] ' : ''}${message}`);
+              
               logDiv.style.display = 'block';
-              logDiv.innerText += `\n${message}`;
+              
+              // ⚡ FORMATAÇÃO ESPECIAL PARA DIFERENTES TIPOS DE MENSAGEM ⚡
+              let formattedMessage = message;
+              
+              if (isRebuildMessage) {
+                formattedMessage = `🔄 [REBUILD] ${message}`;
+              } else if (isCompilationComplete) {
+                formattedMessage = `✅ [SUCESSO] ${message}`;
+              } else if (isCompilationError || error) {
+                formattedMessage = `❌ [ERRO] ${message}`;
+              } else if (isImportant) {
+                formattedMessage = `⚡ [IMPORTANTE] ${message}`;
+              }
+              
+              logDiv.innerText += `\n${formattedMessage}`;
               logDiv.scrollTop = logDiv.scrollHeight;
 
               if (message.includes('Caminho do projeto:')) {
