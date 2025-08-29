@@ -453,6 +453,13 @@
   ipcRenderer.on('projects-loaded', (event, projects) => {
     // Store projects globally
     currentProjects = projects;
+    
+    console.log('[DEBUG] Projetos recebidos com dados Git:', projects.map(p => ({
+      name: p.name,
+      branch: p.gitBranch,
+      pendingCommits: p.pendingCommits,
+      hasUpdates: p.hasUpdates
+    })));
 
     // PAMP
     const pampProjects = projects.filter(p => p.name && p.name.startsWith('mp-pamp'));
@@ -469,6 +476,7 @@
           <div style="display: flex; align-items: center; gap: 8px;">
             <p style="margin: 0;"><strong>${project.name}</strong></p>
             ${project.gitBranch ? `<span id="pamp-branch-${realIndex}" style="background: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
+            ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pamp-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;">↓ ${project.pendingCommits}</span>` : ''}
           </div>
           <img id="pamp-btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
         </div>
@@ -607,6 +615,7 @@
           <div style="display: flex; align-items: center; gap: 8px;">
             <p style="margin: 0;"><strong>${project.name}</strong></p>
             ${project.gitBranch ? `<span id="pas-branch-${realIndex}" style="background: #007bff; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
+            ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pas-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;">↓ ${project.pendingCommits}</span>` : ''}
           </div>
           <img id="btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
         </div>
@@ -728,38 +737,33 @@
     
     });
 
-  // ===== ATUALIZA CONTADORES DOS BOTÕES TOGGLE =====
-  // Função para atualizar contadores
-  function updateCounters() {
-    const pampContainer = document.getElementById('pamp-mfes');
-    const pampCount = pampContainer ? pampContainer.querySelectorAll('.project-card').length : 0;
-    const pampCountElement = document.getElementById('pamp-count');
-    if (pampCountElement) {
-      pampCountElement.textContent = pampCount.toString();
-    }
-    
-    const pasContainer = document.getElementById('projects');
-    const pasCount = pasContainer ? pasContainer.querySelectorAll('.project-card').length : 0;
-    const pasCountElement = document.getElementById('pas-count');
-    if (pasCountElement) {
-      pasCountElement.textContent = pasCount.toString();
-    }
-    
-    console.log(`📊 Contadores atualizados: PAMP Admin=${pampCount}, PAS Site=${pasCount}`);
-  }
+    // ===== ATUALIZA CONTADORES DOS BOTÕES TOGGLE APÓS CARREGAMENTO =====
+    // Aguarda um pequeno delay para garantir que todos os elementos foram renderizados
+    setTimeout(() => {
+      // Atualiza contador PAMP (Painel Admin)
+      const pampCount = document.getElementById('pamp-mfes').querySelectorAll('.project-card').length;
+      const pampCountElement = document.getElementById('pamp-count');
+      if (pampCountElement) {
+        pampCountElement.textContent = pampCount.toString();
+      }
+      
+      // Atualiza contador PAS (Site Principal)  
+      const pasCount = document.getElementById('projects').querySelectorAll('.project-card').length;
+      const pasCountElement = document.getElementById('pas-count');
+      if (pasCountElement) {
+        pasCountElement.textContent = pasCount.toString();
+      }
+      
+      console.log(`📊 Contadores atualizados após carregamento completo: PAMP Admin=${pampCount}, PAS Site=${pasCount}`);
+      
+      // Atualiza os ícones de terminal após carregar projetos
+      updateTerminalIcons();
+    }, 200);
+  });
 
-  // Atualiza contadores imediatamente após criação dos projetos
-  updateCounters();
-
-  // Atualiza novamente com timeout para garantir que todos os elementos foram renderizados
-  setTimeout(() => {
-    updateCounters();
-    
-    // Atualiza os ícones de terminal após carregar projetos
-    updateTerminalIcons();
-  }, 200);
-  
-  }); // fim do evento projects-loaded
+  // ===== ATUALIZAÇÃO INICIAL DOS CONTADORES (REMOVIDA - AGORA FEITA APÓS CARREGAMENTO) =====
+  // A atualização dos contadores agora é feita no final do handler 'projects-loaded'
+  // para garantir que todos os dados Git estejam processados
 
   // IPC Listeners globais
   

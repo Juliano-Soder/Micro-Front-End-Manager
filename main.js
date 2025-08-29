@@ -195,15 +195,29 @@ function loadAppCache() {
   return false;
 }
 
-// Salva cache
+// Salva cache (excluindo dados dinâmicos como commits pendentes)
 function saveAppCache() {
   try {
+    // Remove dados dinâmicos que nunca devem ser cachados
+    const cleanCache = { ...appCache };
+    
+    // Garante que dados Git dinâmicos nunca sejam salvos no cache
+    if (cleanCache.projects && Array.isArray(cleanCache.projects)) {
+      cleanCache.projects = cleanCache.projects.map(project => {
+        if (typeof project === 'object') {
+          const { pendingCommits, hasUpdates, gitBranch, ...staticData } = project;
+          return staticData;
+        }
+        return project;
+      });
+    }
+    
     const cacheData = {
-      ...appCache,
+      ...cleanCache,
       timestamp: Date.now()
     };
     fs.writeFileSync(cacheFile, JSON.stringify(cacheData, null, 2));
-    safeLog('[CACHE] Cache salvo com sucesso');
+    safeLog('[CACHE] Cache salvo com sucesso (dados dinâmicos excluídos)');
   } catch (error) {
     console.error('Erro ao salvar cache:', error);
   }
@@ -447,6 +461,19 @@ async function getAllProjectsBranches(projects) {
       gitBranch: null
     }));
   }
+}
+
+// Função para limpar dados dinâmicos de Git dos projetos
+function clearDynamicGitData(projects) {
+  return projects.map(project => {
+    const cleanProject = { ...project };
+    // Remove dados dinâmicos que devem ser recalculados a cada execução
+    delete cleanProject.pendingCommits;
+    delete cleanProject.hasUpdates;
+    // gitBranch também é dinâmico, mas pode ser mantido temporariamente para performance
+    // delete cleanProject.gitBranch;
+    return cleanProject;
+  });
 }
 
 // ⚡ FUNÇÃO PARA FAZER GIT FETCH E VERIFICAR COMMITS PENDENTES ⚡
@@ -1330,7 +1357,7 @@ function saveCustomProjectOrder(projectOrder) {
   console.log('💾 Ordem customizada dos projetos salva (modo compatibilidade):', projectOrder);
 }
 
-let projects = loadProjects();
+let projects = clearDynamicGitData(loadProjects());
 let startingProjects = new Set(); // Para controlar projetos que estão sendo iniciados
 
 // Funções para controlar cancelamento de projetos
