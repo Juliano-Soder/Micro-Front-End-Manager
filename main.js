@@ -1496,7 +1496,7 @@ function createSplashWindow() {
         </style>
     </head>
     <body>
-        <div class="logo">🔧 Micro Front-End Manager</div>
+        <div class="logo">Micro Front-End Manager</div>
         <div class="spinner"></div>
         <div class="loading-text">Carregando aplicação...</div>
         <div class="progress-bar">
@@ -2685,10 +2685,22 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         console.log(`[GIT-PULL] error:`, error);
         console.log(`[GIT-PULL] ================================`);
 
-        // Considera sucesso se não houve erro crítico OU se houve apenas output normal
-        const isSuccess = !error || (error.code === 0) || (stdout && !error.message.includes('fatal'));
+        const fullOutput = [stdout, stderr].filter(s => s && s.trim()).join('\n');
         
-        if (error && error.message.includes('fatal')) {
+        // Detecta diferentes tipos de problemas
+        const hasFatalError = error && error.message.includes('fatal');
+        const hasMergeConflict = fullOutput.includes('would be overwritten by merge') || 
+                                fullOutput.includes('Please commit your changes') ||
+                                fullOutput.includes('Aborting');
+        const hasNetworkError = fullOutput.includes('Could not resolve host') || 
+                               fullOutput.includes('Connection refused');
+        
+        // Define se é sucesso real (merge completado)
+        const isRealSuccess = !error && !hasMergeConflict && !hasNetworkError && !hasFatalError;
+        
+        console.log(`[GIT-PULL] Análise: isRealSuccess=${isRealSuccess}, hasMergeConflict=${hasMergeConflict}, hasFatalError=${hasFatalError}`);
+
+        if (hasFatalError || hasNetworkError) {
           console.log(`[GIT-PULL] Erro FATAL no pull para ${projectName}: ${error.message}`);
           event.reply('git-pull-result', {
             projectIndex,
@@ -2700,18 +2712,15 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           return;
         }
 
-        const fullOutput = [stdout, stderr].filter(s => s && s.trim()).join('\n');
         console.log(`[GIT-PULL] Output completo para ${projectName}:`, fullOutput);
-
-        // Se chegou até aqui, consideramos sucesso (mesmo com warnings)
-        console.log(`[GIT-PULL] Pull ${isSuccess ? 'bem-sucedido' : 'com problemas'} para ${projectName}`);
+        console.log(`[GIT-PULL] Pull ${isRealSuccess ? 'bem-sucedido' : 'executado com avisos'} para ${projectName}`);
 
         // Atualiza o status Git do projeto após o pull
         try {
           const gitStatus = await checkGitStatus(projectPath);
           
-          // Atualiza o projeto na lista global
-          if (projects[projectIndex]) {
+          // Atualiza o projeto na lista global apenas se houve sucesso real
+          if (projects[projectIndex] && isRealSuccess) {
             projects[projectIndex].gitBranch = gitStatus.branch || currentBranch;
             projects[projectIndex].pendingCommits = gitStatus.pendingCommits;
             projects[projectIndex].hasUpdates = gitStatus.hasUpdates;
@@ -2720,8 +2729,8 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           event.reply('git-pull-result', {
             projectIndex,
             projectName,
-            success: isSuccess,
-            output: fullOutput || 'Branch atualizada com sucesso',
+            success: isRealSuccess, // Só marca como sucesso se realmente fez merge
+            output: fullOutput || 'Comando executado',
             isPamp
           });
 
@@ -2731,7 +2740,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           event.reply('git-pull-result', {
             projectIndex,
             projectName,
-            success: isSuccess,
+            success: isRealSuccess,
             output: fullOutput || 'Pull executado (erro ao verificar status final)',
             isPamp
           });

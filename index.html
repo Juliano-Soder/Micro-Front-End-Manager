@@ -528,7 +528,7 @@
     }
     
     if (success) {
-      // Sucesso - remove a tag de commits pendentes
+      // Sucesso REAL - remove a tag de commits pendentes
       if (commitsTag) {
         commitsTag.remove();
       }
@@ -540,12 +540,21 @@
       }
       
     } else {
-      // Erro/Warning - restaura a tag para permitir nova tentativa
+      // Problema/Warning - badge permanece para nova tentativa
       if (commitsTag) {
-        commitsTag.style.background = '#ff6b35'; // Volta ao laranja
-        commitsTag.innerHTML = `↓ ${currentProjects[projectIndex]?.pendingCommits || '?'}`;
+        const hasConflict = output && (output.includes('would be overwritten') || output.includes('Aborting'));
+        
+        if (hasConflict) {
+          commitsTag.style.background = '#ff6b35'; // Laranja para conflitos
+          commitsTag.innerHTML = `⚠️ Conflito`;
+          commitsTag.title = 'Conflito de merge. Resolva os conflitos locais primeiro.';
+        } else {
+          commitsTag.style.background = '#dc3545'; // Vermelho para erros
+          commitsTag.innerHTML = '❌ Erro';
+          commitsTag.title = 'Erro na atualização. Clique para tentar novamente.';
+        }
+        
         commitsTag.style.cursor = 'pointer';
-        commitsTag.title = 'Clique para atualizar branch';
         commitsTag.onclick = () => handleUpdateBranch(projectIndex, projectName, currentProjects[projectIndex].path, isPamp);
       }
     }
