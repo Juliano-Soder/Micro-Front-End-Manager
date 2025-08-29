@@ -1924,17 +1924,24 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
   mainWindow.once('ready-to-show', async () => {
     console.log('✅ Janela principal pronta para exibição');
     
-    // Notifica a splash screen que está pronto
-    if (splashWindow) {
-      console.log('📱 Notificando splash que app principal está pronto');
-      splashWindow.webContents.send('main-app-ready');
-    }
-    
     try {
+      // Atualiza status do splash
+      if (splashWindow) {
+        splashWindow.webContents.send('loading-step', 'Carregando repositórios Git...');
+      }
+      
       console.log('[GIT] Iniciando detecção completa de branches e status durante loading...');
       
       // Primeiro obtém as branches básicas
       const projectsWithBranches = await getAllProjectsBranches(projects);
+      
+      // Atualiza progresso
+      if (splashWindow) {
+        splashWindow.webContents.send('loading-step', 'Verificando status Git dos projetos...');
+      }
+      
+      // Aguarda um pouco para mostrar a mensagem
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       // Depois verifica status Git completo (fetch + commits pendentes) para projetos com path
       const projectsWithGitStatus = await Promise.all(
@@ -1957,8 +1964,22 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       
       console.log('[GIT] Detecção completa concluída, mostrando aplicação...');
       
+      // Atualiza progresso final
+      if (splashWindow) {
+        splashWindow.webContents.send('loading-step', 'Finalizando carregamento...');
+      }
+      
+      // Aguarda um pouco para mostrar a mensagem final
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
     } catch (error) {
       console.log(`[GIT] Erro na detecção completa: ${error.message}`);
+    }
+    
+    // Agora sim notifica a splash screen que está pronto (APÓS os comandos Git)
+    if (splashWindow) {
+      console.log('📱 Notificando splash que app principal está pronto');
+      splashWindow.webContents.send('main-app-ready');
     }
     
     // DELAY MAIOR para dar tempo da splash fazer a animação completa

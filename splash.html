@@ -235,4 +235,22 @@
         ipcRenderer.send('close-splash');
       }, 1500); // Aumentado de 800ms para 1500ms
     });
+
+    // Escuta atualizações de status de loading específicas
+    ipcRenderer.on('loading-step', (event, stepText) => {
+      console.log('📝 Recebido loading step:', stepText);
+      statusElement.textContent = stepText;
+      
+      // Para o progresso automático quando recebe steps específicos
+      clearInterval(progressInterval);
+      
+      // Ajusta progresso baseado no step
+      if (stepText.includes('repositórios Git') || stepText.includes('Carregando repositórios')) {
+        progressFill.style.width = '75%';
+      } else if (stepText.includes('status Git') || stepText.includes('Verificando status')) {
+        progressFill.style.width = '90%';
+      } else if (stepText.includes('Finalizando')) {
+        progressFill.style.width = '98%';
+      }
+    });
   </script>
