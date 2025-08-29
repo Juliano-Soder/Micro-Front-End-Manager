@@ -2620,6 +2620,136 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     saveProjects(projects);
   });
 
+  // Handler para git pull em uma branch específica
+  ipcMain.on('git-pull-branch', async (event, { projectIndex, projectName, projectPath, isPamp }) => {
+    console.log(`[GIT-PULL] ===== HANDLER CHAMADO =====`);
+    console.log(`[GIT-PULL] Dados recebidos:`, { projectIndex, projectName, projectPath, isPamp });
+    
+    try {
+      console.log(`[GIT-PULL] Iniciando git pull para ${projectName} em ${projectPath}`);
+      
+      if (!projectPath || projectPath.trim() === '') {
+        console.log(`[GIT-PULL] ERRO: Caminho vazio para ${projectName}`);
+        event.reply('git-pull-result', {
+          projectIndex,
+          projectName,
+          success: false,
+          output: 'Caminho do projeto não encontrado',
+          isPamp
+        });
+        return;
+      }
+
+      // Verifica se é um repositório Git
+      const gitDir = path.join(projectPath, '.git');
+      if (!fs.existsSync(gitDir)) {
+        console.log(`[GIT-PULL] ERRO: Não é repositório Git - ${projectPath}`);
+        event.reply('git-pull-result', {
+          projectIndex,
+          projectName,
+          success: false,
+          output: 'Não é um repositório Git válido',
+          isPamp
+        });
+        return;
+      }
+
+      // Obtém a branch atual
+      const currentBranch = await getProjectGitBranch(projectPath);
+      if (!currentBranch) {
+        console.log(`[GIT-PULL] ERRO: Não foi possível determinar a branch para ${projectName}`);
+        event.reply('git-pull-result', {
+          projectIndex,
+          projectName,
+          success: false,
+          output: 'Não foi possível determinar a branch atual',
+          isPamp
+        });
+        return;
+      }
+
+      console.log(`[GIT-PULL] Branch atual: ${currentBranch}`);
+
+      // Executa git pull origin <branch>
+      const pullCommand = `git pull origin ${currentBranch}`;
+      console.log(`[GIT-PULL] Executando: ${pullCommand} em ${projectPath}`);
+
+      exec(pullCommand, {
+        cwd: projectPath,
+        timeout: 30000,
+        encoding: 'utf8'
+      }, async (error, stdout, stderr) => {
+        console.log(`[GIT-PULL] ===== RESULTADO COMPLETO =====`);
+        console.log(`[GIT-PULL] stdout:`, stdout);
+        console.log(`[GIT-PULL] stderr:`, stderr);
+        console.log(`[GIT-PULL] error:`, error);
+        console.log(`[GIT-PULL] ================================`);
+
+        // Considera sucesso se não houve erro crítico OU se houve apenas output normal
+        const isSuccess = !error || (error.code === 0) || (stdout && !error.message.includes('fatal'));
+        
+        if (error && error.message.includes('fatal')) {
+          console.log(`[GIT-PULL] Erro FATAL no pull para ${projectName}: ${error.message}`);
+          event.reply('git-pull-result', {
+            projectIndex,
+            projectName,
+            success: false,
+            output: `ERRO FATAL: ${stderr || error.message}`,
+            isPamp
+          });
+          return;
+        }
+
+        const fullOutput = [stdout, stderr].filter(s => s && s.trim()).join('\n');
+        console.log(`[GIT-PULL] Output completo para ${projectName}:`, fullOutput);
+
+        // Se chegou até aqui, consideramos sucesso (mesmo com warnings)
+        console.log(`[GIT-PULL] Pull ${isSuccess ? 'bem-sucedido' : 'com problemas'} para ${projectName}`);
+
+        // Atualiza o status Git do projeto após o pull
+        try {
+          const gitStatus = await checkGitStatus(projectPath);
+          
+          // Atualiza o projeto na lista global
+          if (projects[projectIndex]) {
+            projects[projectIndex].gitBranch = gitStatus.branch || currentBranch;
+            projects[projectIndex].pendingCommits = gitStatus.pendingCommits;
+            projects[projectIndex].hasUpdates = gitStatus.hasUpdates;
+          }
+
+          event.reply('git-pull-result', {
+            projectIndex,
+            projectName,
+            success: isSuccess,
+            output: fullOutput || 'Branch atualizada com sucesso',
+            isPamp
+          });
+
+        } catch (statusError) {
+          console.log(`[GIT-PULL] Erro ao verificar status após pull: ${statusError.message}`);
+          // Mesmo com erro no status, reportamos o resultado do pull
+          event.reply('git-pull-result', {
+            projectIndex,
+            projectName,
+            success: isSuccess,
+            output: fullOutput || 'Pull executado (erro ao verificar status final)',
+            isPamp
+          });
+        }
+      });
+
+    } catch (error) {
+      console.log(`[GIT-PULL] Erro geral no git pull para ${projectName}: ${error.message}`);
+      event.reply('git-pull-result', {
+        projectIndex,
+        projectName,
+        success: false,
+        output: error.message,
+        isPamp
+      });
+    }
+  });
+
   ipcMain.on('start-project', (event, { projectPath, port }) => {
     console.log(`Iniciando projeto: ${projectPath} na porta: ${port}`);
     

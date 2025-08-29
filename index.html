@@ -380,6 +380,67 @@
     });
   }
 
+  // ===== FUNÇÃO PARA ATUALIZAR BRANCH (GIT PULL) =====
+  function handleUpdateBranch(projectIndex, projectName, projectPath, isPamp) {
+    console.log(`[DEBUG] handleUpdateBranch chamada:`, { projectIndex, projectName, projectPath, isPamp });
+    
+    if (!projectPath || projectPath.trim() === '') {
+      console.log(`[ERROR] Projeto ${projectName} não tem caminho válido:`, projectPath);
+      alert('Projeto precisa ter um caminho válido para ser atualizado.');
+      return;
+    }
+
+    // Confirma a ação
+    const confirmed = confirm(`Atualizar branch do projeto ${projectName}?\n\nIsso executará um 'git pull origin' no diretório:\n${projectPath}`);
+    
+    if (!confirmed) {
+      console.log(`[INFO] Usuário cancelou git pull para ${projectName}`);
+      return;
+    }
+
+    console.log(`[INFO] Usuário confirmou git pull para ${projectName}`);
+
+    // Muda o visual da tag para indicar que está processando
+    const commitsTagId = isPamp ? `pamp-commits-${projectIndex}` : `pas-commits-${projectIndex}`;
+    const commitsTag = document.getElementById(commitsTagId);
+    
+    console.log(`[DEBUG] Procurando tag com ID: ${commitsTagId}`, commitsTag);
+    
+    if (commitsTag) {
+      commitsTag.style.background = '#6c757d'; // Cinza para indicar processamento
+      commitsTag.innerHTML = '⏳ Atualizando...';
+      commitsTag.style.cursor = 'not-allowed';
+      commitsTag.onclick = null; // Remove o clique durante o processamento
+      console.log(`[INFO] Tag visual atualizada para estado "processando"`);
+    } else {
+      console.log(`[WARN] Tag commits não encontrada: ${commitsTagId}`);
+    }
+
+    // Mostra log imediato no console do projeto
+    const logContainer = isPamp ? `pamp-log-${projectIndex}` : `log-${projectIndex}`;
+    const logDiv = document.getElementById(logContainer);
+    if (logDiv) {
+      logDiv.style.display = 'block';
+      logDiv.innerHTML += `<div style="color: #ffff00;">[${new Date().toLocaleTimeString()}] 🔄 Iniciando git pull para ${projectName}...</div>`;
+      logDiv.scrollTop = logDiv.scrollHeight;
+      console.log(`[INFO] Log adicionado ao container: ${logContainer}`);
+    } else {
+      console.log(`[WARN] Container de log não encontrado: ${logContainer}`);
+    }
+
+    // Envia comando para o backend
+    const data = {
+      projectIndex: projectIndex,
+      projectName: projectName,
+      projectPath: projectPath,
+      isPamp: isPamp
+    };
+    
+    console.log(`[DEBUG] Enviando comando git-pull-branch:`, data);
+    ipcRenderer.send('git-pull-branch', data);
+    console.log(`[INFO] Comando git-pull-branch enviado para o backend`);
+  }
+
   // ===== FUNÇÕES PARA BOTÕES TOGGLE MODERNOS =====
   function updateToggleButton(button, isExpanded, count = 0) {
     const icon = button.querySelector('.toggle-icon');
@@ -430,6 +491,66 @@
 
   ipcRenderer.send('load-projects');
   
+  // Handler para resultado do git pull
+  ipcRenderer.on('git-pull-result', (event, { projectIndex, projectName, success, output, isPamp }) => {
+    console.log(`📝 Resultado git pull para ${projectName}:`, { success, output });
+
+    const commitsTagId = isPamp ? `pamp-commits-${projectIndex}` : `pas-commits-${projectIndex}`;
+    const commitsTag = document.getElementById(commitsTagId);
+    
+    // Sempre mostra os logs no console do projeto
+    const logContainer = isPamp ? `pamp-log-${projectIndex}` : `log-${projectIndex}`;
+    const logDiv = document.getElementById(logContainer);
+    
+    if (logDiv) {
+      logDiv.style.display = 'block';
+      
+      if (success) {
+        logDiv.innerHTML += `<div style="color: #00ff00;">[${new Date().toLocaleTimeString()}] ✅ Branch atualizada com sucesso!</div>`;
+      } else {
+        logDiv.innerHTML += `<div style="color: #ff6b35;">[${new Date().toLocaleTimeString()}] ⚠️ Pull executado com avisos</div>`;
+      }
+      
+      // Mostra TODOS os logs do git pull
+      if (output && output.trim()) {
+        const lines = output.split('\n');
+        lines.forEach(line => {
+          if (line.trim()) {
+            const color = line.includes('fatal') || line.includes('error') ? '#ff4444' : 
+                         line.includes('From https://') || line.includes('branch') ? '#00aaff' :
+                         line.includes('*') || line.includes('->') ? '#ffaa00' : '#ffffff';
+            logDiv.innerHTML += `<div style="color: ${color};">[${new Date().toLocaleTimeString()}] ${line}</div>`;
+          }
+        });
+      }
+      
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+    
+    if (success) {
+      // Sucesso - remove a tag de commits pendentes
+      if (commitsTag) {
+        commitsTag.remove();
+      }
+      
+      // Atualiza o projeto no array local
+      if (currentProjects[projectIndex]) {
+        currentProjects[projectIndex].pendingCommits = 0;
+        currentProjects[projectIndex].hasUpdates = false;
+      }
+      
+    } else {
+      // Erro/Warning - restaura a tag para permitir nova tentativa
+      if (commitsTag) {
+        commitsTag.style.background = '#ff6b35'; // Volta ao laranja
+        commitsTag.innerHTML = `↓ ${currentProjects[projectIndex]?.pendingCommits || '?'}`;
+        commitsTag.style.cursor = 'pointer';
+        commitsTag.title = 'Clique para atualizar branch';
+        commitsTag.onclick = () => handleUpdateBranch(projectIndex, projectName, currentProjects[projectIndex].path, isPamp);
+      }
+    }
+  });
+  
   // Recebe as configurações e aplica o modo escuro se necessário
   ipcRenderer.on('configs-loaded', (event, configs) => {
     if (configs.darkMode) {
@@ -476,7 +597,7 @@
           <div style="display: flex; align-items: center; gap: 8px;">
             <p style="margin: 0;"><strong>${project.name}</strong></p>
             ${project.gitBranch ? `<span id="pamp-branch-${realIndex}" style="background: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
-            ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pamp-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;">↓ ${project.pendingCommits}</span>` : ''}
+            ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pamp-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, true)">↓ ${project.pendingCommits}</span>` : ''}
           </div>
           <img id="pamp-btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
         </div>
@@ -615,7 +736,7 @@
           <div style="display: flex; align-items: center; gap: 8px;">
             <p style="margin: 0;"><strong>${project.name}</strong></p>
             ${project.gitBranch ? `<span id="pas-branch-${realIndex}" style="background: #007bff; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
-            ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pas-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;">↓ ${project.pendingCommits}</span>` : ''}
+            ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pas-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, false)">↓ ${project.pendingCommits}</span>` : ''}
           </div>
           <img id="btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
         </div>
