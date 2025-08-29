@@ -727,23 +727,39 @@
     });
     
     });
-  });
 
   // ===== ATUALIZA CONTADORES DOS BOTÕES TOGGLE =====
-  setTimeout(() => {
-    // Atualiza contador PAMP (Painel Admin)
-    const pampCount = document.getElementById('pamp-mfes').querySelectorAll('.project-card').length;
-    document.getElementById('pamp-count').textContent = pampCount.toString();
+  // Função para atualizar contadores
+  function updateCounters() {
+    const pampContainer = document.getElementById('pamp-mfes');
+    const pampCount = pampContainer ? pampContainer.querySelectorAll('.project-card').length : 0;
+    const pampCountElement = document.getElementById('pamp-count');
+    if (pampCountElement) {
+      pampCountElement.textContent = pampCount.toString();
+    }
     
-    // Atualiza contador PAS (Site Principal)  
-    const pasCount = document.getElementById('projects').querySelectorAll('.project-card').length;
-    document.getElementById('pas-count').textContent = pasCount.toString();
+    const pasContainer = document.getElementById('projects');
+    const pasCount = pasContainer ? pasContainer.querySelectorAll('.project-card').length : 0;
+    const pasCountElement = document.getElementById('pas-count');
+    if (pasCountElement) {
+      pasCountElement.textContent = pasCount.toString();
+    }
     
     console.log(`📊 Contadores atualizados: PAMP Admin=${pampCount}, PAS Site=${pasCount}`);
+  }
+
+  // Atualiza contadores imediatamente após criação dos projetos
+  updateCounters();
+
+  // Atualiza novamente com timeout para garantir que todos os elementos foram renderizados
+  setTimeout(() => {
+    updateCounters();
     
     // Atualiza os ícones de terminal após carregar projetos
     updateTerminalIcons();
-  }, 100);
+  }, 200);
+  
+  }); // fim do evento projects-loaded
 
   // IPC Listeners globais
   

@@ -9,6 +9,102 @@ const https = require('https');
 const http = require('http');
 const url = require('url');
 
+// ===== CONFIGURAÇÃO DE HANDLERS IPC =====
+// CRÍTICO: Todos os handlers IPC devem ser registrados IMEDIATAMENTE após os imports
+
+console.log('[DEBUG] Registrando handlers IPC...');
+
+// Handler de teste simples
+ipcMain.on('test-ipc', (event, data) => {
+    console.log(`[TEST] IPC funcionando! Dados recebidos: ${JSON.stringify(data)}`);
+    event.reply('test-ipc-response', { success: true, received: data, timestamp: new Date().toISOString() });
+});
+
+// Handler genérico para executar qualquer comando Git
+ipcMain.on('execute-git-command', async (event, { command, projectPath, projectName, projectIndex, isPamp }) => {
+  try {
+    console.log(`[DEBUG] execute-git-command recebido: ${command} para ${projectName}, path: ${projectPath}`);
+    
+    sendGitCommandOutput(event, `Executando: ${command}`, false);
+    
+    const result = await executeCommand(command, projectPath);
+    console.log(`[DEBUG] Resultado do comando:`, result);
+    
+    if (result.error) {
+      sendGitCommandOutput(event, `❌ Erro: ${result.error}`, true, true);
+      console.log(`[DEBUG] Erro no comando: ${result.error}`);
+    } else {
+      if (result.stdout) {
+        sendGitCommandOutput(event, result.stdout, false, false);
+      }
+      if (result.stderr) {
+        sendGitCommandOutput(event, `⚠️  ${result.stderr}`, false, false);
+      }
+      
+      // Marca comando como completo
+      sendGitCommandOutput(event, `✅ Comando concluído`, false, true);
+      
+      // Se for um comando que pode mudar o estado (checkout, pull, etc), atualizar status
+      if (command.includes('checkout') || command.includes('pull') || command.includes('fetch')) {
+        console.log(`[DEBUG] Comando pode ter alterado status, atualizando...`);
+        setTimeout(async () => {
+          try {
+            const gitStatus = await checkGitStatus(projectPath);
+            event.reply('git-status-updated', { projectIndex, gitStatus });
+            console.log(`[DEBUG] Status Git atualizado para projeto ${projectIndex}`);
+          } catch (error) {
+            console.log(`[DEBUG] Erro ao atualizar status: ${error.message}`);
+          }
+        }, 1000);
+      }
+    }
+  } catch (error) {
+    console.log(`[DEBUG] Erro na função execute-git-command: ${error.message}`);
+    sendGitCommandOutput(event, `❌ Erro inesperado: ${error.message}`, true, true);
+  }
+});
+
+// Handler para refresh-git-status
+ipcMain.on('refresh-git-status', async (event, { projectPath, projectIndex, isPamp }) => {
+  try {
+    console.log(`[DEBUG] refresh-git-status para ${projectPath}`);
+    const gitStatus = await checkGitStatus(projectPath);
+    event.reply('git-status-updated', { projectIndex, gitStatus });
+    console.log(`[DEBUG] Status enviado para UI: projeto ${projectIndex}`);
+  } catch (error) {
+    console.log(`[DEBUG] Erro no refresh-git-status: ${error.message}`);
+    event.reply('git-status-updated', { projectIndex, gitStatus: null });
+  }
+});
+
+console.log('[DEBUG] Handlers IPC registrados com sucesso');
+
+// Função auxiliar para enviar saída de comandos Git (declarada cedo)
+function sendGitCommandOutput(event, output, isError = false, isComplete = false) {
+  event.reply('git-command-output', {
+    output: safeLog(output),
+    isError,
+    isComplete
+  });
+}
+
+// Função auxiliar para executar comandos Git de forma promisificada (declarada cedo)
+function executeCommand(command, workingDirectory) {
+  return new Promise((resolve) => {
+    exec(command, {
+      cwd: workingDirectory,
+      timeout: 30000,
+      encoding: 'utf8'
+    }, (error, stdout, stderr) => {
+      resolve({
+        error: error ? (stderr || error.message) : null,
+        stdout: stdout || '',
+        stderr: stderr || ''
+      });
+    });
+  });
+}
+
 // ⚡ OTIMIZAÇÕES DE PERFORMANCE ⚡
 // Habilita aceleração de hardware
 app.commandLine.appendSwitch('--enable-gpu-rasterization');
@@ -62,7 +158,10 @@ function safeLog(message, type = 'info') {
     .replace(/🔄/g, '[RELOAD]')
     .replace(/⏹️/g, '[STOP]')
     .replace(/ℹ️/g, '[INFO]')
-    .replace(/⚠️/g, '[WARNING]');
+    .replace(/⚠️/g, '[WARNING]')
+    .replace(/🔀/g, '[CHECKOUT]')
+    .replace(/📡/g, '[FETCH]')
+    .replace(/⬇️/g, '[PULL]');
 
   switch(type) {
     case 'error':
@@ -347,6 +446,113 @@ async function getAllProjectsBranches(projects) {
       ...project,
       gitBranch: null
     }));
+  }
+}
+
+// ⚡ FUNÇÃO PARA FAZER GIT FETCH E VERIFICAR COMMITS PENDENTES ⚡
+async function checkGitStatus(projectPath) {
+  if (!projectPath || projectPath.trim() === '') {
+    return { branch: null, pendingCommits: 0, hasUpdates: false };
+  }
+
+  try {
+    // Verifica se é um repositório Git
+    const gitDir = path.join(projectPath, '.git');
+    if (!fs.existsSync(gitDir)) {
+      return { branch: null, pendingCommits: 0, hasUpdates: false };
+    }
+
+    // Primeiro obtém a branch atual
+    const currentBranch = await getProjectGitBranch(projectPath);
+    if (!currentBranch) {
+      return { branch: null, pendingCommits: 0, hasUpdates: false };
+    }
+
+    return new Promise((resolve) => {
+      console.log(`[GIT] Fazendo fetch para ${projectPath}...`);
+      
+      // Executa git fetch
+      exec('git fetch', { 
+        cwd: projectPath,
+        timeout: 10000,
+        encoding: 'utf8'
+      }, (fetchError, fetchStdout, fetchStderr) => {
+        if (fetchError) {
+          console.log(`[GIT] Erro no fetch para ${projectPath}: ${fetchError.message}`);
+          resolve({ branch: currentBranch, pendingCommits: 0, hasUpdates: false });
+          return;
+        }
+
+        // Agora verifica quantos commits estão pendentes
+        const revListCommand = `git rev-list HEAD..origin/${currentBranch} --count`;
+        
+        exec(revListCommand, {
+          cwd: projectPath,
+          timeout: 5000,
+          encoding: 'utf8'
+        }, (countError, countStdout, countStderr) => {
+          if (countError) {
+            console.log(`[GIT] Erro ao contar commits para ${projectPath}: ${countError.message}`);
+            resolve({ branch: currentBranch, pendingCommits: 0, hasUpdates: false });
+            return;
+          }
+
+          const pendingCommits = parseInt(countStdout.trim()) || 0;
+          const hasUpdates = pendingCommits > 0;
+          
+          console.log(`[GIT] ${projectPath} - Branch: ${currentBranch}, Commits pendentes: ${pendingCommits}`);
+          
+          resolve({ 
+            branch: currentBranch, 
+            pendingCommits: pendingCommits,
+            hasUpdates: hasUpdates
+          });
+        });
+      });
+    });
+  } catch (error) {
+    console.log(`[GIT] Erro geral ao verificar status Git para ${projectPath}: ${error.message}`);
+    return { branch: null, pendingCommits: 0, hasUpdates: false };
+  }
+}
+
+// ⚡ FUNÇÃO SIMPLES PARA VERIFICAR APENAS A BRANCH ATUAL ⚡
+async function checkCurrentBranch(projectPath) {
+  if (!projectPath || projectPath.trim() === '') {
+    return null;
+  }
+
+  try {
+    // Verifica se é um repositório Git
+    const gitDir = path.join(projectPath, '.git');
+    if (!fs.existsSync(gitDir)) {
+      return null;
+    }
+
+    return new Promise((resolve) => {
+      exec('git branch --show-current', { 
+        cwd: projectPath,
+        timeout: 3000, // Timeout menor, só para verificar branch
+        encoding: 'utf8'
+      }, (error, stdout, stderr) => {
+        if (error) {
+          console.log(`[GIT] Erro ao verificar branch atual para ${projectPath}: ${error.message}`);
+          resolve(null);
+          return;
+        }
+
+        const branch = stdout.trim();
+        if (branch) {
+          console.log(`[GIT] Branch atual verificada para ${projectPath}: ${branch}`);
+          resolve(branch);
+        } else {
+          resolve(null);
+        }
+      });
+    });
+  } catch (error) {
+    console.log(`[GIT] Erro ao verificar branch atual: ${error.message}`);
+    return null;
   }
 }
 
@@ -1715,13 +1921,44 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
   mainWindow.loadFile('index.html');
   
   // Mostra a janela apenas quando estiver pronta
-  mainWindow.once('ready-to-show', () => {
+  mainWindow.once('ready-to-show', async () => {
     console.log('✅ Janela principal pronta para exibição');
     
     // Notifica a splash screen que está pronto
     if (splashWindow) {
       console.log('📱 Notificando splash que app principal está pronto');
       splashWindow.webContents.send('main-app-ready');
+    }
+    
+    try {
+      console.log('[GIT] Iniciando detecção completa de branches e status durante loading...');
+      
+      // Primeiro obtém as branches básicas
+      const projectsWithBranches = await getAllProjectsBranches(projects);
+      
+      // Depois verifica status Git completo (fetch + commits pendentes) para projetos com path
+      const projectsWithGitStatus = await Promise.all(
+        projectsWithBranches.map(async (project) => {
+          if (project.path && project.path.trim() !== '' && project.gitBranch) {
+            const gitStatus = await checkGitStatus(project.path);
+            return {
+              ...project,
+              gitBranch: gitStatus.branch || project.gitBranch,
+              pendingCommits: gitStatus.pendingCommits,
+              hasUpdates: gitStatus.hasUpdates
+            };
+          }
+          return project;
+        })
+      );
+      
+      // Atualiza a variável global
+      projects = projectsWithGitStatus;
+      
+      console.log('[GIT] Detecção completa concluída, mostrando aplicação...');
+      
+    } catch (error) {
+      console.log(`[GIT] Erro na detecção completa: ${error.message}`);
     }
     
     // DELAY MAIOR para dar tempo da splash fazer a animação completa
@@ -1737,24 +1974,19 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         }
       }, 200);
 
-      // ⚡ DETECÇÃO DE BRANCHES GIT COMO ÚLTIMA ETAPA ⚡
-      setTimeout(async () => {
-        try {
-          console.log('[GIT] Iniciando detecção de branches em background...');
-          const projectsWithBranches = await getAllProjectsBranches(projects);
-          
-          // Atualiza a variável global
-          projects = projectsWithBranches;
-          
-          // Envia os projetos atualizados para a UI
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('projects-loaded', projectsWithBranches);
-            console.log('[GIT] Projetos com branches enviados para a UI');
-          }
-        } catch (error) {
-          console.log(`[GIT] Erro na detecção de branches: ${error.message}`);
+      // Envia os projetos atualizados para a UI logo após mostrar a janela
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          console.log('[GIT] Projetos com Git Status para enviar:', projects.map(p => ({
+            name: p.name,
+            branch: p.gitBranch,
+            pendingCommits: p.pendingCommits,
+            hasUpdates: p.hasUpdates
+          })));
+          mainWindow.webContents.send('projects-loaded', projects);
+          console.log('[GIT] Projetos com status Git completo enviados para a UI');
         }
-      }, 3000); // Aguarda 3 segundos após mostrar a janela
+      }, 500);
     }, 2000); // Aumentado de 500ms para 2000ms
   });
 
@@ -2351,22 +2583,73 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         return;
     }
 
-    // Derruba qualquer processo rodando na porta
-    exec(`npx kill-port ${port}`, (err) => {
-      if (err) {
-        event.reply('log', { path: projectPath, message: `Erro ao liberar a porta ${port}: ${err.message}` });
-        return;
+    // ⚡ VERIFICA APENAS A BRANCH ATUAL (SEM FETCH) ⚡
+    checkCurrentBranch(projectPath).then(currentBranch => {
+      const projectIndex = projects.findIndex(p => p.path === projectPath);
+      
+      if (currentBranch && projectIndex !== -1) {
+        // Verifica se a branch mudou
+        const previousBranch = projects[projectIndex].gitBranch;
+        if (currentBranch !== previousBranch) {
+          console.log(`[GIT] Branch mudou de '${previousBranch}' para '${currentBranch}' em ${projectPath}`);
+          
+          // Atualiza a branch no projeto
+          projects[projectIndex].gitBranch = currentBranch;
+          
+          // Envia atualização para a UI (mantém commits pendentes se existirem)
+          event.reply('git-status-update', {
+            index: projectIndex,
+            branch: currentBranch,
+            pendingCommits: projects[projectIndex].pendingCommits || 0,
+            hasUpdates: projects[projectIndex].hasUpdates || false
+          });
+          
+          event.reply('log', { 
+            path: projectPath, 
+            message: `[GIT] Branch atualizada: ${currentBranch}` 
+          });
+        } else if (currentBranch) {
+          event.reply('log', { 
+            path: projectPath, 
+            message: `[GIT] Branch atual: ${currentBranch}` 
+          });
+        }
       }
-      event.reply('log', { path: projectPath, message: `Porta ${port} liberada. Iniciando projeto...` });
-    
-      // Aguarda 10 segundos antes de iniciar o projeto
-      setTimeout(() => {
-        // Verifica cancelamento antes de iniciar projeto
-        if (checkCancelationAndExit(projectPath, "início do projeto após liberação de porta")) {
+
+      // Derruba qualquer processo rodando na porta
+      exec(`npx kill-port ${port}`, (err) => {
+        if (err) {
+          event.reply('log', { path: projectPath, message: `Erro ao liberar a porta ${port}: ${err.message}` });
           return;
         }
-        startProject(event, projectPath, port);
-      }, 10000);
+        event.reply('log', { path: projectPath, message: `Porta ${port} liberada. Iniciando projeto...` });
+      
+        // Aguarda 10 segundos antes de iniciar o projeto
+        setTimeout(() => {
+          // Verifica cancelamento antes de iniciar projeto
+          if (checkCancelationAndExit(projectPath, "início do projeto após liberação de porta")) {
+            return;
+          }
+          startProject(event, projectPath, port);
+        }, 10000);
+      });
+    }).catch(error => {
+      console.log(`[GIT] Erro na verificação Git: ${error.message}`);
+      // Continua mesmo com erro no Git
+      exec(`npx kill-port ${port}`, (err) => {
+        if (err) {
+          event.reply('log', { path: projectPath, message: `Erro ao liberar a porta ${port}: ${err.message}` });
+          return;
+        }
+        event.reply('log', { path: projectPath, message: `Porta ${port} liberada. Iniciando projeto...` });
+      
+        setTimeout(() => {
+          if (checkCancelationAndExit(projectPath, "início do projeto após liberação de porta")) {
+            return;
+          }
+          startProject(event, projectPath, port);
+        }, 10000);
+      });
     });
   });
 
@@ -2377,25 +2660,164 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     unmarkProjectAsCanceled(projectPath);
     
     if (!port) {
-        event.reply('pamp-log', { path: projectPath, message: 'Porta ainda não definida.' });
-        startProject(event, projectPath, port);
-    }else {
-      // Derruba qualquer processo rodando na porta
-      exec(`npx kill-port ${port}`, (err) => {
-        if (err) {
-          event.reply('pamp-log', { path: projectPath, message: `Erro ao liberar a porta ${port}: ${err.message}` });
-          return;
+        // ⚡ VERIFICA APENAS A BRANCH ATUAL (SEM FETCH) ⚡
+        checkCurrentBranch(projectPath).then(currentBranch => {
+          const projectIndex = projects.findIndex(p => p.path === projectPath);
+          const projectName = projectIndex !== -1 ? projects[projectIndex].name : path.basename(projectPath);
+          
+          if (currentBranch && projectIndex !== -1) {
+            // Verifica se a branch mudou
+            const previousBranch = projects[projectIndex].gitBranch;
+            if (currentBranch !== previousBranch) {
+              console.log(`[GIT] Branch PAMP mudou de '${previousBranch}' para '${currentBranch}' em ${projectPath}`);
+              
+              // Atualiza a branch no projeto
+              projects[projectIndex].gitBranch = currentBranch;
+              
+              // Envia atualização para a UI (mantém commits pendentes se existirem)
+              event.reply('git-status-update-pamp', {
+                index: projectIndex,
+                branch: currentBranch,
+                pendingCommits: projects[projectIndex].pendingCommits || 0,
+                hasUpdates: projects[projectIndex].hasUpdates || false
+              });
+              
+              event.reply('pamp-log', { 
+                path: projectPath, 
+                message: `[GIT] Branch atualizada: ${currentBranch}`,
+                index: projectIndex,
+                name: projectName
+              });
+            } else if (currentBranch) {
+              event.reply('pamp-log', { 
+                path: projectPath, 
+                message: `[GIT] Branch atual: ${currentBranch}`,
+                index: projectIndex,
+                name: projectName
+              });
+            }
+          }
+          
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: 'Porta ainda não definida.',
+            index: projects.findIndex(p => p.path === projectPath),
+            name: projects.find(p => p.path === projectPath)?.name || path.basename(projectPath)
+          });
+          startProject(event, projectPath, port);
+        }).catch(error => {
+          console.log(`[GIT] Erro na verificação Git: ${error.message}`);
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: 'Porta ainda não definida.',
+            index: projects.findIndex(p => p.path === projectPath),
+            name: projects.find(p => p.path === projectPath)?.name || path.basename(projectPath)
+          });
+          startProject(event, projectPath, port);
+        });
+    } else {
+      // ⚡ VERIFICA APENAS A BRANCH ATUAL (SEM FETCH) ⚡
+      checkCurrentBranch(projectPath).then(currentBranch => {
+        const projectIndex = projects.findIndex(p => p.path === projectPath);
+        const projectName = projectIndex !== -1 ? projects[projectIndex].name : path.basename(projectPath);
+        
+        if (currentBranch && projectIndex !== -1) {
+          // Verifica se a branch mudou
+          const previousBranch = projects[projectIndex].gitBranch;
+          if (currentBranch !== previousBranch) {
+            console.log(`[GIT] Branch PAMP mudou de '${previousBranch}' para '${currentBranch}' em ${projectPath}`);
+            
+            // Atualiza a branch no projeto
+            projects[projectIndex].gitBranch = currentBranch;
+            
+            // Envia atualização para a UI (mantém commits pendentes se existirem)
+            event.reply('git-status-update-pamp', {
+              index: projectIndex,
+              branch: currentBranch,
+              pendingCommits: projects[projectIndex].pendingCommits || 0,
+              hasUpdates: projects[projectIndex].hasUpdates || false
+            });
+            
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: `[GIT] Branch atualizada: ${currentBranch}`,
+              index: projectIndex,
+              name: projectName
+            });
+          } else if (currentBranch) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: `[GIT] Branch atual: ${currentBranch}`,
+              index: projectIndex,
+              name: projectName
+            });
+          }
         }
-        event.reply('pamp-log', { path: projectPath, message: `Porta ${port} liberada. Iniciando projeto...` });
-      
-        // Aguarda 10 segundos antes de iniciar o projeto
-        setTimeout(() => {
-          // Verifica cancelamento antes de iniciar projeto
-          if (checkCancelationAndExit(projectPath, "início do projeto PAMP após liberação de porta")) {
+
+        // Derruba qualquer processo rodando na porta
+        exec(`npx kill-port ${port}`, (err) => {
+          if (err) {
+            const projectIndex = projects.findIndex(p => p.path === projectPath);
+            const projectName = projectIndex !== -1 ? projects[projectIndex].name : path.basename(projectPath);
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: `Erro ao liberar a porta ${port}: ${err.message}`,
+              index: projectIndex,
+              name: projectName
+            });
             return;
           }
-          startProject(event, projectPath, port);
-        }, 9000);
+          
+          const projectIndex = projects.findIndex(p => p.path === projectPath);
+          const projectName = projectIndex !== -1 ? projects[projectIndex].name : path.basename(projectPath);
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: `Porta ${port} liberada. Iniciando projeto...`,
+            index: projectIndex,
+            name: projectName
+          });
+        
+          // Aguarda 10 segundos antes de iniciar o projeto
+          setTimeout(() => {
+            // Verifica cancelamento antes de iniciar projeto
+            if (checkCancelationAndExit(projectPath, "início do projeto PAMP após liberação de porta")) {
+              return;
+            }
+            startProject(event, projectPath, port);
+          }, 9000);
+        });
+      }).catch(error => {
+        console.log(`[GIT] Erro na verificação Git: ${error.message}`);
+        // Continua mesmo com erro no Git
+        exec(`npx kill-port ${port}`, (err) => {
+          if (err) {
+            const projectIndex = projects.findIndex(p => p.path === projectPath);
+            const projectName = projectIndex !== -1 ? projects[projectIndex].name : path.basename(projectPath);
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: `Erro ao liberar a porta ${port}: ${err.message}`,
+              index: projectIndex,
+              name: projectName
+            });
+            return;
+          }
+          
+          const projectIndex = projects.findIndex(p => p.path === projectPath);
+          const projectName = projectIndex !== -1 ? projects[projectIndex].name : path.basename(projectPath);
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: `Porta ${port} liberada. Iniciando projeto...`,
+            index: projectIndex,
+            name: projectName
+          });
+        
+          setTimeout(() => {
+            if (checkCancelationAndExit(projectPath, "início do projeto PAMP após liberação de porta")) {
+              return;
+            }
+            startProject(event, projectPath, port);
+          }, 9000);
+        });
       });
     }
   });
