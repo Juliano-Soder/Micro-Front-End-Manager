@@ -239,11 +239,32 @@
   // Carrega as configurações (incluindo modo escuro)
   ipcRenderer.send('load-configs');
   
+  // Função para obter o ícone de terminal correto baseado no tema
+  function getTerminalIcon() {
+    const isDarkMode = document.body.classList.contains('dark-mode');
+    return isDarkMode ? 'terminal_branco.png' : 'terminal.png';
+  }
+
+  // Função para atualizar ícones de terminal baseado no tema
+  function updateTerminalIcons() {
+    const terminalIcon = getTerminalIcon();
+    
+    // Atualiza todos os ícones de terminal
+    const terminalImages = document.querySelectorAll('img[id*="terminal"]');
+    terminalImages.forEach(img => {
+      if (img.src.includes('terminal.png') || img.src.includes('terminal_branco.png')) {
+        img.src = terminalIcon;
+      }
+    });
+  }
+  
   // Recebe as configurações e aplica o modo escuro se necessário
   ipcRenderer.on('configs-loaded', (event, configs) => {
     if (configs.darkMode) {
       document.body.classList.add('dark-mode');
     }
+    // Atualiza os ícones de terminal após aplicar o tema
+    updateTerminalIcons();
   });
 
   // Escuta mudanças do modo escuro vindas da janela de configurações
@@ -253,6 +274,8 @@
     } else {
       document.body.classList.remove('dark-mode');
     }
+    // Atualiza os ícones de terminal após mudança de tema
+    updateTerminalIcons();
   });
 
   ipcRenderer.on('projects-loaded', (event, projects) => {
@@ -270,7 +293,7 @@
        <div class="project-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
           <p style="margin: 0;"><strong>${project.name}</strong></p>
-          <img id="pamp-btn-terminal-${realIndex}" src="terminal.png" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+          <img id="pamp-btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
         </div>
         <div class="input-with-folder" style="margin-bottom: 10px;">
           <input id="pamp-input-${realIndex}" data-path="${project.path}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
@@ -521,7 +544,7 @@
       <div class="project-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
           <p style="margin: 0;"><strong>${project.name}</strong></p>
-          <img id="btn-terminal-${realIndex}" src="terminal.png" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+          <img id="btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
         </div>
         <div class="input-with-folder" style="margin-bottom: 10px;">
           <input id="input-${realIndex}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
@@ -680,6 +703,11 @@
     });
     });
   });
+
+  // Atualiza os ícones de terminal após carregar projetos
+  setTimeout(() => {
+    updateTerminalIcons();
+  }, 100);
 
   // Note: Drag and drop is initialized per card when created
 

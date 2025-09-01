@@ -197,6 +197,59 @@
             cursor: not-allowed;
         }
 
+        /* Loading overlay styles */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            transition: opacity 0.3s ease;
+        }
+
+        body.dark-mode .loading-overlay {
+            background-color: rgba(30, 30, 30, 0.9);
+        }
+
+        .loading-content {
+            text-align: center;
+            color: #333;
+        }
+
+        body.dark-mode .loading-content {
+            color: #fff;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        body.dark-mode .loading-spinner {
+            border-color: #555;
+            border-top-color: #007bff;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-size: 16px;
+            font-weight: 500;
+        }
+
         /* Modal styles */
         .modal {
             display: none;
@@ -363,6 +416,14 @@
     </style>
 </head>
 <body>
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Carregando configurações...</div>
+        </div>
+    </div>
+
     <div class="config-container">
         <div class="config-header">
             <h1 class="config-title">🔧 Configurações</h1>
@@ -432,25 +493,76 @@
         let currentProjects = [];
         let currentOrderType = '';
         let currentOrder = [];
+        let loadingCount = 0;
+        let originalHideLoading;
+
+        // Funções para controlar o loading (VERSÃO SIMPLIFICADA)
+        function showLoading(text = 'Carregando...') {
+            console.log('📍 Showing loading:', text);
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) {
+                const loadingText = overlay.querySelector('.loading-text');
+                if (loadingText) {
+                    loadingText.textContent = text;
+                }
+                overlay.style.display = 'flex';
+                overlay.style.opacity = '1';
+            }
+        }
+
+        function hideLoading() {
+            console.log('📍 Hiding loading');
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) {
+                overlay.style.opacity = '0';
+                setTimeout(() => {
+                    overlay.style.display = 'none';
+                    overlay.style.opacity = '1';
+                }, 300);
+            }
+            console.log('📍 Loading hidden');
+        }
+
+        // Função de emergência para forçar ocultação do loading
+        function forceHideLoading() {
+            console.log('🚨 Force hiding loading');
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) {
+                overlay.style.display = 'none';
+                overlay.style.opacity = '1';
+            }
+        }
 
         // Carrega as configurações ao iniciar a página
         document.addEventListener('DOMContentLoaded', () => {
+            console.log('📍 DOM loaded, starting config load');
+            showLoading('Carregando configurações...');
+            
+            // Timeout de segurança simples
+            setTimeout(() => {
+                console.log('📍 Safety timeout - hiding loading');
+                forceHideLoading();
+            }, 3000);
+            
             loadConfigs();
             loadProjects();
         });
 
         // Função para carregar as configurações
         function loadConfigs() {
+            console.log('📍 Loading configs...');
             ipcRenderer.send('load-configs');
         }
 
         // Função para carregar os projetos
         function loadProjects() {
+            console.log('📍 Loading projects...');
             ipcRenderer.send('load-projects');
         }
 
         // Recebe as configurações do processo principal
         ipcRenderer.on('configs-loaded', (event, configs) => {
+            console.log('📍 Configs loaded:', configs);
             const darkModeToggle = document.getElementById('darkModeToggle');
             
             // Aplica o modo escuro se estiver habilitado
@@ -458,11 +570,22 @@
                 darkModeToggle.checked = true;
                 document.body.classList.add('dark-mode');
             }
+            
+            // Esconde loading com delay para garantir que apareça
+            setTimeout(() => {
+                hideLoading();
+            }, 500);
         });
 
         // Recebe os projetos do processo principal
         ipcRenderer.on('projects-loaded', (event, projects) => {
+            console.log('📍 Projects loaded:', projects.length, 'projects');
             currentProjects = projects;
+            
+            // Esconde loading com delay para garantir que apareça
+            setTimeout(() => {
+                hideLoading();
+            }, 500);
         });
 
         // Função para alternar o modo escuro
@@ -518,6 +641,7 @@
 
         // Carrega projetos PAS
         function loadPasProjects() {
+            showLoading('Carregando projetos PAS...');
             const pasProjects = currentProjects.filter(p => p.name && !p.name.startsWith('mp-pamp'));
             
             ipcRenderer.send('get-project-order', 'pas');
@@ -526,12 +650,14 @@
             ipcRenderer.once('project-order-loaded', (event, { type, order }) => {
                 if (type === 'pas') {
                     displayProjectOrder(pasProjects, order);
+                    hideLoading();
                 }
             });
         }
 
         // Carrega projetos PAMP
         function loadPampProjects() {
+            showLoading('Carregando projetos PAMP...');
             const pampProjects = currentProjects.filter(p => p.name && p.name.startsWith('mp-pamp'));
             
             ipcRenderer.send('get-project-order', 'pamp');
@@ -540,6 +666,7 @@
             ipcRenderer.once('project-order-loaded', (event, { type, order }) => {
                 if (type === 'pamp') {
                     displayProjectOrder(pampProjects, order);
+                    hideLoading();
                 }
             });
         }

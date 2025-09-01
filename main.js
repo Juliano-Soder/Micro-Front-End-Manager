@@ -9,6 +9,102 @@ const https = require('https');
 const http = require('http');
 const url = require('url');
 
+// ===== CONFIGURAÇÃO DE HANDLERS IPC =====
+// CRÍTICO: Todos os handlers IPC devem ser registrados IMEDIATAMENTE após os imports
+
+console.log('[DEBUG] Registrando handlers IPC...');
+
+// Handler de teste simples
+ipcMain.on('test-ipc', (event, data) => {
+    console.log(`[TEST] IPC funcionando! Dados recebidos: ${JSON.stringify(data)}`);
+    event.reply('test-ipc-response', { success: true, received: data, timestamp: new Date().toISOString() });
+});
+
+// Handler genérico para executar qualquer comando Git
+ipcMain.on('execute-git-command', async (event, { command, projectPath, projectName, projectIndex, isPamp }) => {
+  try {
+    console.log(`[DEBUG] execute-git-command recebido: ${command} para ${projectName}, path: ${projectPath}`);
+    
+    sendGitCommandOutput(event, `Executando: ${command}`, false);
+    
+    const result = await executeCommand(command, projectPath);
+    console.log(`[DEBUG] Resultado do comando:`, result);
+    
+    if (result.error) {
+      sendGitCommandOutput(event, `❌ Erro: ${result.error}`, true, true);
+      console.log(`[DEBUG] Erro no comando: ${result.error}`);
+    } else {
+      if (result.stdout) {
+        sendGitCommandOutput(event, result.stdout, false, false);
+      }
+      if (result.stderr) {
+        sendGitCommandOutput(event, `⚠️  ${result.stderr}`, false, false);
+      }
+      
+      // Marca comando como completo
+      sendGitCommandOutput(event, `✅ Comando concluído`, false, true);
+      
+      // Se for um comando que pode mudar o estado (checkout, pull, etc), atualizar status
+      if (command.includes('checkout') || command.includes('pull') || command.includes('fetch')) {
+        console.log(`[DEBUG] Comando pode ter alterado status, atualizando...`);
+        setTimeout(async () => {
+          try {
+            const gitStatus = await checkGitStatus(projectPath);
+            event.reply('git-status-updated', { projectIndex, gitStatus });
+            console.log(`[DEBUG] Status Git atualizado para projeto ${projectIndex}`);
+          } catch (error) {
+            console.log(`[DEBUG] Erro ao atualizar status: ${error.message}`);
+          }
+        }, 1000);
+      }
+    }
+  } catch (error) {
+    console.log(`[DEBUG] Erro na função execute-git-command: ${error.message}`);
+    sendGitCommandOutput(event, `❌ Erro inesperado: ${error.message}`, true, true);
+  }
+});
+
+// Handler para refresh-git-status
+ipcMain.on('refresh-git-status', async (event, { projectPath, projectIndex, isPamp }) => {
+  try {
+    console.log(`[DEBUG] refresh-git-status para ${projectPath}`);
+    const gitStatus = await checkGitStatus(projectPath);
+    event.reply('git-status-updated', { projectIndex, gitStatus });
+    console.log(`[DEBUG] Status enviado para UI: projeto ${projectIndex}`);
+  } catch (error) {
+    console.log(`[DEBUG] Erro no refresh-git-status: ${error.message}`);
+    event.reply('git-status-updated', { projectIndex, gitStatus: null });
+  }
+});
+
+console.log('[DEBUG] Handlers IPC registrados com sucesso');
+
+// Função auxiliar para enviar saída de comandos Git (declarada cedo)
+function sendGitCommandOutput(event, output, isError = false, isComplete = false) {
+  event.reply('git-command-output', {
+    output: safeLog(output),
+    isError,
+    isComplete
+  });
+}
+
+// Função auxiliar para executar comandos Git de forma promisificada (declarada cedo)
+function executeCommand(command, workingDirectory) {
+  return new Promise((resolve) => {
+    exec(command, {
+      cwd: workingDirectory,
+      timeout: 30000,
+      encoding: 'utf8'
+    }, (error, stdout, stderr) => {
+      resolve({
+        error: error ? (stderr || error.message) : null,
+        stdout: stdout || '',
+        stderr: stderr || ''
+      });
+    });
+  });
+}
+
 // ⚡ OTIMIZAÇÕES DE PERFORMANCE ⚡
 // Habilita aceleração de hardware
 app.commandLine.appendSwitch('--enable-gpu-rasterization');
@@ -16,10 +112,18 @@ app.commandLine.appendSwitch('--enable-zero-copy');
 app.commandLine.appendSwitch('--disable-dev-shm-usage');
 app.commandLine.appendSwitch('--max_old_space_size', '4096');
 
+// Fix para problemas de cache no Windows
+app.commandLine.appendSwitch('--disable-http-cache');
+app.commandLine.appendSwitch('--disable-application-cache');
+
 // Otimizações do Windows
 if (process.platform === 'win32') {
   app.commandLine.appendSwitch('--high-dpi-support', '1');
   app.commandLine.appendSwitch('--force-device-scale-factor', '1');
+  // Fix para encoding UTF-8 no Windows
+  if (process.stdout && process.stdout.setDefaultEncoding) {
+    process.stdout.setDefaultEncoding('utf8');
+  }
 }
 
 const userDataPath = app.getPath('userData');
@@ -36,6 +140,41 @@ let appCache = {
   lastUpdate: 0
 };
 
+// ⚡ FUNÇÃO HELPER PARA LOGS COMPATÍVEIS COM WINDOWS ⚡
+function safeLog(message, type = 'info') {
+  // Remove emojis problemáticos e substitui por texto
+  const cleanMessage = message
+    .replace(/🚀/g, '[ROCKET]')
+    .replace(/⚡/g, '[LIGHTNING]')
+    .replace(/💾/g, '[DISK]')
+    .replace(/📁/g, '[FOLDER]')
+    .replace(/🔍/g, '[SEARCH]')
+    .replace(/❌/g, '[ERROR]')
+    .replace(/✅/g, '[SUCCESS]')
+    .replace(/🌿/g, '[BRANCH]')
+    .replace(/💡/g, '[IDEA]')
+    .replace(/🔧/g, '[TOOL]')
+    .replace(/🎯/g, '[TARGET]')
+    .replace(/🔄/g, '[RELOAD]')
+    .replace(/⏹️/g, '[STOP]')
+    .replace(/ℹ️/g, '[INFO]')
+    .replace(/⚠️/g, '[WARNING]')
+    .replace(/🔀/g, '[CHECKOUT]')
+    .replace(/📡/g, '[FETCH]')
+    .replace(/⬇️/g, '[PULL]');
+
+  switch(type) {
+    case 'error':
+      console.error(cleanMessage);
+      break;
+    case 'warn':
+      console.warn(cleanMessage);
+      break;
+    default:
+      console.log(cleanMessage);
+  }
+}
+
 // Carrega cache na inicialização
 function loadAppCache() {
   try {
@@ -46,7 +185,7 @@ function loadAppCache() {
       // Cache é válido por 5 minutos
       if (cacheAge < 5 * 60 * 1000) {
         appCache = { ...cacheData };
-        console.log('🚀 Cache carregado com sucesso');
+        safeLog('[CACHE] Cache carregado com sucesso');
         return true;
       }
     }
@@ -56,15 +195,29 @@ function loadAppCache() {
   return false;
 }
 
-// Salva cache
+// Salva cache (excluindo dados dinâmicos como commits pendentes)
 function saveAppCache() {
   try {
+    // Remove dados dinâmicos que nunca devem ser cachados
+    const cleanCache = { ...appCache };
+    
+    // Garante que dados Git dinâmicos nunca sejam salvos no cache
+    if (cleanCache.projects && Array.isArray(cleanCache.projects)) {
+      cleanCache.projects = cleanCache.projects.map(project => {
+        if (typeof project === 'object') {
+          const { pendingCommits, hasUpdates, gitBranch, ...staticData } = project;
+          return staticData;
+        }
+        return project;
+      });
+    }
+    
     const cacheData = {
-      ...appCache,
+      ...cleanCache,
       timestamp: Date.now()
     };
     fs.writeFileSync(cacheFile, JSON.stringify(cacheData, null, 2));
-    console.log('💾 Cache salvo com sucesso');
+    safeLog('[CACHE] Cache salvo com sucesso (dados dinâmicos excluídos)');
   } catch (error) {
     console.error('Erro ao salvar cache:', error);
   }
@@ -72,7 +225,7 @@ function saveAppCache() {
 
 // ⚡ FUNÇÕES DE PRÉ-CARREGAMENTO E CACHE ⚡
 async function preloadCriticalData() {
-  console.log('🚀 Pré-carregando dados críticos...');
+  safeLog('[ROCKET] Pre-carregando dados criticos...');
   const startTime = Date.now();
   
   try {
@@ -103,7 +256,7 @@ async function preloadCriticalData() {
     saveAppCache();
     
     const loadTime = Date.now() - startTime;
-    console.log(`⚡ Pré-carregamento concluído em ${loadTime}ms`);
+    safeLog(`[LIGHTNING] Pre-carregamento concluido em ${loadTime}ms`);
     
   } catch (error) {
     console.error('Erro durante pré-carregamento:', error);
@@ -119,7 +272,7 @@ async function preloadProjects() {
     
     // Não sobrescreve a variável projects global, apenas salva no cache
     appCache.projects = projectNames;
-    console.log(`📁 ${projectNames.length} projetos carregados no cache para pré-carregamento`);
+    console.log(`[FOLDER] ${projectNames.length} projetos carregados no cache para pre-carregamento`);
   } catch (error) {
     console.log('Arquivo projects.txt não encontrado, será criado quando necessário');
     appCache.projects = [];
@@ -150,7 +303,7 @@ async function preloadAngularInfo() {
       // Usar exec assíncrono com timeout maior
       exec('ng version', { timeout: 15000 }, (error, stdout, stderr) => {
         if (error) {
-          console.log('❌ Angular CLI não disponível no pré-carregamento:', error.message);
+          console.log('[ERROR] Angular CLI nao disponivel no pre-carregamento:', error.message);
           
           // NÃO salva no cache quando há erro - deixa para verificação posterior
           appCache.angularInfo = {
@@ -164,7 +317,7 @@ async function preloadAngularInfo() {
         }
         
         const angularOutput = stdout.toString();
-        console.log('✅ Angular CLI encontrado no pré-carregamento');
+        console.log('[SUCCESS] Angular CLI encontrado no pre-carregamento');
         const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
         
         if (angularCliMatch) {
@@ -176,7 +329,7 @@ async function preloadAngularInfo() {
             confirmed: true, // Flag para indicar que foi confirmado
             fullOutput: angularOutput
           };
-          console.log(`✅ Angular CLI pré-carregado e confirmado: ${version}`);
+          console.log(`[SUCCESS] Angular CLI pre-carregado e confirmado: ${version}`);
         } else {
           // Mesmo sem versão detectada, se chegou aqui é porque está instalado
           appCache.angularInfo = {
@@ -185,7 +338,7 @@ async function preloadAngularInfo() {
             confirmed: true,
             fullOutput: angularOutput
           };
-          console.log('✅ Angular CLI pré-carregado (versão não detectada mas confirmado)');
+          console.log('[SUCCESS] Angular CLI pre-carregado (versao nao detectada mas confirmado)');
         }
         
         resolve();
@@ -213,6 +366,220 @@ async function preloadLoginState() {
     }
   } catch (error) {
     appCache.loginState = { isLoggedIn: false };
+  }
+}
+
+// ⚡ FUNÇÃO PARA OBTER BRANCH GIT DO PROJETO ⚡
+async function getProjectGitBranch(projectPath) {
+  if (!projectPath || projectPath.trim() === '') {
+    return null; // Não há path definido
+  }
+
+  try {
+    // Verifica se o diretório existe
+    if (!fs.existsSync(projectPath)) {
+      return null; // Diretório não existe
+    }
+
+    // Verifica se é um repositório Git
+    const gitPath = path.join(projectPath, '.git');
+    if (!fs.existsSync(gitPath)) {
+      return null; // Não é um repositório Git
+    }
+
+    return new Promise((resolve) => {
+      exec('git branch --show-current', { 
+        cwd: projectPath, 
+        timeout: 5000,
+        encoding: 'utf8'
+      }, (error, stdout, stderr) => {
+        if (error) {
+          console.log(`[GIT] Erro ao obter branch para ${projectPath}: ${error.message}`);
+          resolve(null);
+          return;
+        }
+
+        const branch = stdout.trim();
+        if (branch) {
+          console.log(`[GIT] ${path.basename(projectPath)}: ${branch}`);
+          resolve(branch);
+        } else {
+          console.log(`[GIT] Nenhuma branch para ${projectPath}`);
+          resolve(null);
+        }
+      });
+    });
+  } catch (error) {
+    console.log(`[GIT] Erro geral ao verificar branch para ${projectPath}: ${error.message}`);
+    return null;
+  }
+}
+
+// ⚡ FUNÇÃO PARA OBTER BRANCHES DE TODOS OS PROJETOS DE FORMA SEGURA ⚡
+async function getAllProjectsBranches(projects) {
+  console.log('[GIT] Iniciando detecção de branches...');
+  
+  // Filtra apenas projetos que têm path definido
+  const projectsWithPaths = projects.filter(project => 
+    project.path && project.path.trim() !== ''
+  );
+
+  if (projectsWithPaths.length === 0) {
+    console.log('[GIT] Nenhum projeto com path definido, pulando detecção de branches');
+    return projects.map(project => ({
+      ...project,
+      gitBranch: null
+    }));
+  }
+
+  try {
+    console.log(`[GIT] Verificando branches para ${projectsWithPaths.length} projeto(s) com path`);
+    
+    const branchPromises = projects.map(async (project) => {
+      if (!project.path || project.path.trim() === '') {
+        return {
+          ...project,
+          gitBranch: null
+        };
+      }
+
+      const branch = await getProjectGitBranch(project.path);
+      return {
+        ...project,
+        gitBranch: branch
+      };
+    });
+
+    const projectsWithBranches = await Promise.all(branchPromises);
+    console.log('[GIT] Detecção de branches concluída');
+    return projectsWithBranches;
+  } catch (error) {
+    console.log(`[GIT] Erro durante detecção de branches: ${error.message}`);
+    // Em caso de erro, retorna projetos sem branches
+    return projects.map(project => ({
+      ...project,
+      gitBranch: null
+    }));
+  }
+}
+
+// Função para limpar dados dinâmicos de Git dos projetos
+function clearDynamicGitData(projects) {
+  return projects.map(project => {
+    const cleanProject = { ...project };
+    // Remove dados dinâmicos que devem ser recalculados a cada execução
+    delete cleanProject.pendingCommits;
+    delete cleanProject.hasUpdates;
+    // gitBranch também é dinâmico, mas pode ser mantido temporariamente para performance
+    // delete cleanProject.gitBranch;
+    return cleanProject;
+  });
+}
+
+// ⚡ FUNÇÃO PARA FAZER GIT FETCH E VERIFICAR COMMITS PENDENTES ⚡
+async function checkGitStatus(projectPath) {
+  if (!projectPath || projectPath.trim() === '') {
+    return { branch: null, pendingCommits: 0, hasUpdates: false };
+  }
+
+  try {
+    // Verifica se é um repositório Git
+    const gitDir = path.join(projectPath, '.git');
+    if (!fs.existsSync(gitDir)) {
+      return { branch: null, pendingCommits: 0, hasUpdates: false };
+    }
+
+    // Primeiro obtém a branch atual
+    const currentBranch = await getProjectGitBranch(projectPath);
+    if (!currentBranch) {
+      return { branch: null, pendingCommits: 0, hasUpdates: false };
+    }
+
+    return new Promise((resolve) => {
+      console.log(`[GIT] Fazendo fetch para ${projectPath}...`);
+      
+      // Executa git fetch
+      exec('git fetch', { 
+        cwd: projectPath,
+        timeout: 10000,
+        encoding: 'utf8'
+      }, (fetchError, fetchStdout, fetchStderr) => {
+        if (fetchError) {
+          console.log(`[GIT] Erro no fetch para ${projectPath}: ${fetchError.message}`);
+          resolve({ branch: currentBranch, pendingCommits: 0, hasUpdates: false });
+          return;
+        }
+
+        // Agora verifica quantos commits estão pendentes
+        const revListCommand = `git rev-list HEAD..origin/${currentBranch} --count`;
+        
+        exec(revListCommand, {
+          cwd: projectPath,
+          timeout: 5000,
+          encoding: 'utf8'
+        }, (countError, countStdout, countStderr) => {
+          if (countError) {
+            console.log(`[GIT] Erro ao contar commits para ${projectPath}: ${countError.message}`);
+            resolve({ branch: currentBranch, pendingCommits: 0, hasUpdates: false });
+            return;
+          }
+
+          const pendingCommits = parseInt(countStdout.trim()) || 0;
+          const hasUpdates = pendingCommits > 0;
+          
+          console.log(`[GIT] ${projectPath} - Branch: ${currentBranch}, Commits pendentes: ${pendingCommits}`);
+          
+          resolve({ 
+            branch: currentBranch, 
+            pendingCommits: pendingCommits,
+            hasUpdates: hasUpdates
+          });
+        });
+      });
+    });
+  } catch (error) {
+    console.log(`[GIT] Erro geral ao verificar status Git para ${projectPath}: ${error.message}`);
+    return { branch: null, pendingCommits: 0, hasUpdates: false };
+  }
+}
+
+// ⚡ FUNÇÃO SIMPLES PARA VERIFICAR APENAS A BRANCH ATUAL ⚡
+async function checkCurrentBranch(projectPath) {
+  if (!projectPath || projectPath.trim() === '') {
+    return null;
+  }
+
+  try {
+    // Verifica se é um repositório Git
+    const gitDir = path.join(projectPath, '.git');
+    if (!fs.existsSync(gitDir)) {
+      return null;
+    }
+
+    return new Promise((resolve) => {
+      exec('git branch --show-current', { 
+        cwd: projectPath,
+        timeout: 3000, // Timeout menor, só para verificar branch
+        encoding: 'utf8'
+      }, (error, stdout, stderr) => {
+        if (error) {
+          console.log(`[GIT] Erro ao verificar branch atual para ${projectPath}: ${error.message}`);
+          resolve(null);
+          return;
+        }
+
+        const branch = stdout.trim();
+        if (branch) {
+          console.log(`[GIT] Branch atual verificada para ${projectPath}: ${branch}`);
+          resolve(branch);
+        } else {
+          resolve(null);
+        }
+      });
+    });
+  } catch (error) {
+    console.log(`[GIT] Erro ao verificar branch atual: ${error.message}`);
+    return null;
   }
 }
 
@@ -306,7 +673,7 @@ function saveLoginState(isLoggedIn) {
   appCache.loginState = loginState;
   saveAppCache();
   
-  console.log(`💾 Estado de login salvo: ${isLoggedIn}`);
+  console.log(`[SAVE] Estado de login salvo: ${isLoggedIn}`);
 }
 
 // Carrega o estado de login (OTIMIZADO COM CACHE)
@@ -501,7 +868,7 @@ function performNpmLogin(registry) {
 
   // Se já existe uma janela de login, fecha ela primeiro
   if (loginWindow && !loginWindow.isDestroyed()) {
-    console.log('🔄 Fechando janela de login anterior...');
+    console.log('[CLOSE] Fechando janela de login anterior...');
     loginWindow.destroy();
     loginWindow = null;
   }
@@ -675,12 +1042,31 @@ function openConfigWindow() {
     autoHideMenuBar: true,
     resizable: false,
     titleBarStyle: 'hidden',
+    show: false, // Não mostra a janela imediatamente
   });
 
+  // Carrega o arquivo e mostra a janela quando estiver pronta
   configWindow.loadFile(path.join(__dirname, 'configs.html'));
 
   configWindow.webContents.once('did-finish-load', () => {
     console.log('Janela de configurações carregada.');
+    // Mostra a janela com uma pequena animação
+    configWindow.show();
+    configWindow.focus();
+    
+    // Timeout de segurança para garantir que a janela seja mostrada
+    setTimeout(() => {
+      if (configWindow && !configWindow.isDestroyed()) {
+        configWindow.webContents.executeJavaScript(`
+          if (typeof forceHideLoading === 'function') {
+            console.log('🚨 Executando timeout de segurança');
+            forceHideLoading();
+          }
+        `).catch(err => {
+          console.log('Erro ao executar JavaScript de segurança:', err.message);
+        });
+      }
+    }, 3000);
   });
 
   // Limpa a referência quando a janela for fechada e reabilita o menu
@@ -899,7 +1285,7 @@ function applyCustomProjectOrder(projects) {
     config = getDefaultConfig();
   }
   
-  console.log('🔄 Aplicando ordenação personalizada dos projetos');
+  console.log('[RELOAD] Aplicando ordenacao personalizada dos projetos');
   
   // Separa projetos PAS e PAMP
   const pasProjects = projects.filter(p => p.name && !p.name.startsWith('mp-pamp'));
@@ -908,7 +1294,7 @@ function applyCustomProjectOrder(projects) {
   // Aplica ordem personalizada aos projetos PAS
   let orderedPasProjects = [];
   if (config.pasOrder && config.pasOrder.length > 0) {
-    console.log('� Aplicando ordem personalizada PAS:', config.pasOrder);
+    console.log('[TARGET] Aplicando ordem personalizada PAS: ' + JSON.stringify(config.pasOrder));
     // Primeiro, adiciona projetos na ordem salva
     config.pasOrder.forEach(projectName => {
       const project = pasProjects.find(p => p.name === projectName);
@@ -924,14 +1310,14 @@ function applyCustomProjectOrder(projects) {
       }
     });
   } else {
-    console.log('📋 Usando ordem padrão para projetos PAS');
+    console.log('[FOLDER] Usando ordem padrao para projetos PAS');
     orderedPasProjects = pasProjects;
   }
   
   // Aplica ordem personalizada aos projetos PAMP
   let orderedPampProjects = [];
   if (config.pampOrder && config.pampOrder.length > 0) {
-    console.log('📋 Aplicando ordem personalizada PAMP:', config.pampOrder);
+    console.log('[FOLDER] Aplicando ordem personalizada PAMP: ' + JSON.stringify(config.pampOrder));
     // Primeiro, adiciona projetos na ordem salva
     config.pampOrder.forEach(projectName => {
       const project = pampProjects.find(p => p.name === projectName);
@@ -947,7 +1333,7 @@ function applyCustomProjectOrder(projects) {
       }
     });
   } else {
-    console.log('📋 Usando ordem padrão para projetos PAMP');
+    console.log('[FOLDER] Usando ordem padrao para projetos PAMP');
     orderedPampProjects = pampProjects;
   }
   
@@ -957,9 +1343,9 @@ function applyCustomProjectOrder(projects) {
 
 // Nova função para aplicar ordenação aos projetos em memória
 function applyProjectOrdering() {
-  console.log('🔄 Reaplicando ordenação dos projetos...');
+  console.log('[RELOAD] Reaplicando ordenacao dos projetos...');
   projects = applyCustomProjectOrder(projects);
-  console.log('✅ Ordenação aplicada aos projetos em memória');
+  console.log('[SUCCESS] Ordenacao aplicada aos projetos em memoria');
 }
 
 // Função para salvar ordem customizada dos projetos (DEPRECIADA - mantida para compatibilidade)
@@ -971,7 +1357,7 @@ function saveCustomProjectOrder(projectOrder) {
   console.log('💾 Ordem customizada dos projetos salva (modo compatibilidade):', projectOrder);
 }
 
-let projects = loadProjects();
+let projects = clearDynamicGitData(loadProjects());
 let startingProjects = new Set(); // Para controlar projetos que estão sendo iniciados
 
 // Funções para controlar cancelamento de projetos
@@ -999,7 +1385,7 @@ function checkCancelationAndExit(projectPath, stepName) {
 
 // Função para criar a splash screen
 function createSplashWindow() {
-  console.log('🎬 Criando splash screen...');
+  safeLog('[TOOL] Criando splash screen...');
   splashWindow = new BrowserWindow({
     width: 520, // Aumentado de 500 para evitar barra de rolagem
     height: 420, // Aumentado de 400 para mais espaço
@@ -1019,7 +1405,7 @@ function createSplashWindow() {
     skipTaskbar: true
   });
 
-  console.log('📁 Carregando splash.html...');
+  safeLog('[FOLDER] Carregando splash.html...');
   
   // Alternativa: carrega HTML diretamente na memória com conteúdo garantido
   const splashHtml = `
@@ -1110,7 +1496,7 @@ function createSplashWindow() {
         </style>
     </head>
     <body>
-        <div class="logo">🔧 Micro Front-End Manager</div>
+        <div class="logo">Micro Front-End Manager</div>
         <div class="spinner"></div>
         <div class="loading-text">Carregando aplicação...</div>
         <div class="progress-bar">
@@ -1213,7 +1599,7 @@ function createSplashWindow() {
 
 // Função para inicializar a aplicação principal (OTIMIZADA)
 async function initializeMainApp() {
-  console.log('🚀 Iniciando aplicação principal com otimizações...');
+  console.log('[START] Iniciando aplicacao principal com otimizacoes...');
   const startTime = Date.now();
   
   // Carrega cache se ainda não foi carregado
@@ -1562,10 +1948,62 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
   mainWindow.loadFile('index.html');
   
   // Mostra a janela apenas quando estiver pronta
-  mainWindow.once('ready-to-show', () => {
+  mainWindow.once('ready-to-show', async () => {
     console.log('✅ Janela principal pronta para exibição');
     
-    // Notifica a splash screen que está pronto
+    try {
+      // Atualiza status do splash
+      if (splashWindow) {
+        splashWindow.webContents.send('loading-step', 'Carregando repositórios Git...');
+      }
+      
+      console.log('[GIT] Iniciando detecção completa de branches e status durante loading...');
+      
+      // Primeiro obtém as branches básicas
+      const projectsWithBranches = await getAllProjectsBranches(projects);
+      
+      // Atualiza progresso
+      if (splashWindow) {
+        splashWindow.webContents.send('loading-step', 'Verificando status Git dos projetos...');
+      }
+      
+      // Aguarda um pouco para mostrar a mensagem
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Depois verifica status Git completo (fetch + commits pendentes) para projetos com path
+      const projectsWithGitStatus = await Promise.all(
+        projectsWithBranches.map(async (project) => {
+          if (project.path && project.path.trim() !== '' && project.gitBranch) {
+            const gitStatus = await checkGitStatus(project.path);
+            return {
+              ...project,
+              gitBranch: gitStatus.branch || project.gitBranch,
+              pendingCommits: gitStatus.pendingCommits,
+              hasUpdates: gitStatus.hasUpdates
+            };
+          }
+          return project;
+        })
+      );
+      
+      // Atualiza a variável global
+      projects = projectsWithGitStatus;
+      
+      console.log('[GIT] Detecção completa concluída, mostrando aplicação...');
+      
+      // Atualiza progresso final
+      if (splashWindow) {
+        splashWindow.webContents.send('loading-step', 'Finalizando carregamento...');
+      }
+      
+      // Aguarda um pouco para mostrar a mensagem final
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+    } catch (error) {
+      console.log(`[GIT] Erro na detecção completa: ${error.message}`);
+    }
+    
+    // Agora sim notifica a splash screen que está pronto (APÓS os comandos Git)
     if (splashWindow) {
       console.log('📱 Notificando splash que app principal está pronto');
       splashWindow.webContents.send('main-app-ready');
@@ -1583,6 +2021,20 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           splashWindow.close();
         }
       }, 200);
+
+      // Envia os projetos atualizados para a UI logo após mostrar a janela
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          console.log('[GIT] Projetos com Git Status para enviar:', projects.map(p => ({
+            name: p.name,
+            branch: p.gitBranch,
+            pendingCommits: p.pendingCommits,
+            hasUpdates: p.hasUpdates
+          })));
+          mainWindow.webContents.send('projects-loaded', projects);
+          console.log('[GIT] Projetos com status Git completo enviados para a UI');
+        }
+      }, 500);
     }, 2000); // Aumentado de 500ms para 2000ms
   });
 
@@ -1633,7 +2085,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
 
   // Handler para forçar verificação do login (útil para troubleshooting)
   ipcMain.on('force-login-check', (event) => {
-    console.log('🔄 Verificação de login forçada pelo usuário');
+    console.log('[CHECK] Verificacao de login forcada pelo usuario');
     checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username }) => {
       saveLoginState(actualLoginStatus);
       event.reply('login-state', actualLoginStatus);
@@ -1651,15 +2103,28 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     });
   });
 
-  // Handlers IPC para configurações
-  ipcMain.on('load-configs', (event) => {
-    const config = loadConfig();
-    event.reply('configs-loaded', config);
+  // Handlers IPC para configurações (OTIMIZADOS)
+  ipcMain.on('load-configs', async (event) => {
+    try {
+      // Carrega configurações de forma assíncrona
+      const config = await new Promise((resolve) => {
+        setImmediate(() => {
+          resolve(loadConfig());
+        });
+      });
+      event.reply('configs-loaded', config);
+    } catch (error) {
+      console.error('Erro ao carregar configurações:', error);
+      event.reply('configs-loaded', getDefaultConfig());
+    }
   });
 
   ipcMain.on('save-config', (event, { key, value }) => {
-    const updatedConfig = updateConfigProperty(key, value);
-    console.log(`Configuração atualizada: ${key} = ${value}`);
+    // Salva configuração de forma assíncrona para não bloquear a UI
+    setImmediate(() => {
+      const updatedConfig = updateConfigProperty(key, value);
+      console.log(`Configuração atualizada: ${key} = ${value}`);
+    });
   });
 
   ipcMain.on('apply-dark-mode', (event, isDarkMode) => {
@@ -1711,7 +2176,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     checkNexusLoginStatus().then(({ isLoggedIn: actualLoginStatus, username }) => {
       if (actualLoginStatus !== currentLoginState) {
         // O status real é diferente do salvo, atualiza
-        console.log(`🔄 Atualizando login state: ${currentLoginState} → ${actualLoginStatus}`);
+        console.log(`[UPDATE] Atualizando login state: ${currentLoginState} → ${actualLoginStatus}`);
         saveLoginState(actualLoginStatus);
         event.reply('login-state', actualLoginStatus);
         
@@ -2029,28 +2494,45 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     });
   });
 
-  ipcMain.on('load-projects', (event) => {
-    // Sempre usa a variável projects real, não o cache
-    // O cache é apenas para acelerar o carregamento inicial, não para substituir dados
-    console.log('📋 Carregando projetos:', projects.length, 'projetos encontrados');
-    
-    // Aplica ordenação personalizada antes de enviar para o frontend
-    const orderedProjects = applyCustomProjectOrder(projects);
-    
-    event.reply('projects-loaded', orderedProjects);
-    
-    // Verifica se o login automático deve ser exibido
-    const noPathsConfigured = projects.every((project) => !project.path);
-    if (!isLoggedIn && noPathsConfigured) {
-      console.log('Nenhum login detectado e nenhum projeto configurado. Exibindo login automático.');
-      mainWindow.webContents.send('show-login');
+  ipcMain.on('load-projects', async (event) => {
+    try {
+      // Carrega projetos de forma assíncrona
+      console.log('📋 Carregando projetos:', projects.length, 'projetos encontrados');
+      
+      // ⚡ OBTER BRANCHES GIT DE TODOS OS PROJETOS ⚡
+      const projectsWithBranches = await getAllProjectsBranches(projects);
+      
+      // Aplica ordenação personalizada de forma assíncrona
+      const orderedProjects = await new Promise((resolve) => {
+        setImmediate(() => {
+          resolve(applyCustomProjectOrder(projectsWithBranches));
+        });
+      });
+      
+      event.reply('projects-loaded', orderedProjects);
+      
+      // Verifica se o login automático deve ser exibido
+      const noPathsConfigured = projectsWithBranches.every((project) => !project.path);
+      if (!isLoggedIn && noPathsConfigured) {
+        console.log('Nenhum login detectado e nenhum projeto configurado. Exibindo login automático.');
+        mainWindow.webContents.send('show-login');
+      }
+    } catch (error) {
+      console.error('Erro ao carregar projetos:', error);
+      event.reply('projects-loaded', projects); // Fallback para projetos sem ordenação
     }
   });
 
-  // Novos handlers para configuração de ordem dos projetos
-  ipcMain.on('get-project-order', (event, type) => {
+  // Novos handlers para configuração de ordem dos projetos (OTIMIZADOS)
+  ipcMain.on('get-project-order', async (event, type) => {
     try {
-      const config = loadConfig();
+      // Carrega configuração de forma assíncrona
+      const config = await new Promise((resolve) => {
+        setImmediate(() => {
+          resolve(loadConfig());
+        });
+      });
+      
       const order = type === 'pas' ? config.pasOrder : config.pampOrder;
       
       console.log(`📋 Carregando ordem dos projetos ${type.toUpperCase()}:`, order);
@@ -2063,7 +2545,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
 
   ipcMain.on('save-project-order', (event, { type, order }) => {
     try {
-      console.log(`🔄 Tentando salvar ordem dos projetos ${type.toUpperCase()}:`, order);
+      console.log(`[SAVE] Tentando salvar ordem dos projetos ${type.toUpperCase()}:`, order);
       
       const config = loadConfig();
       console.log('📋 Configuração atual:', JSON.stringify(config, null, 2));
@@ -2082,7 +2564,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       console.log(`✅ Ordem dos projetos ${type.toUpperCase()} salva:`, order);
       
       // Aplica a nova ordenação aos projetos em memória
-      console.log('🔄 Aplicando nova ordenação aos projetos em memória...');
+      console.log('[APPLY] Aplicando nova ordenacao aos projetos em memoria...');
       applyProjectOrdering();
       
       // Envia os projetos ordenados para a tela principal IMEDIATAMENTE
@@ -2106,7 +2588,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
 
   ipcMain.on('reload-main-window', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      console.log('🔄 Recarregando janela principal...');
+      console.log('[RELOAD] Recarregando janela principal...');
       mainWindow.webContents.reload();
     }
   });
@@ -2138,6 +2620,145 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     saveProjects(projects);
   });
 
+  // Handler para git pull em uma branch específica
+  ipcMain.on('git-pull-branch', async (event, { projectIndex, projectName, projectPath, isPamp }) => {
+    console.log(`[GIT-PULL] ===== HANDLER CHAMADO =====`);
+    console.log(`[GIT-PULL] Dados recebidos:`, { projectIndex, projectName, projectPath, isPamp });
+    
+    try {
+      console.log(`[GIT-PULL] Iniciando git pull para ${projectName} em ${projectPath}`);
+      
+      if (!projectPath || projectPath.trim() === '') {
+        console.log(`[GIT-PULL] ERRO: Caminho vazio para ${projectName}`);
+        event.reply('git-pull-result', {
+          projectIndex,
+          projectName,
+          success: false,
+          output: 'Caminho do projeto não encontrado',
+          isPamp
+        });
+        return;
+      }
+
+      // Verifica se é um repositório Git
+      const gitDir = path.join(projectPath, '.git');
+      if (!fs.existsSync(gitDir)) {
+        console.log(`[GIT-PULL] ERRO: Não é repositório Git - ${projectPath}`);
+        event.reply('git-pull-result', {
+          projectIndex,
+          projectName,
+          success: false,
+          output: 'Não é um repositório Git válido',
+          isPamp
+        });
+        return;
+      }
+
+      // Obtém a branch atual
+      const currentBranch = await getProjectGitBranch(projectPath);
+      if (!currentBranch) {
+        console.log(`[GIT-PULL] ERRO: Não foi possível determinar a branch para ${projectName}`);
+        event.reply('git-pull-result', {
+          projectIndex,
+          projectName,
+          success: false,
+          output: 'Não foi possível determinar a branch atual',
+          isPamp
+        });
+        return;
+      }
+
+      console.log(`[GIT-PULL] Branch atual: ${currentBranch}`);
+
+      // Executa git pull origin <branch>
+      const pullCommand = `git pull origin ${currentBranch}`;
+      console.log(`[GIT-PULL] Executando: ${pullCommand} em ${projectPath}`);
+
+      exec(pullCommand, {
+        cwd: projectPath,
+        timeout: 30000,
+        encoding: 'utf8'
+      }, async (error, stdout, stderr) => {
+        console.log(`[GIT-PULL] ===== RESULTADO COMPLETO =====`);
+        console.log(`[GIT-PULL] stdout:`, stdout);
+        console.log(`[GIT-PULL] stderr:`, stderr);
+        console.log(`[GIT-PULL] error:`, error);
+        console.log(`[GIT-PULL] ================================`);
+
+        const fullOutput = [stdout, stderr].filter(s => s && s.trim()).join('\n');
+        
+        // Detecta diferentes tipos de problemas
+        const hasFatalError = error && error.message.includes('fatal');
+        const hasMergeConflict = fullOutput.includes('would be overwritten by merge') || 
+                                fullOutput.includes('Please commit your changes') ||
+                                fullOutput.includes('Aborting');
+        const hasNetworkError = fullOutput.includes('Could not resolve host') || 
+                               fullOutput.includes('Connection refused');
+        
+        // Define se é sucesso real (merge completado)
+        const isRealSuccess = !error && !hasMergeConflict && !hasNetworkError && !hasFatalError;
+        
+        console.log(`[GIT-PULL] Análise: isRealSuccess=${isRealSuccess}, hasMergeConflict=${hasMergeConflict}, hasFatalError=${hasFatalError}`);
+
+        if (hasFatalError || hasNetworkError) {
+          console.log(`[GIT-PULL] Erro FATAL no pull para ${projectName}: ${error.message}`);
+          event.reply('git-pull-result', {
+            projectIndex,
+            projectName,
+            success: false,
+            output: `ERRO FATAL: ${stderr || error.message}`,
+            isPamp
+          });
+          return;
+        }
+
+        console.log(`[GIT-PULL] Output completo para ${projectName}:`, fullOutput);
+        console.log(`[GIT-PULL] Pull ${isRealSuccess ? 'bem-sucedido' : 'executado com avisos'} para ${projectName}`);
+
+        // Atualiza o status Git do projeto após o pull
+        try {
+          const gitStatus = await checkGitStatus(projectPath);
+          
+          // Atualiza o projeto na lista global apenas se houve sucesso real
+          if (projects[projectIndex] && isRealSuccess) {
+            projects[projectIndex].gitBranch = gitStatus.branch || currentBranch;
+            projects[projectIndex].pendingCommits = gitStatus.pendingCommits;
+            projects[projectIndex].hasUpdates = gitStatus.hasUpdates;
+          }
+
+          event.reply('git-pull-result', {
+            projectIndex,
+            projectName,
+            success: isRealSuccess, // Só marca como sucesso se realmente fez merge
+            output: fullOutput || 'Comando executado',
+            isPamp
+          });
+
+        } catch (statusError) {
+          console.log(`[GIT-PULL] Erro ao verificar status após pull: ${statusError.message}`);
+          // Mesmo com erro no status, reportamos o resultado do pull
+          event.reply('git-pull-result', {
+            projectIndex,
+            projectName,
+            success: isRealSuccess,
+            output: fullOutput || 'Pull executado (erro ao verificar status final)',
+            isPamp
+          });
+        }
+      });
+
+    } catch (error) {
+      console.log(`[GIT-PULL] Erro geral no git pull para ${projectName}: ${error.message}`);
+      event.reply('git-pull-result', {
+        projectIndex,
+        projectName,
+        success: false,
+        output: error.message,
+        isPamp
+      });
+    }
+  });
+
   ipcMain.on('start-project', (event, { projectPath, port }) => {
     console.log(`Iniciando projeto: ${projectPath} na porta: ${port}`);
     
@@ -2149,22 +2770,73 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         return;
     }
 
-    // Derruba qualquer processo rodando na porta
-    exec(`npx kill-port ${port}`, (err) => {
-      if (err) {
-        event.reply('log', { path: projectPath, message: `Erro ao liberar a porta ${port}: ${err.message}` });
-        return;
+    // ⚡ VERIFICA APENAS A BRANCH ATUAL (SEM FETCH) ⚡
+    checkCurrentBranch(projectPath).then(currentBranch => {
+      const projectIndex = projects.findIndex(p => p.path === projectPath);
+      
+      if (currentBranch && projectIndex !== -1) {
+        // Verifica se a branch mudou
+        const previousBranch = projects[projectIndex].gitBranch;
+        if (currentBranch !== previousBranch) {
+          console.log(`[GIT] Branch mudou de '${previousBranch}' para '${currentBranch}' em ${projectPath}`);
+          
+          // Atualiza a branch no projeto
+          projects[projectIndex].gitBranch = currentBranch;
+          
+          // Envia atualização para a UI (mantém commits pendentes se existirem)
+          event.reply('git-status-update', {
+            index: projectIndex,
+            branch: currentBranch,
+            pendingCommits: projects[projectIndex].pendingCommits || 0,
+            hasUpdates: projects[projectIndex].hasUpdates || false
+          });
+          
+          event.reply('log', { 
+            path: projectPath, 
+            message: `[GIT] Branch atualizada: ${currentBranch}` 
+          });
+        } else if (currentBranch) {
+          event.reply('log', { 
+            path: projectPath, 
+            message: `[GIT] Branch atual: ${currentBranch}` 
+          });
+        }
       }
-      event.reply('log', { path: projectPath, message: `Porta ${port} liberada. Iniciando projeto...` });
-    
-      // Aguarda 10 segundos antes de iniciar o projeto
-      setTimeout(() => {
-        // Verifica cancelamento antes de iniciar projeto
-        if (checkCancelationAndExit(projectPath, "início do projeto após liberação de porta")) {
+
+      // Derruba qualquer processo rodando na porta
+      exec(`npx kill-port ${port}`, (err) => {
+        if (err) {
+          event.reply('log', { path: projectPath, message: `Erro ao liberar a porta ${port}: ${err.message}` });
           return;
         }
-        startProject(event, projectPath, port);
-      }, 10000);
+        event.reply('log', { path: projectPath, message: `Porta ${port} liberada. Iniciando projeto...` });
+      
+        // Aguarda 10 segundos antes de iniciar o projeto
+        setTimeout(() => {
+          // Verifica cancelamento antes de iniciar projeto
+          if (checkCancelationAndExit(projectPath, "início do projeto após liberação de porta")) {
+            return;
+          }
+          startProject(event, projectPath, port);
+        }, 10000);
+      });
+    }).catch(error => {
+      console.log(`[GIT] Erro na verificação Git: ${error.message}`);
+      // Continua mesmo com erro no Git
+      exec(`npx kill-port ${port}`, (err) => {
+        if (err) {
+          event.reply('log', { path: projectPath, message: `Erro ao liberar a porta ${port}: ${err.message}` });
+          return;
+        }
+        event.reply('log', { path: projectPath, message: `Porta ${port} liberada. Iniciando projeto...` });
+      
+        setTimeout(() => {
+          if (checkCancelationAndExit(projectPath, "início do projeto após liberação de porta")) {
+            return;
+          }
+          startProject(event, projectPath, port);
+        }, 10000);
+      });
     });
   });
 
@@ -2175,25 +2847,164 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     unmarkProjectAsCanceled(projectPath);
     
     if (!port) {
-        event.reply('pamp-log', { path: projectPath, message: 'Porta ainda não definida.' });
-        startProject(event, projectPath, port);
-    }else {
-      // Derruba qualquer processo rodando na porta
-      exec(`npx kill-port ${port}`, (err) => {
-        if (err) {
-          event.reply('pamp-log', { path: projectPath, message: `Erro ao liberar a porta ${port}: ${err.message}` });
-          return;
+        // ⚡ VERIFICA APENAS A BRANCH ATUAL (SEM FETCH) ⚡
+        checkCurrentBranch(projectPath).then(currentBranch => {
+          const projectIndex = projects.findIndex(p => p.path === projectPath);
+          const projectName = projectIndex !== -1 ? projects[projectIndex].name : path.basename(projectPath);
+          
+          if (currentBranch && projectIndex !== -1) {
+            // Verifica se a branch mudou
+            const previousBranch = projects[projectIndex].gitBranch;
+            if (currentBranch !== previousBranch) {
+              console.log(`[GIT] Branch PAMP mudou de '${previousBranch}' para '${currentBranch}' em ${projectPath}`);
+              
+              // Atualiza a branch no projeto
+              projects[projectIndex].gitBranch = currentBranch;
+              
+              // Envia atualização para a UI (mantém commits pendentes se existirem)
+              event.reply('git-status-update-pamp', {
+                index: projectIndex,
+                branch: currentBranch,
+                pendingCommits: projects[projectIndex].pendingCommits || 0,
+                hasUpdates: projects[projectIndex].hasUpdates || false
+              });
+              
+              event.reply('pamp-log', { 
+                path: projectPath, 
+                message: `[GIT] Branch atualizada: ${currentBranch}`,
+                index: projectIndex,
+                name: projectName
+              });
+            } else if (currentBranch) {
+              event.reply('pamp-log', { 
+                path: projectPath, 
+                message: `[GIT] Branch atual: ${currentBranch}`,
+                index: projectIndex,
+                name: projectName
+              });
+            }
+          }
+          
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: 'Porta ainda não definida.',
+            index: projects.findIndex(p => p.path === projectPath),
+            name: projects.find(p => p.path === projectPath)?.name || path.basename(projectPath)
+          });
+          startProject(event, projectPath, port);
+        }).catch(error => {
+          console.log(`[GIT] Erro na verificação Git: ${error.message}`);
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: 'Porta ainda não definida.',
+            index: projects.findIndex(p => p.path === projectPath),
+            name: projects.find(p => p.path === projectPath)?.name || path.basename(projectPath)
+          });
+          startProject(event, projectPath, port);
+        });
+    } else {
+      // ⚡ VERIFICA APENAS A BRANCH ATUAL (SEM FETCH) ⚡
+      checkCurrentBranch(projectPath).then(currentBranch => {
+        const projectIndex = projects.findIndex(p => p.path === projectPath);
+        const projectName = projectIndex !== -1 ? projects[projectIndex].name : path.basename(projectPath);
+        
+        if (currentBranch && projectIndex !== -1) {
+          // Verifica se a branch mudou
+          const previousBranch = projects[projectIndex].gitBranch;
+          if (currentBranch !== previousBranch) {
+            console.log(`[GIT] Branch PAMP mudou de '${previousBranch}' para '${currentBranch}' em ${projectPath}`);
+            
+            // Atualiza a branch no projeto
+            projects[projectIndex].gitBranch = currentBranch;
+            
+            // Envia atualização para a UI (mantém commits pendentes se existirem)
+            event.reply('git-status-update-pamp', {
+              index: projectIndex,
+              branch: currentBranch,
+              pendingCommits: projects[projectIndex].pendingCommits || 0,
+              hasUpdates: projects[projectIndex].hasUpdates || false
+            });
+            
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: `[GIT] Branch atualizada: ${currentBranch}`,
+              index: projectIndex,
+              name: projectName
+            });
+          } else if (currentBranch) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: `[GIT] Branch atual: ${currentBranch}`,
+              index: projectIndex,
+              name: projectName
+            });
+          }
         }
-        event.reply('pamp-log', { path: projectPath, message: `Porta ${port} liberada. Iniciando projeto...` });
-      
-        // Aguarda 10 segundos antes de iniciar o projeto
-        setTimeout(() => {
-          // Verifica cancelamento antes de iniciar projeto
-          if (checkCancelationAndExit(projectPath, "início do projeto PAMP após liberação de porta")) {
+
+        // Derruba qualquer processo rodando na porta
+        exec(`npx kill-port ${port}`, (err) => {
+          if (err) {
+            const projectIndex = projects.findIndex(p => p.path === projectPath);
+            const projectName = projectIndex !== -1 ? projects[projectIndex].name : path.basename(projectPath);
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: `Erro ao liberar a porta ${port}: ${err.message}`,
+              index: projectIndex,
+              name: projectName
+            });
             return;
           }
-          startProject(event, projectPath, port);
-        }, 9000);
+          
+          const projectIndex = projects.findIndex(p => p.path === projectPath);
+          const projectName = projectIndex !== -1 ? projects[projectIndex].name : path.basename(projectPath);
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: `Porta ${port} liberada. Iniciando projeto...`,
+            index: projectIndex,
+            name: projectName
+          });
+        
+          // Aguarda 10 segundos antes de iniciar o projeto
+          setTimeout(() => {
+            // Verifica cancelamento antes de iniciar projeto
+            if (checkCancelationAndExit(projectPath, "início do projeto PAMP após liberação de porta")) {
+              return;
+            }
+            startProject(event, projectPath, port);
+          }, 9000);
+        });
+      }).catch(error => {
+        console.log(`[GIT] Erro na verificação Git: ${error.message}`);
+        // Continua mesmo com erro no Git
+        exec(`npx kill-port ${port}`, (err) => {
+          if (err) {
+            const projectIndex = projects.findIndex(p => p.path === projectPath);
+            const projectName = projectIndex !== -1 ? projects[projectIndex].name : path.basename(projectPath);
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: `Erro ao liberar a porta ${port}: ${err.message}`,
+              index: projectIndex,
+              name: projectName
+            });
+            return;
+          }
+          
+          const projectIndex = projects.findIndex(p => p.path === projectPath);
+          const projectName = projectIndex !== -1 ? projects[projectIndex].name : path.basename(projectPath);
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: `Porta ${port} liberada. Iniciando projeto...`,
+            index: projectIndex,
+            name: projectName
+          });
+        
+          setTimeout(() => {
+            if (checkCancelationAndExit(projectPath, "início do projeto PAMP após liberação de porta")) {
+              return;
+            }
+            startProject(event, projectPath, port);
+          }, 9000);
+        });
       });
     }
   });
@@ -2214,22 +3025,17 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       index: projectIndex
     });
 
-    if (runningProcesses[projectPath]) {
-      console.log(`Encerrando processo para ${projectPath}...`);
-      runningProcesses[projectPath].kill();
-      delete runningProcesses[projectPath];
-      console.log(`Processo para ${projectPath} encerrado.`);
-
-      // Envia o log e atualiza o status para "Parado"
+    // Função para finalizar o processo de parada
+    const finishStop = (message) => {
       if (isPampProject) {
         event.reply('pamp-log', { 
           path: projectPath, 
-          message: `Projeto parado.`,
+          message,
           index: projectIndex,
           name: projectName
         });
       } else {
-        event.reply('log', { path: projectPath, message: `Projeto parado na porta ${port}.` });
+        event.reply('log', { path: projectPath, message });
       }
       
       // Atualiza a UI para indicar que o processo foi parado
@@ -2239,180 +3045,117 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         isPamp: isPampProject,
         index: projectIndex
       });
-    } else {
+    };
+
+    // Primeiro tenta encerrar o processo conhecido
+    if (runningProcesses[projectPath]) {
+      console.log(`Encerrando processo para ${projectPath}...`);
+      try {
+        // Kill mais agressivo para garantir que processo pai e filhos sejam encerrados
         if (os.platform() === 'win32') {
-          // Localiza todos os processos relacionados à porta
-          exec(`netstat -aon | findstr :${port}`, (err, stdout) => {
-            if (err || !stdout) {
-              const message = `Nenhum processo encontrado na porta ${port}.`;
-              if (isPampProject) {
-                event.reply('pamp-log', { 
-                  path: projectPath, 
-                  message,
-                  index: projectIndex,
-                  name: projectName
-                });
-              } else {
-                event.reply('log', { path: projectPath, message });
-              }
-              
-              // Mesmo que não tenha encontrado processos, atualiza a UI
-              event.reply('status-update', { 
-                path: projectPath, 
-                status: 'stopped',
-                isPamp: isPampProject,
-                index: projectIndex
-              });
-              return;
+          exec(`taskkill /PID ${runningProcesses[projectPath].pid} /T /F`, (err) => {
+            if (err) {
+              console.log(`Erro ao encerrar árvore de processos: ${err.message}`);
             }
-
-              // Extrai os PIDs dos processos
-              const pids = stdout
-              .split('\n')
-              .map(line => line.trim().split(/\s+/).pop())
-              .filter(pid => pid && !isNaN(pid));
-
-              if (pids.length === 0) {
-                const message = `Nenhum processo encontrado na porta ${port}.`;
-                 if (isPampProject) {
-                  event.reply('pamp-log', { 
-                    path: projectPath, 
-                    message,
-                    index: projectIndex,
-                    name: projectName
-                  });
-                } else {
-                  event.reply('log', { path: projectPath, message });
-                }
-                return;
-              }
-
-            // Itera sobre os PIDs e encerra cada processo
-            pids.forEach(pid => {
-              exec(`taskkill /PID ${pid} /F`, (killErr) => {
-                  if (killErr) {
-                    console.error(`Erro ao encerrar o processo PID ${pid}: ${killErr.message}`);
-                    const message = `Erro ao encerrar o processo PID ${pid}: ${killErr.message}`;
-                    if (isPampProject) {
-                      event.reply('pamp-log', { 
-                        path: projectPath, 
-                        message,
-                        index: projectIndex,
-                        name: projectName
-                      });
-                    } else {
-                      event.reply('log', { path: projectPath, message });
-                    }
-                  } else {
-                    console.log(`Processo PID ${pid} encerrado.`);
-                    const message = `Processo PID ${pid} encerrado.`;
-                    if (isPampProject) {
-                      event.reply('pamp-log', { 
-                        path: projectPath, 
-                        message,
-                        index: projectIndex,
-                        name: projectName
-                      });
-                    } else {
-                      event.reply('log', { path: projectPath, message });
-                    }
-                  }
-              });
-            });
-
-            // Após matar os processos, atualiza o status para "Parado"
-            event.reply('status-update', { 
-              path: projectPath, 
-              status: 'stopped',
-              isPamp: isPampProject,
-              index: projectIndex
-            });
           });
         } else {
-
-          // Comandos para Linux/Mac
-          exec(`sudo lsof -i :${port}`, (err, stdout) => {
-              if (err || !stdout) {
-                event.reply('log', { path: projectPath, message: `Nenhum processo encontrado na porta ${port}.` });
-                const message = `Nenhum processo encontrado na porta ${port}.`;
-                if (isPampProject) {
-                  event.reply('pamp-log', { 
-                    path: projectPath, 
-                    message,
-                    index: projectIndex,
-                    name: projectName
-                  });
-                } else {
-                  event.reply('log', { path: projectPath, message });
-                }
-                return;
-              }
-
-              // Extrai os PIDs dos processos
-              const pids = stdout
-              .split('\n')
-              .slice(1) // Ignora o cabeçalho
-              .map(line => line.trim().split(/\s+/)[1])
-              .filter(pid => pid && !isNaN(pid));
-
-              if (pids.length === 0) {
-                const message = `Nenhum processo encontrado na porta ${port}.`;
-                if (isPampProject) {
-                  event.reply('pamp-log', { 
-                    path: projectPath, 
-                    message,
-                    index: projectIndex,
-                    name: projectName
-                  });
-                } else {
-                  event.reply('log', { path: projectPath, message });
-                }
-                return;
-              }
-
-              // Itera sobre os PIDs e encerra cada processo
-              pids.forEach(pid => {
-                  exec(`kill -9 ${pid}`, (killErr) => {
-                      if (killErr) {
-                        console.error(`Erro ao encerrar o processo PID ${pid}: ${killErr.message}`);
-                        const message = `Erro ao encerrar o processo PID ${pid}: ${killErr.message}.`;
-                        if (isPampProject) {
-                          event.reply('pamp-log', { 
-                            path: projectPath, 
-                            message,
-                            index: projectIndex,
-                            name: projectName
-                          });
-                        } else {
-                          event.reply('log', { path: projectPath, message });
-                        }
-                      } else {
-                        console.log(`Processo PID ${pid} encerrado.`);
-                        const message = `Processo PID ${pid} encerrado.`;
-                        if (isPampProject) {
-                          event.reply('pamp-log', { 
-                            path: projectPath, 
-                            message,
-                            index: projectIndex,
-                            name: projectName
-                          });
-                        } else {
-                          event.reply('log', { path: projectPath, message });
-                        }
-                      }
-                  });
-              });
-
-              // Atualiza o status para "Parado" após encerrar todos os processos
-              event.reply('status-update', { 
-                path: projectPath, 
-                status: 'stopped',
-                isPamp: isPampProject,
-                index: projectIndex
-              });
+          // Linux/Mac - mata grupo de processos
+          exec(`pkill -f "${projectPath}"`, (err) => {
+            if (err) {
+              console.log(`Erro ao encerrar processos: ${err.message}`);
+            }
           });
         }
+        runningProcesses[projectPath].kill('SIGKILL');
+      } catch (error) {
+        console.log(`Erro ao encerrar processo: ${error.message}`);
       }
+      delete runningProcesses[projectPath];
+      console.log(`Processo para ${projectPath} encerrado.`);
+    }
+
+    // Sempre executa kill por porta para garantir que todos os processos relacionados sejam encerrados
+    if (os.platform() === 'win32') {
+      // Windows - mata processos na porta específica
+      exec(`netstat -aon | findstr :${port}`, (err, stdout) => {
+        if (err || !stdout) {
+          finishStop(`Projeto parado (nenhum processo encontrado na porta ${port}).`);
+          return;
+        }
+
+        // Extrai os PIDs dos processos
+        const pids = stdout
+          .split('\n')
+          .map(line => line.trim().split(/\s+/).pop())
+          .filter(pid => pid && !isNaN(pid));
+
+        if (pids.length === 0) {
+          finishStop(`Projeto parado (nenhum processo encontrado na porta ${port}).`);
+          return;
+        }
+
+        let processesKilled = 0;
+        let totalProcesses = pids.length;
+
+        // Mata cada processo encontrado
+        pids.forEach(pid => {
+          exec(`taskkill /PID ${pid} /T /F`, (killErr) => {
+            processesKilled++;
+            
+            if (killErr) {
+              console.error(`Erro ao encerrar o processo PID ${pid}: ${killErr.message}`);
+            } else {
+              console.log(`Processo PID ${pid} encerrado com sucesso.`);
+            }
+
+            // Quando todos os processos foram processados
+            if (processesKilled === totalProcesses) {
+              finishStop(`Projeto parado (${totalProcesses} processo(s) encerrado(s) na porta ${port}).`);
+            }
+          });
+        });
+      });
+    } else {
+      // Linux/Mac - mata processos na porta específica
+      exec(`lsof -ti :${port}`, (err, stdout) => {
+        if (err || !stdout) {
+          finishStop(`Projeto parado (nenhum processo encontrado na porta ${port}).`);
+          return;
+        }
+
+        // Extrai os PIDs dos processos
+        const pids = stdout
+          .split('\n')
+          .map(pid => pid.trim())
+          .filter(pid => pid && !isNaN(pid));
+
+        if (pids.length === 0) {
+          finishStop(`Projeto parado (nenhum processo encontrado na porta ${port}).`);
+          return;
+        }
+
+        let processesKilled = 0;
+        let totalProcesses = pids.length;
+
+        // Mata cada processo encontrado
+        pids.forEach(pid => {
+          exec(`kill -9 ${pid}`, (killErr) => {
+            processesKilled++;
+            
+            if (killErr) {
+              console.error(`Erro ao encerrar o processo PID ${pid}: ${killErr.message}`);
+            } else {
+              console.log(`Processo PID ${pid} encerrado com sucesso.`);
+            }
+
+            // Quando todos os processos foram processados
+            if (processesKilled === totalProcesses) {
+              finishStop(`Projeto parado (${totalProcesses} processo(s) encerrado(s) na porta ${port}).`);
+            }
+          });
+        });
+      });
+    }
   });
 
   ipcMain.on('cancel-project-startup', (event, { projectPath, isPamp, index }) => {
@@ -2523,6 +3266,35 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     if (checkCancelationAndExit(projectPath, "início da função startProject")) {
       return;
     }
+    
+    // ⚡ ATUALIZA BRANCH GIT QUANDO PROJETO É INICIADO (TEMPORARIAMENTE DESABILITADO) ⚡
+    /*
+    const updateProjectBranch = async () => {
+      try {
+        const currentBranch = await getProjectGitBranch(projectPath);
+        const projectIndex = projects.findIndex(p => p.path === projectPath);
+        
+        if (projectIndex !== -1 && currentBranch) {
+          // Atualiza a branch do projeto localmente
+          projects[projectIndex].gitBranch = currentBranch;
+          
+          // Envia atualização para o frontend
+          event.reply('update-project-branch', { 
+            index: projectIndex, 
+            branch: currentBranch,
+            path: projectPath
+          });
+          
+          console.log(`🌿 Branch atualizada para ${path.basename(projectPath)}: ${currentBranch}`);
+        }
+      } catch (error) {
+        console.error(`Erro ao atualizar branch do projeto ${projectPath}:`, error);
+      }
+    };
+    
+    // Executa atualização da branch de forma assíncrona
+    updateProjectBranch();
+    */
     
     // Define o comando com base no nome do projeto
     const projectName = path.basename(projectPath); // Extrai o nome do projeto do caminho
@@ -2746,8 +3518,12 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     let portInUseDetected = false;
     let detectedPort = null;
     let portInUseTimer = null;
-    // Variável para controle de mensagens "Compiled successfully" apenas
-    let lastSuccessTime = 0;
+    // ⚡ VARIÁVEIS PARA CONTROLE INTELIGENTE DE LOGS ⚡
+    let lastLogTime = 0;
+    let consecutiveErrors = 0;
+    let lastRebuildTime = 0;
+    let compilationInProgress = false;
+    const errorThreshold = 3; // Máximo de erros consecutivos antes de alertar
 
     // Função para classificar se uma mensagem do stderr é realmente um erro crítico
     const isActualError = (message) => {
@@ -2770,7 +3546,17 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         'for additional information or if the build fails',
         'the local angular cli version is used',
         'depends on \'',
-        'for more info see: https://angular.io/guide/'
+        'for more info see: https://angular.io/guide/',
+        '[webpack-dev-server]',
+        'project is running at:',
+        'loopback:',
+        'on your network:',
+        'content not from webpack is served from',
+        '404s will fallback to',
+        'webpack output is served from',
+        'generating browser application bundles',
+        'generating browser application bundles (phase: setup)',
+        'generating browser application bundles (phase: building)'
       ];
       
       // Lista de padrões que SÃO erros críticos
@@ -2811,11 +3597,108 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       return !isWarning;
     };
 
-    // Função helper para enviar logs
-    const sendLog = (message, isError = false) => {
+    // ⚡ FUNÇÃO MELHORADA PARA ENVIAR LOGS COM DETECÇÃO DE REBUILDS ⚡
+    const sendLog = (message, isError = false, forceShow = false) => {
       if (!message || !message.trim()) return; // Ignora mensagens vazias
       
-      console.log(`[${isError ? 'STDERR' : 'STDOUT'}] ${message}`);
+      const now = Date.now();
+      const lowerMessage = message.toLowerCase();
+      
+      // ⚡ DETECÇÃO INTELIGENTE DE REBUILDS E RECOMPILAÇÕES ⚡
+      const isRebuildMessage = 
+        lowerMessage.includes('file change detected') ||
+        lowerMessage.includes('rebuilding') ||
+        lowerMessage.includes('recompiling') ||
+        lowerMessage.includes('compilation started') ||
+        lowerMessage.includes('webpack compilation started') ||
+        lowerMessage.includes('webpack building') ||
+        lowerMessage.includes('compiling') ||
+        lowerMessage.includes('building') ||
+        lowerMessage.includes('recompiling') ||
+        lowerMessage.includes('webpack compiled') ||
+        lowerMessage.includes('bundle generation') ||
+        lowerMessage.includes('chunk ') ||
+        lowerMessage.includes('emitted') ||
+        lowerMessage.includes('hash:') ||
+        lowerMessage.includes('time:') ||
+        lowerMessage.includes('built at:') ||
+        (lowerMessage.includes('compiled') && (
+          lowerMessage.includes('successfully') || 
+          lowerMessage.includes('with') || 
+          lowerMessage.includes('error') ||
+          lowerMessage.includes('warnings')
+        ));
+      
+      // ⚡ DETECÇÃO DE COMPILAÇÃO COMPLETA ⚡
+      const isCompilationComplete = 
+        lowerMessage.includes('compiled successfully') ||
+        lowerMessage.includes('compilation complete') ||
+        lowerMessage.includes('webpack compiled') ||
+        lowerMessage.includes('build complete') ||
+        lowerMessage.includes('√ compiled successfully') ||
+        lowerMessage.includes('✓ compiled successfully') ||
+        lowerMessage.includes('webpack: compiled successfully') ||
+        lowerMessage.includes('compiled with') ||
+        lowerMessage.includes('warnings but no errors') ||
+        (lowerMessage.includes('compiled') && lowerMessage.includes('ms'));
+
+      // ⚡ DETECÇÃO DE ERROS DE COMPILAÇÃO ⚡
+      const isCompilationError = 
+        lowerMessage.includes('compilation error') ||
+        lowerMessage.includes('build error') ||
+        lowerMessage.includes('webpack error') ||
+        (lowerMessage.includes('error') && (
+          lowerMessage.includes('ts') || 
+          lowerMessage.includes('typescript') ||
+          lowerMessage.includes('angular')
+        ));
+
+      // ⚡ LÓGICA ESPECIAL PARA REBUILDS - SEMPRE MOSTRA ⚡
+      if (isRebuildMessage || forceShow) {
+        if (isRebuildMessage && !isCompilationComplete) {
+          compilationInProgress = true;
+          lastRebuildTime = now;
+          console.log(`[REBUILD] [REBUILD DETECTADO] ${message}`);
+        }
+        // Para rebuilds, sempre mostra a mensagem
+        sendLogToUI(message, isError, true);
+        return;
+      }
+
+      // ⚡ LÓGICA ESPECIAL PARA ERROS DE COMPILAÇÃO - SEMPRE MOSTRA ⚡
+      if (isCompilationError || isError) {
+        consecutiveErrors++;
+        console.log(`❌ [ERRO COMPILAÇÃO] ${message} (Erro ${consecutiveErrors})`);
+        sendLogToUI(message, true, true);
+        compilationInProgress = false;
+        return;
+      }
+
+      // ⚡ LÓGICA ESPECIAL PARA SUCESSO DE COMPILAÇÃO ⚡
+      if (isCompilationComplete) {
+        if (compilationInProgress || (now - lastRebuildTime < 30000)) {
+          // Se há compilação em andamento ou rebuild recente, sempre mostra
+          console.log(`✅ [COMPILAÇÃO SUCESSO] ${message}`);
+          sendLogToUI(message, false, true);
+          compilationInProgress = false;
+          consecutiveErrors = 0; // Reset contador de erros
+          return;
+        } else {
+          // Controle de spam apenas para sucessos sem rebuild recente
+          if (now - lastLogTime < 3000) {
+            return; // Ignora se a última mensagem foi há menos de 3 segundos
+          }
+        }
+      }
+
+      // ⚡ CONTROLE PADRÃO PARA OUTRAS MENSAGENS ⚡
+      lastLogTime = now;
+      sendLogToUI(message, isError, false);
+    };
+
+    // ⚡ FUNÇÃO AUXILIAR PARA ENVIAR LOGS PARA UI ⚡
+    const sendLogToUI = (message, isError = false, isImportant = false) => {
+      console.log(`[${isError ? 'STDERR' : 'STDOUT'}]${isImportant ? ' [IMPORTANTE]' : ''} ${message}`);
       
       // Detecta erros relacionados ao Git e adiciona orientação
       const lowerMessage = message.toLowerCase();
@@ -2840,13 +3723,15 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           message: enhancedMessage,
           index: projectIndex,
           name: projectName,
-          error: isError
+          error: isError,
+          isImportant: isImportant
         });
       } else {
         event.reply('log', { 
           path: projectPath, 
           message: enhancedMessage,
-          error: isError
+          error: isError,
+          isImportant: isImportant
         });
       }
     };
@@ -2860,17 +3745,58 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         cleanData = data.toString().trim();
       }
 
-      // Controle especial para mensagens "Compiled successfully" para evitar spam
-      if (cleanData.includes('Compiled successfully')) {
-        const now = Date.now();
-        if (now - lastSuccessTime < 2000) {
-          return; // Ignora se a última mensagem de sucesso foi há menos de 2 segundos
-        }
-        lastSuccessTime = now;
-      }
+      // ⚡ DETECÇÃO MELHORADA DE REBUILDS E COMPILAÇÕES ⚡
+      const lowerData = cleanData.toLowerCase();
+      
+      // Detecta início de rebuild/recompilação
+      const isRebuildStart = 
+        lowerData.includes('file change detected') ||
+        lowerData.includes('rebuilding') ||
+        lowerData.includes('recompiling') ||
+        lowerData.includes('compilation started') ||
+        lowerData.includes('webpack building') ||
+        lowerData.includes('webpack compilation started') ||
+        lowerData.includes('bundle generation') ||
+        lowerData.includes('chunk ') ||
+        lowerData.includes('emitted') ||
+        lowerData.includes('hash:') ||
+        lowerData.includes('time:') ||
+        lowerData.includes('built at:') ||
+        (lowerData.includes('compiling') && !lowerData.includes('compiled'));
 
-      // Usa a função helper para enviar logs
-      sendLog(cleanData);
+      // Detecta compilação bem-sucedida
+      const isCompilationSuccess = 
+        lowerData.includes('compiled successfully') ||
+        lowerData.includes('√ compiled successfully') ||
+        lowerData.includes('✓ compiled successfully') ||
+        lowerData.includes('webpack compiled successfully') ||
+        lowerData.includes('webpack: compiled successfully') ||
+        lowerData.includes('compiled with') ||
+        lowerData.includes('warnings but no errors') ||
+        (lowerData.includes('compiled') && lowerData.includes('ms'));
+
+      // Detecta erros de compilação
+      const hasCompilationError = 
+        lowerData.includes('compilation error') ||
+        lowerData.includes('build error') ||
+        lowerData.includes('webpack error') ||
+        lowerData.includes('failed to compile') ||
+        lowerData.includes('compilation failed') ||
+        lowerData.includes('build failed') ||
+        (lowerData.includes('error') && (
+          lowerData.includes('ts(') || 
+          lowerData.includes('typescript') ||
+          lowerData.includes('angular') ||
+          lowerData.includes('ng ')
+        )) ||
+        (lowerData.includes('compiled with') && lowerData.includes('error'));
+
+      // ⚡ FORÇA EXIBIÇÃO PARA REBUILDS E COMPILAÇÕES ⚡
+      if (isRebuildStart || isCompilationSuccess || hasCompilationError) {
+        sendLog(cleanData, false, true); // Force show = true
+      } else {
+        sendLog(cleanData, false, false);
+      }
 
       // Detecta se uma porta está em uso
       const portInUseMatch = cleanData.match(/Port (\d+) is already in use/);
@@ -2891,7 +3817,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           
           // Informa o usuário
           const message = `Porta ${detectedPort} em uso. Tentando matar o processo nessa porta...`;
-          sendLog(message);
+          sendLog(message, false, true);
           
           // Encerra o processo atual que está esperando input
           if (runningProcesses[projectPath]) {
@@ -2914,7 +3840,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
               }
               
               // Informa o usuário usando sendLog
-              sendLog(nextMessage);
+              sendLog(nextMessage, false, true);
               
               // Inicia o projeto novamente após um breve intervalo
               setTimeout(() => {
@@ -2962,11 +3888,42 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         cleanData = data.toString().trim();
       }
 
-      // Distingue entre warnings/deprecations e erros reais
+      // ⚡ ANÁLISE MELHORADA DE ERROS NO STDERR ⚡
+      const lowerData = cleanData.toLowerCase();
+      
+      // Detecta se é realmente um erro crítico
       const isRealError = isActualError(cleanData);
       
-      // Usa sendLog com flag de erro apenas para erros reais
-      sendLog(cleanData, isRealError);
+      // Detecta erros de compilação específicos que devem sempre aparecer
+      const isCompilationError = 
+        lowerData.includes('compilation error') ||
+        lowerData.includes('build error') ||
+        lowerData.includes('typescript error') ||
+        lowerData.includes('webpack error') ||
+        lowerData.includes('failed to compile') ||
+        lowerData.includes('compilation failed') ||
+        lowerData.includes('build failed') ||
+        (lowerData.includes('error') && (
+          lowerData.includes('ts(') || 
+          lowerData.includes('ng ') ||
+          lowerData.includes('angular') ||
+          lowerData.includes('typescript') ||
+          lowerData.includes('webpack')
+        ) && 
+        // Exclui mensagens informativas do webpack-dev-server
+        !lowerData.includes('[webpack-dev-server]') &&
+        !lowerData.includes('project is running at') &&
+        !lowerData.includes('loopback:') &&
+        !lowerData.includes('on your network:')) ||
+        (lowerData.includes('compiled with') && lowerData.includes('error'));
+      
+      // ⚡ FORÇA EXIBIÇÃO PARA ERROS DE COMPILAÇÃO ⚡
+      if (isCompilationError) {
+        sendLog(cleanData, true, true); // Force show = true para erros de compilação
+      } else {
+        // Para outros tipos de stderr, usa a classificação normal
+        sendLog(cleanData, isRealError, false);
+      }
     });
     
     childProcess.on('close', (code) => {
@@ -4511,13 +5468,16 @@ ipcMain.on('execute-command', (event, command) => {
 // Evento principal do aplicativo
 // ⚡ INICIALIZAÇÃO OTIMIZADA ⚡
 app.on('ready', async () => {
-  console.log('🚀 Aplicação pronta, iniciando otimizações...');
+  safeLog('[ROCKET] Aplicacao pronta, iniciando otimizacoes...');
+  
+  // ⚡ LIMPA CACHE PROBLEMÁTICO DO ELECTRON NO WINDOWS ⚡
+  clearElectronCacheIfNeeded();
   
   // Define prioridade alta no Windows para startup mais rápido
   if (process.platform === 'win32') {
     try {
       exec('wmic process where "name=\'electron.exe\'" call setpriority "above normal"', (error) => {
-        if (!error) console.log('⚡ Prioridade do processo aumentada');
+        if (!error) safeLog('[LIGHTNING] Prioridade do processo aumentada');
       });
     } catch (e) {
       // Ignora se não conseguir ajustar prioridade
@@ -4527,7 +5487,7 @@ app.on('ready', async () => {
   // Carrega cache na inicialização
   const cacheLoaded = loadAppCache();
   if (cacheLoaded) {
-    console.log('💾 Cache pré-carregado com sucesso');
+    safeLog('[DISK] Cache pre-carregado com sucesso');
   }
   
   // Inicia pré-carregamento em background
@@ -4537,14 +5497,40 @@ app.on('ready', async () => {
   setTimeout(() => {
     const isGitAvailable = checkGitGlobal();
     if (!isGitAvailable) {
-      console.log('⚠️ Git não detectado - usuário será informado se necessário');
+      safeLog('[WARNING] Git nao detectado - usuario sera informado se necessario', 'warn');
     } else {
-      console.log('✅ Git detectado no sistema');
+      safeLog('[SUCCESS] Git detectado no sistema');
     }
   }, 2000);
   
   // Cria splash screen
   createSplashWindow();
+
+  // ⚡ HANDLER PARA ATUALIZAR BRANCH DE PROJETO ESPECÍFICO (TEMPORARIAMENTE DESABILITADO) ⚡
+  /*
+  ipcMain.on('update-project-branch', async (event, { index }) => {
+    try {
+      if (index >= 0 && index < projects.length) {
+        const project = projects[index];
+        const currentBranch = await getProjectGitBranch(project.path);
+        
+        if (currentBranch) {
+          projects[index].gitBranch = currentBranch;
+          
+          event.reply('project-branch-updated', { 
+            index: index, 
+            branch: currentBranch,
+            path: project.path
+          });
+          
+          console.log(`🌿 Branch atualizada manualmente para ${project.name}: ${currentBranch}`);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar branch do projeto:', error);
+    }
+  });
+  */
 });
 
 // ⚡ GESTÃO OTIMIZADA DO CICLO DE VIDA DA APP ⚡
@@ -4560,7 +5546,7 @@ app.on('window-all-closed', () => {
       
       if (cacheAge > 24 * 60 * 60 * 1000) { // 24 horas
         fs.unlinkSync(cacheFile);
-        console.log('🗑️ Cache antigo removido');
+        safeLog('[TOOL] Cache antigo removido');
       }
     }
   } catch (error) {
@@ -4581,11 +5567,28 @@ app.on('activate', () => {
 setInterval(() => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     preloadCriticalData().catch(console.error);
-    console.log('🔄 Cache atualizado automaticamente');
+    console.log('[CACHE] Cache atualizado automaticamente');
   }
 }, 2 * 60 * 1000); // 2 minutos
 
-console.log('⚡ SISTEMA DE PERFORMANCE ATIVADO ⚡');
-console.log('🚀 Cache inteligente, pré-carregamento e otimizações Windows habilitadas');
-console.log('💾 Dados críticos serão carregados em background para máxima velocidade');
-console.log('🎯 Otimizações multi-core e multi-threading implementadas');
+console.log('[LIGHTNING] SISTEMA DE PERFORMANCE ATIVADO [LIGHTNING]');
+console.log('[ROCKET] Cache inteligente, pre-carregamento e otimizacoes Windows habilitadas');
+console.log('[DISK] Dados criticos serao carregados em background para maxima velocidade');
+console.log('[TARGET] Otimizacoes multi-core e multi-threading implementadas');
+
+// ⚡ FUNÇÃO PARA LIMPAR CACHE PROBLEMÁTICO DO ELECTRON NO WINDOWS ⚡
+function clearElectronCacheIfNeeded() {
+  if (process.platform === 'win32') {
+    try {
+      const session = require('electron').session;
+      if (session && session.defaultSession) {
+        session.defaultSession.clearCache(() => {
+          safeLog('[TOOL] Cache do Electron limpo no Windows');
+        });
+      }
+    } catch (error) {
+      // Ignora erros de limpeza de cache
+      safeLog('[WARNING] Nao foi possivel limpar cache do Electron: ' + error.message, 'warn');
+    }
+  }
+}

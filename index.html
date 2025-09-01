@@ -361,6 +361,86 @@
     ipcRenderer.send('load-configs');
   }
 
+  // Função para obter o ícone de terminal correto baseado no tema
+  function getTerminalIcon() {
+    const isDarkMode = document.body.classList.contains('dark-mode');
+    return isDarkMode ? 'terminal_branco.png' : 'terminal.png';
+  }
+
+  // Função para atualizar ícones de terminal baseado no tema
+  function updateTerminalIcons() {
+    const terminalIcon = getTerminalIcon();
+    
+    // Atualiza todos os ícones de terminal
+    const terminalImages = document.querySelectorAll('img[id*="terminal"]');
+    terminalImages.forEach(img => {
+      if (img.src.includes('terminal.png') || img.src.includes('terminal_branco.png')) {
+        img.src = terminalIcon;
+      }
+    });
+  }
+
+  // ===== FUNÇÃO PARA ATUALIZAR BRANCH (GIT PULL) =====
+  function handleUpdateBranch(projectIndex, projectName, projectPath, isPamp) {
+    console.log(`[DEBUG] handleUpdateBranch chamada:`, { projectIndex, projectName, projectPath, isPamp });
+    
+    if (!projectPath || projectPath.trim() === '') {
+      console.log(`[ERROR] Projeto ${projectName} não tem caminho válido:`, projectPath);
+      alert('Projeto precisa ter um caminho válido para ser atualizado.');
+      return;
+    }
+
+    // Confirma a ação
+    const confirmed = confirm(`Atualizar branch do projeto ${projectName}?\n\nIsso executará um 'git pull origin' no diretório:\n${projectPath}`);
+    
+    if (!confirmed) {
+      console.log(`[INFO] Usuário cancelou git pull para ${projectName}`);
+      return;
+    }
+
+    console.log(`[INFO] Usuário confirmou git pull para ${projectName}`);
+
+    // Muda o visual da tag para indicar que está processando
+    const commitsTagId = isPamp ? `pamp-commits-${projectIndex}` : `pas-commits-${projectIndex}`;
+    const commitsTag = document.getElementById(commitsTagId);
+    
+    console.log(`[DEBUG] Procurando tag com ID: ${commitsTagId}`, commitsTag);
+    
+    if (commitsTag) {
+      commitsTag.style.background = '#6c757d'; // Cinza para indicar processamento
+      commitsTag.innerHTML = '⏳ Atualizando...';
+      commitsTag.style.cursor = 'not-allowed';
+      commitsTag.onclick = null; // Remove o clique durante o processamento
+      console.log(`[INFO] Tag visual atualizada para estado "processando"`);
+    } else {
+      console.log(`[WARN] Tag commits não encontrada: ${commitsTagId}`);
+    }
+
+    // Mostra log imediato no console do projeto
+    const logContainer = isPamp ? `pamp-log-${projectIndex}` : `log-${projectIndex}`;
+    const logDiv = document.getElementById(logContainer);
+    if (logDiv) {
+      logDiv.style.display = 'block';
+      logDiv.innerHTML += `<div style="color: #ffff00;">[${new Date().toLocaleTimeString()}] 🔄 Iniciando git pull para ${projectName}...</div>`;
+      logDiv.scrollTop = logDiv.scrollHeight;
+      console.log(`[INFO] Log adicionado ao container: ${logContainer}`);
+    } else {
+      console.log(`[WARN] Container de log não encontrado: ${logContainer}`);
+    }
+
+    // Envia comando para o backend
+    const data = {
+      projectIndex: projectIndex,
+      projectName: projectName,
+      projectPath: projectPath,
+      isPamp: isPamp
+    };
+    
+    console.log(`[DEBUG] Enviando comando git-pull-branch:`, data);
+    ipcRenderer.send('git-pull-branch', data);
+    console.log(`[INFO] Comando git-pull-branch enviado para o backend`);
+  }
+
   // ===== FUNÇÕES PARA BOTÕES TOGGLE MODERNOS =====
   function updateToggleButton(button, isExpanded, count = 0) {
     const icon = button.querySelector('.toggle-icon');
@@ -411,11 +491,82 @@
 
   ipcRenderer.send('load-projects');
   
+  // Handler para resultado do git pull
+  ipcRenderer.on('git-pull-result', (event, { projectIndex, projectName, success, output, isPamp }) => {
+    console.log(`📝 Resultado git pull para ${projectName}:`, { success, output });
+
+    const commitsTagId = isPamp ? `pamp-commits-${projectIndex}` : `pas-commits-${projectIndex}`;
+    const commitsTag = document.getElementById(commitsTagId);
+    
+    // Sempre mostra os logs no console do projeto
+    const logContainer = isPamp ? `pamp-log-${projectIndex}` : `log-${projectIndex}`;
+    const logDiv = document.getElementById(logContainer);
+    
+    if (logDiv) {
+      logDiv.style.display = 'block';
+      
+      if (success) {
+        logDiv.innerHTML += `<div style="color: #00ff00;">[${new Date().toLocaleTimeString()}] ✅ Branch atualizada com sucesso!</div>`;
+      } else {
+        logDiv.innerHTML += `<div style="color: #ff6b35;">[${new Date().toLocaleTimeString()}] ⚠️ Pull executado com avisos</div>`;
+      }
+      
+      // Mostra TODOS os logs do git pull
+      if (output && output.trim()) {
+        const lines = output.split('\n');
+        lines.forEach(line => {
+          if (line.trim()) {
+            const color = line.includes('fatal') || line.includes('error') ? '#ff4444' : 
+                         line.includes('From https://') || line.includes('branch') ? '#00aaff' :
+                         line.includes('*') || line.includes('->') ? '#ffaa00' : '#ffffff';
+            logDiv.innerHTML += `<div style="color: ${color};">[${new Date().toLocaleTimeString()}] ${line}</div>`;
+          }
+        });
+      }
+      
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+    
+    if (success) {
+      // Sucesso REAL - remove a tag de commits pendentes
+      if (commitsTag) {
+        commitsTag.remove();
+      }
+      
+      // Atualiza o projeto no array local
+      if (currentProjects[projectIndex]) {
+        currentProjects[projectIndex].pendingCommits = 0;
+        currentProjects[projectIndex].hasUpdates = false;
+      }
+      
+    } else {
+      // Problema/Warning - badge permanece para nova tentativa
+      if (commitsTag) {
+        const hasConflict = output && (output.includes('would be overwritten') || output.includes('Aborting'));
+        
+        if (hasConflict) {
+          commitsTag.style.background = '#ff6b35'; // Laranja para conflitos
+          commitsTag.innerHTML = `⚠️ Conflito`;
+          commitsTag.title = 'Conflito de merge. Resolva os conflitos locais primeiro.';
+        } else {
+          commitsTag.style.background = '#dc3545'; // Vermelho para erros
+          commitsTag.innerHTML = '❌ Erro';
+          commitsTag.title = 'Erro na atualização. Clique para tentar novamente.';
+        }
+        
+        commitsTag.style.cursor = 'pointer';
+        commitsTag.onclick = () => handleUpdateBranch(projectIndex, projectName, currentProjects[projectIndex].path, isPamp);
+      }
+    }
+  });
+  
   // Recebe as configurações e aplica o modo escuro se necessário
   ipcRenderer.on('configs-loaded', (event, configs) => {
     if (configs.darkMode) {
       document.body.classList.add('dark-mode');
     }
+    // Atualiza os ícones de terminal após aplicar o tema
+    updateTerminalIcons();
   });
 
   // Escuta mudanças do modo escuro vindas da janela de configurações
@@ -425,11 +576,20 @@
     } else {
       document.body.classList.remove('dark-mode');
     }
+    // Atualiza os ícones de terminal após mudança de tema
+    updateTerminalIcons();
   });
 
   ipcRenderer.on('projects-loaded', (event, projects) => {
     // Store projects globally
     currentProjects = projects;
+    
+    console.log('[DEBUG] Projetos recebidos com dados Git:', projects.map(p => ({
+      name: p.name,
+      branch: p.gitBranch,
+      pendingCommits: p.pendingCommits,
+      hasUpdates: p.hasUpdates
+    })));
 
     // PAMP
     const pampProjects = projects.filter(p => p.name && p.name.startsWith('mp-pamp'));
@@ -443,8 +603,12 @@
     div.innerHTML = `
        <div class="project-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <p style="margin: 0;"><strong>${project.name}</strong></p>
-          <img id="pamp-btn-terminal-${realIndex}" src="terminal.png" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <p style="margin: 0;"><strong>${project.name}</strong></p>
+            ${project.gitBranch ? `<span id="pamp-branch-${realIndex}" style="background: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
+            ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pamp-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, true)">↓ ${project.pendingCommits}</span>` : ''}
+          </div>
+          <img id="pamp-btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
         </div>
         <div class="input-with-folder" style="margin-bottom: 10px;">
           <input id="pamp-input-${realIndex}" data-path="${project.path}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
@@ -578,8 +742,12 @@
     div.innerHTML = `
       <div class="project-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <p style="margin: 0;"><strong>${project.name}</strong></p>
-          <img id="btn-terminal-${realIndex}" src="terminal.png" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <p style="margin: 0;"><strong>${project.name}</strong></p>
+            ${project.gitBranch ? `<span id="pas-branch-${realIndex}" style="background: #007bff; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
+            ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pas-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, false)">↓ ${project.pendingCommits}</span>` : ''}
+          </div>
+          <img id="btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
         </div>
         <div class="input-with-folder" style="margin-bottom: 10px;">
           <input id="input-${realIndex}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
@@ -698,49 +866,131 @@
     });
     
     });
+
+    // ===== ATUALIZA CONTADORES DOS BOTÕES TOGGLE APÓS CARREGAMENTO =====
+    // Aguarda um pequeno delay para garantir que todos os elementos foram renderizados
+    setTimeout(() => {
+      // Atualiza contador PAMP (Painel Admin)
+      const pampCount = document.getElementById('pamp-mfes').querySelectorAll('.project-card').length;
+      const pampCountElement = document.getElementById('pamp-count');
+      if (pampCountElement) {
+        pampCountElement.textContent = pampCount.toString();
+      }
+      
+      // Atualiza contador PAS (Site Principal)  
+      const pasCount = document.getElementById('projects').querySelectorAll('.project-card').length;
+      const pasCountElement = document.getElementById('pas-count');
+      if (pasCountElement) {
+        pasCountElement.textContent = pasCount.toString();
+      }
+      
+      console.log(`📊 Contadores atualizados após carregamento completo: PAMP Admin=${pampCount}, PAS Site=${pasCount}`);
+      
+      // Atualiza os ícones de terminal após carregar projetos
+      updateTerminalIcons();
+    }, 200);
   });
 
-  // ===== ATUALIZA CONTADORES DOS BOTÕES TOGGLE =====
-  setTimeout(() => {
-    // Atualiza contador PAMP (Painel Admin)
-    const pampCount = document.getElementById('pamp-mfes').querySelectorAll('.project-card').length;
-    document.getElementById('pamp-count').textContent = pampCount.toString();
-    
-    // Atualiza contador PAS (Site Principal)  
-    const pasCount = document.getElementById('projects').querySelectorAll('.project-card').length;
-    document.getElementById('pas-count').textContent = pasCount.toString();
-    
-    console.log(`📊 Contadores atualizados: PAMP Admin=${pampCount}, PAS Site=${pasCount}`);
-  }, 100);
+  // ===== ATUALIZAÇÃO INICIAL DOS CONTADORES (REMOVIDA - AGORA FEITA APÓS CARREGAMENTO) =====
+  // A atualização dos contadores agora é feita no final do handler 'projects-loaded'
+  // para garantir que todos os dados Git estejam processados
 
   // IPC Listeners globais
   
   // Listener específico para este projeto PAMP
-  ipcRenderer.on('pamp-log', (event, { path, message, index, name, error, nodeVersionError }) => {
+  ipcRenderer.on('pamp-log', (event, { path, message, index, name, error, nodeVersionError, isImportant }) => {
     const pampLogDiv = document.getElementById(`pamp-log-${index}`);
     
     if (!message || !message.trim()) {
       return;
     }
     
-    // Verifica se a mensagem é igual à última mensagem adicionada
-    if (pampLogDiv) {
+    // ⚡ NOVA LÓGICA INTELIGENTE PARA REBUILDS E ERROS ⚡
+    const lowerMessage = message.toLowerCase();
+    
+    // Detecta rebuilds e recompilações
+    const isRebuildMessage = 
+      lowerMessage.includes('file change detected') ||
+      lowerMessage.includes('rebuilding') ||
+      lowerMessage.includes('recompiling') ||
+      lowerMessage.includes('compilation started') ||
+      lowerMessage.includes('webpack building') ||
+      lowerMessage.includes('webpack compilation started') ||
+      lowerMessage.includes('compiling') ||
+      lowerMessage.includes('building') ||
+      lowerMessage.includes('bundle generation') ||
+      lowerMessage.includes('chunk ') ||
+      lowerMessage.includes('emitted') ||
+      lowerMessage.includes('hash:') ||
+      lowerMessage.includes('time:') ||
+      lowerMessage.includes('built at:');
+    
+    // Detecta compilação completa
+    const isCompilationComplete = 
+      lowerMessage.includes('compiled successfully') ||
+      lowerMessage.includes('compilation complete') ||
+      lowerMessage.includes('webpack compiled') ||
+      lowerMessage.includes('build complete') ||
+      lowerMessage.includes('√ compiled successfully') ||
+      lowerMessage.includes('✓ compiled successfully') ||
+      lowerMessage.includes('webpack: compiled successfully') ||
+      lowerMessage.includes('compiled with') ||
+      lowerMessage.includes('warnings but no errors') ||
+      (lowerMessage.includes('compiled') && lowerMessage.includes('ms'));
+    
+    // Detecta erros de compilação
+    const isCompilationError = 
+      lowerMessage.includes('compilation error') ||
+      lowerMessage.includes('build error') ||
+      lowerMessage.includes('typescript error') ||
+      lowerMessage.includes('webpack error') ||
+      lowerMessage.includes('failed to compile') ||
+      lowerMessage.includes('compilation failed') ||
+      lowerMessage.includes('build failed') ||
+      error === true ||
+      (lowerMessage.includes('compiled with') && lowerMessage.includes('error'));
+
+    // ⚡ SEMPRE EXIBE REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
+    let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || error;
+    
+    // Para outras mensagens, verifica duplicação
+    if (!shouldShow && pampLogDiv) {
       const currentText = pampLogDiv.innerText;
       const lines = currentText.split('\n');
       const lastLine = lines[lines.length - 1];
       
+      // Só ignora mensagens duplicadas que NÃO são rebuilds, compilações ou erros
       if (lastLine === message && 
           !message.includes('npm install') &&
-          !message.includes('Compiled successfully')) {
+          !isRebuildMessage &&
+          !isCompilationComplete &&
+          !isCompilationError) {
         return;
       }
+      shouldShow = true;
     }
 
-    console.log(`Recebeu pamp-log: ${message} para índice ${index}`);
+    if (!shouldShow) return;
+
+    console.log(`📝 [PAMP-LOG] ${isImportant ? '[IMPORTANTE] ' : ''}${error ? '[ERRO] ' : ''}${message}`);
     
     if (pampLogDiv) {
       pampLogDiv.style.display = 'block';
-      pampLogDiv.innerText += `\n${message}`;
+      
+      // ⚡ FORMATAÇÃO ESPECIAL PARA DIFERENTES TIPOS DE MENSAGEM ⚡
+      let formattedMessage = message;
+      
+      if (isRebuildMessage) {
+        formattedMessage = `🔄 [REBUILD] ${message}`;
+      } else if (isCompilationComplete) {
+        formattedMessage = `✅ [SUCESSO] ${message}`;
+      } else if (isCompilationError || error) {
+        formattedMessage = `❌ [ERRO] ${message}`;
+      } else if (isImportant) {
+        formattedMessage = `⚡ [IMPORTANTE] ${message}`;
+      }
+      
+      pampLogDiv.innerText += `\n${formattedMessage}`;
       pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
       
       if (message.includes('existe em')) {
@@ -1068,7 +1318,7 @@
   }
 
   // Atualiza o status de login - VERSÃO MELHORADA
-  ipcRenderer.on('log', (event, { message, path }) => {
+  ipcRenderer.on('log', (event, { message, path, error, isImportant }) => {
       // Atualiza sistema antigo para compatibilidade
       const statusDiv = document.getElementById('status');
       if (message.includes('Logado no Nexus com sucesso')) {
@@ -1083,13 +1333,95 @@
         updateNexusStatusBadge(false, 'Erro no login');
       }
       
+      // ⚡ NOVA LÓGICA MELHORADA PARA LOGS DE PROJETOS PAS ⚡
+      const lowerMessage = message.toLowerCase();
+      
+      // Detecta rebuilds e recompilações
+      const isRebuildMessage = 
+        lowerMessage.includes('file change detected') ||
+        lowerMessage.includes('rebuilding') ||
+        lowerMessage.includes('recompiling') ||
+        lowerMessage.includes('compilation started') ||
+        lowerMessage.includes('webpack building') ||
+        lowerMessage.includes('webpack compilation started') ||
+        lowerMessage.includes('compiling') ||
+        lowerMessage.includes('building') ||
+        lowerMessage.includes('bundle generation') ||
+        lowerMessage.includes('chunk ') ||
+        lowerMessage.includes('emitted') ||
+        lowerMessage.includes('hash:') ||
+        lowerMessage.includes('time:') ||
+        lowerMessage.includes('built at:');
+      
+      // Detecta compilação completa
+      const isCompilationComplete = 
+        lowerMessage.includes('compiled successfully') ||
+        lowerMessage.includes('compilation complete') ||
+        lowerMessage.includes('webpack compiled') ||
+        lowerMessage.includes('build complete') ||
+        lowerMessage.includes('√ compiled successfully') ||
+        lowerMessage.includes('✓ compiled successfully') ||
+        lowerMessage.includes('webpack: compiled successfully') ||
+        lowerMessage.includes('compiled with') ||
+        lowerMessage.includes('warnings but no errors') ||
+        (lowerMessage.includes('compiled') && lowerMessage.includes('ms'));
+      
+      // Detecta erros de compilação
+      const isCompilationError = 
+        lowerMessage.includes('compilation error') ||
+        lowerMessage.includes('build error') ||
+        lowerMessage.includes('typescript error') ||
+        lowerMessage.includes('webpack error') ||
+        lowerMessage.includes('failed to compile') ||
+        lowerMessage.includes('compilation failed') ||
+        lowerMessage.includes('build failed') ||
+        error === true ||
+        (lowerMessage.includes('compiled with') && lowerMessage.includes('error'));
+      
       // Log messages para projetos específicos
       currentProjects.forEach((project, index) => {
         if (project.path === path || message.includes(project.name)) {
             const logDiv = document.getElementById(`log-${index}`);
             if (logDiv) {
+              // ⚡ SEMPRE EXIBE REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
+              let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || error;
+              
+              // Para outras mensagens, verifica duplicação
+              if (!shouldShow) {
+                const currentText = logDiv.innerText;
+                const lines = currentText.split('\n');
+                const lastLine = lines[lines.length - 1];
+                
+                // Só ignora mensagens duplicadas que NÃO são rebuilds, compilações ou erros
+                if (lastLine === message && 
+                    !isRebuildMessage &&
+                    !isCompilationComplete &&
+                    !isCompilationError) {
+                  return;
+                }
+                shouldShow = true;
+              }
+
+              if (!shouldShow) return;
+
+              console.log(`📝 [PAS-LOG] ${isImportant ? '[IMPORTANTE] ' : ''}${error ? '[ERRO] ' : ''}${message}`);
+              
               logDiv.style.display = 'block';
-              logDiv.innerText += `\n${message}`;
+              
+              // ⚡ FORMATAÇÃO ESPECIAL PARA DIFERENTES TIPOS DE MENSAGEM ⚡
+              let formattedMessage = message;
+              
+              if (isRebuildMessage) {
+                formattedMessage = `🔄 [REBUILD] ${message}`;
+              } else if (isCompilationComplete) {
+                formattedMessage = `✅ [SUCESSO] ${message}`;
+              } else if (isCompilationError || error) {
+                formattedMessage = `❌ [ERRO] ${message}`;
+              } else if (isImportant) {
+                formattedMessage = `⚡ [IMPORTANTE] ${message}`;
+              }
+              
+              logDiv.innerText += `\n${formattedMessage}`;
               logDiv.scrollTop = logDiv.scrollHeight;
 
               if (message.includes('Caminho do projeto:')) {
@@ -1278,6 +1610,65 @@
     
     ipcRenderer.send('update-project-path', { index: index, path: path });
   });
+
+  // ⚡ LISTENERS PARA ATUALIZAÇÃO DE BRANCHES GIT ⚡
+  
+  // Listener para atualização de branch enviada do main process quando projeto é iniciado
+  ipcRenderer.on('update-project-branch', (event, { index, branch, path }) => {
+    console.log(`🌿 [Frontend] Atualizando branch do projeto ${index}: ${branch}`);
+    updateProjectBranchDisplay(index, branch, path);
+  });
+
+  // Listener para resposta da atualização manual de branch
+  ipcRenderer.on('project-branch-updated', (event, { index, branch, path }) => {
+    console.log(`🌿 [Frontend] Branch atualizada manualmente para projeto ${index}: ${branch}`);
+    updateProjectBranchDisplay(index, branch, path);
+  });
+
+  // ⚡ FUNÇÃO PARA ATUALIZAR EXIBIÇÃO DA BRANCH ⚡
+  function updateProjectBranchDisplay(index, branch, path) {
+    // Atualiza em projetos PAMP
+    const pampBranchElement = document.getElementById(`pamp-branch-${index}`);
+    if (pampBranchElement) {
+      pampBranchElement.innerHTML = `<img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${branch}`;
+      console.log(`🌿 Branch PAMP atualizada para índice ${index}: ${branch}`);
+    }
+
+    // Atualiza em projetos PAS
+    const pasBranchElement = document.getElementById(`pas-branch-${index}`);
+    if (pasBranchElement) {
+      pasBranchElement.innerHTML = `<img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${branch}`;
+      console.log(`🌿 Branch PAS atualizada para índice ${index}: ${branch}`);
+    }
+
+    // Se não existe elemento de branch, cria um novo
+    if (!pampBranchElement && !pasBranchElement) {
+      const projectCard = document.querySelector(`#pamp-input-${index}, #input-${index}`)?.closest('.project-card');
+      if (projectCard) {
+        const projectNameContainer = projectCard.querySelector('div > div');
+        if (projectNameContainer) {
+          // Determina se é projeto PAMP ou PAS
+          const isPamp = !!document.getElementById(`pamp-input-${index}`);
+          const branchColor = isPamp ? '#28a745' : '#007bff';
+          const branchId = isPamp ? `pamp-branch-${index}` : `pas-branch-${index}`;
+          
+          // Cria o elemento de branch
+          const branchElement = document.createElement('span');
+          branchElement.id = branchId;
+          branchElement.style.cssText = `background: ${branchColor}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;`;
+          branchElement.innerHTML = `<img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${branch}`;
+          
+          projectNameContainer.appendChild(branchElement);
+          console.log(`🌿 Novo elemento de branch criado para índice ${index}: ${branch}`);
+        }
+      }
+    }
+
+    // Atualiza o array de projetos local
+    if (currentProjects[index]) {
+      currentProjects[index].gitBranch = branch;
+    }
+  }
 
   // Initialize UI after DOM is loaded
   document.addEventListener('DOMContentLoaded', function() {
