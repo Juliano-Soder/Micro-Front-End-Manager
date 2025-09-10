@@ -77,6 +77,22 @@ ipcMain.on('refresh-git-status', async (event, { projectPath, projectIndex, isPa
   }
 });
 
+// Handler para iniciar verificação Git em segundo plano
+ipcMain.on('start-background-git-check', async (event) => {
+  console.log(`[DEBUG] Solicitação para iniciar verificação Git em segundo plano`);
+  startBackgroundGitCheck().catch(error => {
+    console.log(`[DEBUG] Erro na verificação em segundo plano: ${error.message}`);
+  });
+});
+
+// Handler para atualizar um projeto específico
+ipcMain.on('update-project-git-status', async (event, { projectIndex }) => {
+  console.log(`[DEBUG] Solicitação para atualizar projeto específico: ${projectIndex}`);
+  updateProjectGitStatus(projectIndex).catch(error => {
+    console.log(`[DEBUG] Erro na atualização específica: ${error.message}`);
+  });
+});
+
 console.log('[DEBUG] Handlers IPC registrados com sucesso');
 
 // Função auxiliar para enviar saída de comandos Git (declarada cedo)
@@ -580,6 +596,115 @@ async function checkCurrentBranch(projectPath) {
   } catch (error) {
     console.log(`[GIT] Erro ao verificar branch atual: ${error.message}`);
     return null;
+  }
+}
+
+// ⚡ SISTEMA DE VERIFICAÇÃO GIT EM SEGUNDO PLANO ⚡
+let backgroundGitRunning = false;
+let backgroundGitQueue = [];
+
+// Função principal para iniciar verificação Git em segundo plano
+async function startBackgroundGitCheck() {
+  if (backgroundGitRunning) {
+    console.log('[GIT-BG] Verificação já está em execução, ignorando nova solicitação');
+    return;
+  }
+  
+  backgroundGitRunning = true;
+  console.log('[GIT-BG] 🚀 Iniciando verificação Git em segundo plano...');
+  
+  // Filtra projetos que têm path e branch definidos
+  const projectsToCheck = projects.filter(project => 
+    project.path && 
+    project.path.trim() !== '' && 
+    project.gitBranch
+  );
+  
+  console.log(`[GIT-BG] 📋 ${projectsToCheck.length} projetos serão verificados em segundo plano`);
+  
+  // Processa projetos de forma assíncrona, um por vez para não sobrecarregar
+  for (let i = 0; i < projectsToCheck.length; i++) {
+    const project = projectsToCheck[i];
+    const projectIndex = projects.findIndex(p => p.name === project.name);
+    
+    if (projectIndex === -1) continue;
+    
+    console.log(`[GIT-BG] 🔍 Verificando ${project.name} (${i + 1}/${projectsToCheck.length})`);
+    
+    try {
+      // Executa checkGitStatus em segundo plano
+      const gitStatus = await checkGitStatus(project.path);
+      
+      // Atualiza o projeto na lista global
+      projects[projectIndex] = {
+        ...projects[projectIndex],
+        gitBranch: gitStatus.branch || projects[projectIndex].gitBranch,
+        pendingCommits: gitStatus.pendingCommits,
+        hasUpdates: gitStatus.hasUpdates
+      };
+      
+      // Notifica a UI sobre a atualização específica deste projeto
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        console.log(`[GIT-BG] ✅ ${project.name} - Commits pendentes: ${gitStatus.pendingCommits}`);
+        mainWindow.webContents.send('git-status-updated', {
+          projectIndex,
+          gitStatus: {
+            branch: gitStatus.branch,
+            pendingCommits: gitStatus.pendingCommits,
+            hasUpdates: gitStatus.hasUpdates
+          }
+        });
+        console.log(`[GIT-BG] 📡 IPC enviado para UI: projeto ${projectIndex}`);
+      }
+      
+      // Pequeno delay para não sobrecarregar o sistema
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+    } catch (error) {
+      console.log(`[GIT-BG] ❌ Erro ao verificar ${project.name}: ${error.message}`);
+    }
+  }
+  
+  backgroundGitRunning = false;
+  console.log('[GIT-BG] 🎉 Verificação Git em segundo plano concluída!');
+}
+
+// Função para atualizar um projeto específico em segundo plano
+async function updateProjectGitStatus(projectIndex) {
+  const project = projects[projectIndex];
+  if (!project || !project.path || !project.gitBranch) {
+    return;
+  }
+  
+  console.log(`[GIT-BG] 🔄 Atualizando status Git para ${project.name}...`);
+  
+  try {
+    const gitStatus = await checkGitStatus(project.path);
+    
+    // Atualiza o projeto na lista global
+    projects[projectIndex] = {
+      ...projects[projectIndex],
+      gitBranch: gitStatus.branch || projects[projectIndex].gitBranch,
+      pendingCommits: gitStatus.pendingCommits,
+      hasUpdates: gitStatus.hasUpdates
+    };
+    
+    // Notifica a UI sobre a atualização
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('git-status-updated', {
+        projectIndex,
+        gitStatus: {
+          branch: gitStatus.branch,
+          pendingCommits: gitStatus.pendingCommits,
+          hasUpdates: gitStatus.hasUpdates
+        }
+      });
+    }
+    
+    console.log(`[GIT-BG] ✅ ${project.name} atualizado - Commits pendentes: ${gitStatus.pendingCommits}`);
+    
+  } catch (error) {
+    console.log(`[GIT-BG] ❌ Erro ao atualizar ${project.name}: ${error.message}`);
   }
 }
 
@@ -1951,65 +2076,18 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
   mainWindow.once('ready-to-show', async () => {
     console.log('✅ Janela principal pronta para exibição');
     
-    try {
-      // Atualiza status do splash
-      if (splashWindow) {
-        splashWindow.webContents.send('loading-step', 'Carregando repositórios Git...');
-      }
-      
-      console.log('[GIT] Iniciando detecção completa de branches e status durante loading...');
-      
-      // Primeiro obtém as branches básicas
-      const projectsWithBranches = await getAllProjectsBranches(projects);
-      
-      // Atualiza progresso
-      if (splashWindow) {
-        splashWindow.webContents.send('loading-step', 'Verificando status Git dos projetos...');
-      }
-      
-      // Aguarda um pouco para mostrar a mensagem
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Depois verifica status Git completo (fetch + commits pendentes) para projetos com path
-      const projectsWithGitStatus = await Promise.all(
-        projectsWithBranches.map(async (project) => {
-          if (project.path && project.path.trim() !== '' && project.gitBranch) {
-            const gitStatus = await checkGitStatus(project.path);
-            return {
-              ...project,
-              gitBranch: gitStatus.branch || project.gitBranch,
-              pendingCommits: gitStatus.pendingCommits,
-              hasUpdates: gitStatus.hasUpdates
-            };
-          }
-          return project;
-        })
-      );
-      
-      // Atualiza a variável global
-      projects = projectsWithGitStatus;
-      
-      console.log('[GIT] Detecção completa concluída, mostrando aplicação...');
-      
-      // Atualiza progresso final
-      if (splashWindow) {
-        splashWindow.webContents.send('loading-step', 'Finalizando carregamento...');
-      }
-      
-      // Aguarda um pouco para mostrar a mensagem final
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-    } catch (error) {
-      console.log(`[GIT] Erro na detecção completa: ${error.message}`);
-    }
+    // Carrega apenas branches básicas (rápido, sem fetch)
+    console.log('[GIT] Carregando branches básicas (sem fetch)...');
+    const projectsWithBranches = await getAllProjectsBranches(projects);
+    projects = projectsWithBranches;
     
-    // Agora sim notifica a splash screen que está pronto (APÓS os comandos Git)
+    // Notifica a splash screen que está pronto (SEM comandos Git pesados)
     if (splashWindow) {
       console.log('📱 Notificando splash que app principal está pronto');
       splashWindow.webContents.send('main-app-ready');
     }
     
-    // DELAY MAIOR para dar tempo da splash fazer a animação completa
+    // DELAY REDUZIDO - app carrega mais rápido
     setTimeout(() => {
       console.log('🚀 Mostrando janela principal e fechando splash');
       mainWindow.show();
@@ -2022,20 +2100,17 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         }
       }, 200);
 
-      // Envia os projetos atualizados para a UI logo após mostrar a janela
+      // Envia os projetos iniciais para a UI
       setTimeout(() => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-          console.log('[GIT] Projetos com Git Status para enviar:', projects.map(p => ({
-            name: p.name,
-            branch: p.gitBranch,
-            pendingCommits: p.pendingCommits,
-            hasUpdates: p.hasUpdates
-          })));
+          console.log('[UI] Enviando projetos iniciais (sem status Git completo)');
           mainWindow.webContents.send('projects-loaded', projects);
-          console.log('[GIT] Projetos com status Git completo enviados para a UI');
+          
+          // INICIA VERIFICAÇÃO GIT EM SEGUNDO PLANO
+          startBackgroundGitCheck();
         }
-      }, 500);
-    }, 2000); // Aumentado de 500ms para 2000ms
+      }, 300);
+    }, 800); // Reduzido de 2000ms para 800ms
   });
 
   // Remove todos os listeners IPC existentes para evitar duplicação
