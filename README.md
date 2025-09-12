@@ -6,46 +6,28 @@
 
 ## 📝 Notas de Versão
 
-### Versão 0.0.7 - Agosto 2025
+### Versão 0.0.8 - Setembro 2025
 
-**🎨 Modernização Completa da Interface:**
-- **Sistema de Badges do Nexus**: Layout moderno e responsivo substituindo elementos fixos quebrados
-- **Botões Toggle Redesenhados**: "PAS Site" e "PAMP Admin" com gradientes elegantes e contadores dinâmicos
-- **Suporte Completo Dark/Light Mode**: Todos os elementos visuais adaptam automaticamente ao tema
-- **Animações Suaves**: Transições de 0.3s ease em todos os componentes interativos
-- **Contadores Inteligentes**: Atualização automática do número de projetos em tempo real
-- **Arquitetura Corrigida**: Terminologia precisa refletindo PAS (site principal) e PAMP (painel admin)
+**🚀 Git Integration & Performance:**
+- **Loading Otimizado**: Comandos Git agora executam durante o splash screen, eliminando demora após carregamento
+- **Git Pull Interativo**: Clique nos badges de commits pendentes (↓ X) para executar git pull com confirmação
+- **Status Git em Tempo Real**: Exibição dinâmica de commits pendentes que nunca ficam em cache
+- **Console Detalhado**: Logs coloridos de git pull mostrando conexões GitHub, warnings e erros
+- **Tratamento Inteligente**: Diferenciação entre sucessos, conflitos de merge e erros fatais
+- **Atualização Automática**: Badges removidos automaticamente após pull bem-sucedido
 
-**🐛 Correções de Bugs:**
-- Resolvido erro "checkGitGlobal is not defined" na inicialização
-- Corrigido crash "Object has been destroyed" nos diálogos IPC
-- Layout quebrado dos indicadores de status completamente reformulado
+**🎨 Interface & UX:**
+- **Badges Dinâmicos**: Indicadores laranja (↓ X) para commits pendentes, (⚠️ Conflito) para merge conflicts
+- **Contadores Corretos**: Botões de toggle mostram número exato de projetos após carregamento Git
+- **Loading Informativo**: Mensagens específicas durante carregamento ("Verificando status Git...")
+- **Splash Screen Limpo**: Removido ícone 🔧 da tela de carregamento
 
-### Versão 0.0.6 - Agosto 2025
+**🔧 Melhorias Técnicas:**
+- **Cache Inteligente**: Dados Git dinâmicos nunca são salvos em cache
+- **IPC Robusto**: Comunicação frontend-backend otimizada para operações Git
+- **Timeout Seguro**: Comandos Git com timeout de 30s para evitar travamentos
+- **Path Handling**: Correção de escape de barras invertidas em caminhos Windows
 
-**Novas Funcionalidades:**
-- Sistema de verificação inteligente de login no Nexus com cache otimizado
-- Debug aprimorado para detecção do Angular CLI com logs detalhados
-- Verificação em tempo real do status de autenticação apenas quando necessário
-- Handler para verificação forçada de login via comando interno
-
-**Melhorias de Performance:**
-- Cache inteligente de estado de login: verifica apenas quando necessário
-- Redução significativa de chamadas de verificação desnecessárias
-- Otimização do sistema de detecção de dependências instaladas
-- Melhoria na responsividade da interface durante verificações
-
-**Correções Técnicas:**
-- Corrigido problema de inconsistência no indicador de status de login
-- Aprimorada a detecção do Angular CLI em ambientes buildados
-- Melhorada a verificação de PATH para ferramentas de linha de comando
-- Corrigida sincronização entre cache e estado real de autenticação
-
-**Aprimoramentos de Sistema:**
-- Sistema de certificados com validação de 730 dias de validade
-- Build otimizado sem assinatura digital para compatibilidade ampla
-- Logs de debug estruturados para melhor troubleshooting
-- Verificação automática de projetos com arquivo .npmrc
 
 ---
 
@@ -576,4 +558,47 @@ Novos recursos:
 
 ---
 
+## 📝 Notas de Versão
 
+### Versão 0.0.7 - Agosto 2025
+
+**🎨 Modernização Completa da Interface:**
+- **Sistema de Badges do Nexus**: Layout moderno e responsivo substituindo elementos fixos quebrados
+- **Botões Toggle Redesenhados**: "PAS Site" e "PAMP Admin" com gradientes elegantes e contadores dinâmicos
+- **Suporte Completo Dark/Light Mode**: Todos os elementos visuais adaptam automaticamente ao tema
+- **Animações Suaves**: Transições de 0.3s ease em todos os componentes interativos
+- **Contadores Inteligentes**: Atualização automática do número de projetos em tempo real
+- **Arquitetura Corrigida**: Terminologia precisa refletindo PAS (site principal) e PAMP (painel admin)
+
+**🐛 Correções de Bugs:**
+- Resolvido erro "checkGitGlobal is not defined" na inicialização
+- Corrigido crash "Object has been destroyed" nos diálogos IPC
+- Layout quebrado dos indicadores de status completamente reformulado
+
+---
+
+### Versão 0.0.6 - Agosto 2025
+
+**Novas Funcionalidades:**
+- Sistema de verificação inteligente de login no Nexus com cache otimizado
+- Debug aprimorado para detecção do Angular CLI com logs detalhados
+- Verificação em tempo real do status de autenticação apenas quando necessário
+- Handler para verificação forçada de login via comando interno
+
+**Melhorias de Performance:**
+- Cache inteligente de estado de login: verifica apenas quando necessário
+- Redução significativa de chamadas de verificação desnecessárias
+- Otimização do sistema de detecção de dependências instaladas
+- Melhoria na responsividade da interface durante verificações
+
+**Correções Técnicas:**
+- Corrigido problema de inconsistência no indicador de status de login
+- Aprimorada a detecção do Angular CLI em ambientes buildados
+- Melhorada a verificação de PATH para ferramentas de linha de comando
+- Corrigida sincronização entre cache e estado real de autenticação
+
+**Aprimoramentos de Sistema:**
+- Sistema de certificados com validação de 730 dias de validade
+- Build otimizado sem assinatura digital para compatibilidade ampla
+- Logs de debug estruturados para melhor troubleshooting
+- Verificação automática de projetos com arquivo .npmrc

@@ -888,7 +888,113 @@
       
       // Atualiza os ícones de terminal após carregar projetos
       updateTerminalIcons();
+      
+      // ⚡ DISPARA VERIFICAÇÃO GIT EM SEGUNDO PLANO ⚡
+      console.log('[GIT-BG] 🚀 Disparando verificação Git em segundo plano...');
+      ipcRenderer.send('start-background-git-check');
     }, 200);
+  });
+
+  // ===== LISTENER PARA ATUALIZAÇÕES GIT EM SEGUNDO PLANO =====
+  ipcRenderer.on('git-status-updated', (event, { projectIndex, gitStatus }) => {
+    console.log(`[GIT-BG] 📨 RECEBIDA MENSAGEM IPC para projeto ${projectIndex}:`, gitStatus);
+    
+    if (!gitStatus || projectIndex < 0 || projectIndex >= currentProjects.length) {
+      console.log(`[GIT-BG] ❌ Dados inválidos para atualização, ignorando:`, { 
+        gitStatusExists: !!gitStatus,
+        projectIndex,
+        currentProjectsLength: currentProjects.length 
+      });
+      return;
+    }
+    
+    const project = currentProjects[projectIndex];
+    console.log(`[GIT-BG] 📋 Processando projeto: ${project.name}`);
+    
+    // Atualiza os dados do projeto na memória
+    currentProjects[projectIndex] = {
+      ...currentProjects[projectIndex],
+      gitBranch: gitStatus.branch,
+      pendingCommits: gitStatus.pendingCommits,
+      hasUpdates: gitStatus.hasUpdates
+    };
+    
+    const isPamp = project.name && project.name.startsWith('mp-pamp');
+    console.log(`[GIT-BG] 🏷️ Projeto tipo: ${isPamp ? 'PAMP' : 'PAS'}`);
+    
+    // Atualiza a interface da branch - CORRIGIDO OS IDs
+    const branchElementId = isPamp ? `pamp-branch-${projectIndex}` : `pas-branch-${projectIndex}`;
+    const branchElement = document.getElementById(branchElementId);
+    if (branchElement && gitStatus.branch) {
+      branchElement.innerHTML = `<img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${gitStatus.branch}`;
+      console.log(`[GIT-BG] ✅ Branch atualizada para ${project.name}: ${gitStatus.branch}`);
+    } else {
+      console.log(`[GIT-BG] ⚠️ Elemento branch não encontrado: ${branchElementId}`);
+    }
+    
+    // Atualiza o badge de commits pendentes - CORRIGIDO OS IDs
+    const commitsElementId = isPamp ? `pamp-commits-${projectIndex}` : `pas-commits-${projectIndex}`;
+    let commitsElement = document.getElementById(commitsElementId);
+    console.log(`[GIT-BG] 🔍 Procurando elemento commits: ${commitsElementId}`, { existe: !!commitsElement });
+    
+    if (gitStatus.pendingCommits > 0) {
+      console.log(`[GIT-BG] 📊 ${gitStatus.pendingCommits} commits pendentes - criando/atualizando badge`);
+      // Se não existe o elemento, cria
+      if (!commitsElement) {
+        const branchElement = document.getElementById(branchElementId);
+        if (branchElement && branchElement.parentElement) {
+          const commitsSpan = document.createElement('span');
+          commitsSpan.id = commitsElementId;
+          commitsSpan.style.cssText = 'background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;';
+          commitsSpan.title = 'Clique para atualizar branch';
+          commitsSpan.onclick = () => handleUpdateBranch(projectIndex, project.name, project.path, isPamp);
+          branchElement.parentElement.appendChild(commitsSpan);
+          commitsElement = commitsSpan;
+          console.log(`[GIT-BG] 🆕 Badge de commits criado para ${project.name}`);
+        } else {
+          console.log(`[GIT-BG] ❌ Não foi possível criar badge - elemento branch não encontrado`);
+        }
+      }
+      
+      if (commitsElement) {
+        commitsElement.innerHTML = `↓ ${gitStatus.pendingCommits}`;
+        commitsElement.style.display = 'flex';
+        commitsElement.style.background = '#ff6b35';
+        commitsElement.style.cursor = 'pointer';
+        commitsElement.title = 'Clique para atualizar branch';
+        commitsElement.onclick = () => handleUpdateBranch(projectIndex, project.name, project.path, isPamp);
+        console.log(`[GIT-BG] ✅ Badge de commits atualizado para ${project.name}: ${gitStatus.pendingCommits} commits pendentes`);
+      }
+    } else {
+      console.log(`[GIT-BG] ✅ 0 commits pendentes - mostrando badge "Atualizado"`);
+      // Mostra "Atualizado" quando não há commits pendentes
+      if (!commitsElement) {
+        const branchElement = document.getElementById(branchElementId);
+        if (branchElement && branchElement.parentElement) {
+          const commitsSpan = document.createElement('span');
+          commitsSpan.id = commitsElementId;
+          commitsSpan.style.cssText = 'background: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;';
+          branchElement.parentElement.appendChild(commitsSpan);
+          commitsElement = commitsSpan;
+          console.log(`[GIT-BG] 🆕 Badge "Atualizado" criado para ${project.name}`);
+        } else {
+          console.log(`[GIT-BG] ❌ Não foi possível criar badge "Atualizado" - elemento branch não encontrado`);
+        }
+      }
+      
+      if (commitsElement) {
+        commitsElement.innerHTML = '✓ Atualizado';
+        commitsElement.style.display = 'flex';
+        commitsElement.style.background = '#28a745';
+        commitsElement.style.cursor = 'default';
+        commitsElement.title = 'Projeto está atualizado';
+        commitsElement.onclick = null;
+        console.log(`[GIT-BG] ✅ Badge "Atualizado" mostrado para ${project.name} (0 commits pendentes)`);
+      }
+    }
+    
+    // Atualiza contadores se necessário
+    updateProjectCounters();
   });
 
   // ===== ATUALIZAÇÃO INICIAL DOS CONTADORES (REMOVIDA - AGORA FEITA APÓS CARREGAMENTO) =====
@@ -1668,6 +1774,25 @@
     if (currentProjects[index]) {
       currentProjects[index].gitBranch = branch;
     }
+  }
+
+  // ===== FUNÇÃO PARA ATUALIZAR CONTADORES DOS PROJETOS =====
+  function updateProjectCounters() {
+    // Conta projetos PAMP
+    const pampCount = document.getElementById('pamp-mfes').querySelectorAll('.project-card').length;
+    const pampCountElement = document.getElementById('pamp-count');
+    if (pampCountElement) {
+      pampCountElement.textContent = pampCount.toString();
+    }
+    
+    // Conta projetos PAS
+    const pasCount = document.getElementById('projects').querySelectorAll('.project-card').length;
+    const pasCountElement = document.getElementById('pas-count');
+    if (pasCountElement) {
+      pasCountElement.textContent = pasCount.toString();
+    }
+    
+    console.log(`📊 Contadores atualizados: PAMP Admin=${pampCount}, PAS Site=${pasCount}`);
   }
 
   // Initialize UI after DOM is loaded
