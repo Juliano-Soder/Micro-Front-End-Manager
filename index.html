@@ -301,6 +301,167 @@
       background: #000 !important;
       color: #0f0 !important;
     }
+
+    /* Estilos para exibição de porta */
+    span[id*="port-"], span[id*="pamp-port-"] {
+      display: inline-block;
+      padding: 8px 12px; /* Mesmo padding dos botões */
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      white-space: nowrap;
+      transition: all 0.3s ease;
+      user-select: none;
+      height: auto; /* Altura automática para coincidir com botões */
+      line-height: 1.2; /* Line height consistente */
+      vertical-align: middle; /* Alinhamento vertical */
+      box-sizing: border-box; /* Include padding in height calculation */
+      min-height: 32px; /* Altura mínima igual aos botões */
+      display: inline-flex; /* Flexbox para melhor alinhamento */
+      align-items: center; /* Centralizar verticalmente o texto */
+      justify-content: center; /* Centralizar horizontalmente o texto */
+    }
+
+    /* Port status colors */
+    .port-starting {
+      background-color: #ff8c00 !important;
+      color: white !important;
+      cursor: default !important;
+    }
+
+    .port-in-use {
+      background-color: #dc3545 !important;
+      color: white !important;
+      cursor: default !important;
+    }
+
+    .port-running {
+      background-color: #28a745 !important;
+      color: white !important;
+      cursor: pointer !important;
+    }
+
+    .port-running:hover {
+      background-color: #218838 !important;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    /* Help icon styles */
+    .help-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background-color: #007acc;
+      color: white;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      margin-left: 5px;
+      transition: all 0.3s ease;
+      position: relative;
+      vertical-align: middle;
+    }
+
+    .help-icon:hover {
+      background-color: #005a9e;
+      transform: scale(1.1);
+    }
+
+    body.dark-mode .help-icon {
+      background-color: #4CAF50;
+    }
+
+    body.dark-mode .help-icon:hover {
+      background-color: #45a049;
+    }
+
+    /* Tooltip styles */
+    .tooltip {
+      position: relative;
+      display: inline-block;
+    }
+
+    .tooltip .tooltiptext {
+      visibility: hidden;
+      width: 380px;
+      background-color: #2c2c2c;
+      color: #fff;
+      text-align: left;
+      border-radius: 8px;
+      padding: 16px;
+      position: fixed;
+      z-index: 9999;
+      opacity: 0;
+      transition: opacity 0.3s ease-in-out;
+      font-size: 13px;
+      line-height: 1.5;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+      border: 1px solid #555;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    /* Tooltip fica visível quando hover no container pai OU no próprio tooltip */
+    .tooltip:hover .tooltiptext,
+    .tooltiptext:hover {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    /* Estilo especial para manter tooltip visível */
+    .tooltip .tooltiptext.show {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    /* Remove a seta por enquanto para simplificar */
+    .tooltip .tooltiptext::after {
+      display: none;
+    }
+
+    .tooltip:hover .tooltiptext {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    body.dark-mode .tooltip .tooltiptext {
+      background-color: #333;
+      border: 1px solid #555;
+    }
+
+    body.dark-mode .tooltip .tooltiptext::after {
+      border-color: #333 transparent transparent transparent;
+    }
+
+    .tooltip-link {
+      color: #4CAF50;
+      text-decoration: underline;
+      cursor: pointer;
+      font-weight: bold;
+      transition: all 0.3s ease;
+    }
+
+    .tooltip-link:hover {
+      color: #45a049;
+    }
+
+    .tooltip-link.disabled {
+      color: #888;
+      cursor: not-allowed;
+      opacity: 0.5;
+      pointer-events: none;
+    }
+
+    /* Dark mode compatibility for port display */
+    body.dark-mode .port-starting,
+    body.dark-mode .port-in-use,
+    body.dark-mode .port-running {
+      box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    }
   </style>
 </head>
 <body>
@@ -351,6 +512,7 @@
   
   <script>
   const { ipcRenderer } = require('electron');
+  const path = require('path');
   
   // Store projects globally for reference
   let currentProjects = [];
@@ -378,6 +540,170 @@
         img.src = terminalIcon;
       }
     });
+  }
+
+  // ===== FUNÇÕES PARA CONTROLE INTELIGENTE DO TOOLTIP =====
+  let tooltipTimeouts = {};
+
+  function showTooltip(event, projectIndex) {
+    // Cancela qualquer timeout de hide pendente
+    if (tooltipTimeouts[projectIndex]) {
+      clearTimeout(tooltipTimeouts[projectIndex]);
+      delete tooltipTimeouts[projectIndex];
+    }
+
+    const tooltip = document.getElementById(`tooltip-${projectIndex}`);
+    if (!tooltip) return;
+
+    // Calcula posição inteligente
+    const rect = event.target.getBoundingClientRect();
+    const tooltipWidth = 380;
+    const tooltipHeight = 400; // altura máxima aproximada
+    
+    // Posição horizontal - sempre à esquerda do ícone para não sair da tela
+    let left = rect.left - tooltipWidth - 10;
+    if (left < 10) {
+      // Se sair pela esquerda, posiciona à direita
+      left = rect.right + 10;
+      // Se ainda sair pela direita, centraliza
+      if (left + tooltipWidth > window.innerWidth - 10) {
+        left = (window.innerWidth - tooltipWidth) / 2;
+      }
+    }
+    
+    // Posição vertical - preferencialmente acima
+    let top = rect.top - tooltipHeight - 10;
+    if (top < 10) {
+      // Se sair por cima, posiciona embaixo
+      top = rect.bottom + 10;
+      // Se ainda sair por baixo, centraliza verticalmente
+      if (top + tooltipHeight > window.innerHeight - 10) {
+        top = (window.innerHeight - tooltipHeight) / 2;
+      }
+    }
+
+    // Aplica posicionamento
+    tooltip.style.left = Math.max(10, left) + 'px';
+    tooltip.style.top = Math.max(10, top) + 'px';
+    
+    // Mostra tooltip
+    tooltip.classList.add('show');
+  }
+
+  function hideTooltip(projectIndex) {
+    // Delay para permitir mover o mouse para o tooltip
+    tooltipTimeouts[projectIndex] = setTimeout(() => {
+      const tooltip = document.getElementById(`tooltip-${projectIndex}`);
+      if (tooltip) {
+        tooltip.classList.remove('show');
+      }
+      delete tooltipTimeouts[projectIndex];
+    }, 200);
+  }
+
+  function keepTooltipVisible(projectIndex) {
+    // Cancela o hide quando mouse entra no tooltip
+    if (tooltipTimeouts[projectIndex]) {
+      clearTimeout(tooltipTimeouts[projectIndex]);
+      delete tooltipTimeouts[projectIndex];
+    }
+  }
+
+  function hideTooltipDelayed(projectIndex) {
+    // Hide com delay quando mouse sai do tooltip
+    tooltipTimeouts[projectIndex] = setTimeout(() => {
+      const tooltip = document.getElementById(`tooltip-${projectIndex}`);
+      if (tooltip) {
+        tooltip.classList.remove('show');
+      }
+      delete tooltipTimeouts[projectIndex];
+    }, 300);
+  }
+
+  // ===== FUNÇÃO PARA ATUALIZAR TOOLTIP COM PORTA =====
+  function updateTooltipWithPort(projectIndex, port, isPamp) {
+    if (!isPamp) return; // Só atualiza para projetos PAMP
+    
+    const tooltipElement = document.getElementById(`tooltip-${projectIndex}`);
+    if (tooltipElement) {
+      const inputElement = document.getElementById(`pamp-input-${projectIndex}`);
+      const currentPath = inputElement ? inputElement.value : '';
+      
+      const tooltipContent = `
+        <strong>🔧 Configuração para desenvolvimento local:</strong><br><br>
+        Para usar este micro front-end localmente, você precisa alterar o arquivo <code>environment.ts</code> do projeto <strong>mp-pamp</strong>.<br><br>
+        <strong>📍 Caminho:</strong> <code>mp-pamp/src/environments/environment.ts</code><br><br>
+        <strong>📝 Como alterar:</strong><br>
+        1. Encontre a seção <code>mfe: { ... }</code><br>
+        2. Procure pela propriedade que corresponde a este MFE<br>
+        3. Substitua a URL atual pela URL local: <code>http://localhost:${port}/remoteEntry.js</code><br>
+        4. Salve o arquivo e recompile o projeto mp-pamp<br><br>
+        <span class="tooltip-link" onclick="openEnvironmentFile('${currentPath}')">🔗 Abrir arquivo environment.ts</span>
+      `;
+      tooltipElement.innerHTML = tooltipContent;
+    }
+  }
+
+  // ===== FUNÇÃO PARA ABRIR ARQUIVO ENVIRONMENT.TS =====
+  function openEnvironmentFile(currentProjectPath) {
+    // Verifica se já está processando para evitar múltiplos cliques
+    if (window.openingEnvironmentFile) {
+      console.log('Já está abrindo arquivo environment.ts, aguarde...');
+      return;
+    }
+    
+    // Busca o projeto mp-pamp na lista de projetos carregados
+    const mpPampProject = currentProjects.find(p => p.name === 'mp-pamp');
+    
+    if (!mpPampProject || !mpPampProject.path) {
+      alert('Projeto mp-pamp não encontrado ou não configurado.\nVerifique se o mp-pamp está na lista de projetos e tem um caminho válido.');
+      return;
+    }
+    
+    // Marca como processando
+    window.openingEnvironmentFile = true;
+    
+    // Desabilita todos os links do tooltip
+    const allTooltipLinks = document.querySelectorAll('.tooltip-link');
+    allTooltipLinks.forEach(link => {
+      link.style.opacity = '0.5';
+      link.style.cursor = 'not-allowed';
+      link.style.pointerEvents = 'none';
+      link.innerHTML = '⏳ Abrindo arquivo...';
+    });
+    
+    // Usa o caminho do mp-pamp e adiciona o sufixo do arquivo
+    const mpPampPath = mpPampProject.path;
+    let environmentPath;
+    
+    // Detecta o sistema operacional pelos separadores no caminho
+    if (mpPampPath.includes('\\')) {
+      // Windows
+      environmentPath = mpPampPath + '\\src\\environments\\environment.ts';
+    } else {
+      // Linux/macOS
+      environmentPath = mpPampPath + '/src/environments/environment.ts';
+    }
+    
+    console.log(`[DEBUG] Projeto mp-pamp encontrado: ${mpPampPath}`);
+    console.log(`[DEBUG] Caminho final do environment.ts: ${environmentPath}`);
+    
+    // Envia comando para abrir o arquivo
+    ipcRenderer.send('open-environment-file', { 
+      filePath: environmentPath,
+      mpPampPath: mpPampPath
+    });
+    
+    // Reabilita os links após 3 segundos (tempo suficiente para o arquivo abrir)
+    setTimeout(() => {
+      window.openingEnvironmentFile = false;
+      allTooltipLinks.forEach(link => {
+        link.style.opacity = '1';
+        link.style.cursor = 'pointer';
+        link.style.pointerEvents = 'auto';
+        link.innerHTML = '🔗 Abrir arquivo environment.ts';
+      });
+    }, 3000);
   }
 
   // ===== FUNÇÃO PARA ATUALIZAR BRANCH (GIT PULL) =====
@@ -580,6 +906,31 @@
     updateTerminalIcons();
   });
 
+  // ===== LISTENERS PARA ABERTURA DO ENVIRONMENT.TS =====
+  // Escuta quando o arquivo foi aberto com sucesso
+  ipcRenderer.on('environment-file-opened', (event, { success, filePath }) => {
+    console.log(`✅ Arquivo environment.ts aberto com sucesso: ${filePath}`);
+    reEnableTooltipLinks();
+  });
+
+  // Escuta quando houve erro ao abrir o arquivo
+  ipcRenderer.on('environment-file-error', (event, { error, message }) => {
+    console.error(`❌ Erro ao abrir environment.ts: ${error}`);
+    reEnableTooltipLinks();
+  });
+
+  // Função para reabilitar os links do tooltip
+  function reEnableTooltipLinks() {
+    window.openingEnvironmentFile = false;
+    const allTooltipLinks = document.querySelectorAll('.tooltip-link');
+    allTooltipLinks.forEach(link => {
+      link.style.opacity = '1';
+      link.style.cursor = 'pointer';
+      link.style.pointerEvents = 'auto';
+      link.innerHTML = '🔗 Abrir arquivo environment.ts';
+    });
+  }
+
   ipcRenderer.on('projects-loaded', (event, projects) => {
     // Store projects globally
     currentProjects = projects;
@@ -608,7 +959,25 @@
             ${project.gitBranch ? `<span id="pamp-branch-${realIndex}" style="background: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
             ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pamp-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, true)">↓ ${project.pendingCommits}</span>` : ''}
           </div>
-          <img id="pamp-btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+          <div style="display: flex; align-items: center; gap: 5px;">
+            <img id="pamp-btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+            ${project.name !== 'mp-pamp' ? `
+            <div class="tooltip" onmouseenter="showTooltip(event, ${realIndex})" onmouseleave="hideTooltip(${realIndex})">
+              <span class="help-icon" title="Clique para ajuda sobre configuração MFE">ⓘ</span>
+              <span class="tooltiptext" id="tooltip-${realIndex}" onmouseenter="keepTooltipVisible(${realIndex})" onmouseleave="hideTooltipDelayed(${realIndex})">
+                <strong>🔧 Configuração para desenvolvimento local:</strong><br><br>
+                Para usar este micro front-end localmente, você precisa alterar o arquivo <code>environment.ts</code> do projeto <strong>mp-pamp</strong>.<br><br>
+                <strong>📍 Caminho:</strong> <code>mp-pamp/src/environments/environment.ts</code><br><br>
+                <strong>📝 Como alterar:</strong><br>
+                1. Encontre a seção <code>mfe: { ... }</code><br>
+                2. Procure pela propriedade que corresponde a este MFE<br>
+                3. Substitua a URL atual pela URL local: <code>http://localhost:[PORTA]/remoteEntry.js</code><br>
+                4. Use a porta mostrada ao lado do botão "Iniciar" quando o projeto estiver rodando<br><br>
+                <span class="tooltip-link" onclick="openEnvironmentFile('${project.path}')">🔗 Abrir arquivo environment.ts</span>
+              </span>
+            </div>
+            ` : ''}
+          </div>
         </div>
         <div class="input-with-folder" style="margin-bottom: 10px;">
           <input id="pamp-input-${realIndex}" data-path="${project.path}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
@@ -616,6 +985,7 @@
         </div>
         <button id="pamp-btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
         <button id="pamp-btn-start-${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
+        <span id="pamp-port-${realIndex}" style="display: none; margin-right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: default;"></span>
         <button id="pamp-btn-cancel-${realIndex}" style="display: none; margin-right: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
         <button id="pamp-btn-stop-${realIndex}" style="display: none;">Parar</button>
         <button id="pamp-btn-move-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #007acc; color: white;">Mover para...</button>
@@ -755,6 +1125,7 @@
         </div>
         <button id="btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
         <button id="btn-start-${realIndex}" data-index="${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
+        <span id="port-${realIndex}" style="display: none; margin-right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: default;"></span>
         <button id="btn-cancel-${realIndex}" style="display: none; margin-right: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
         <button id="btn-stop-${realIndex}" style="display: none;">Parar</button>
         <button id="btn-move-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #007acc; color: white;">Mover para...</button>
@@ -1794,6 +2165,100 @@
     
     console.log(`📊 Contadores atualizados: PAMP Admin=${pampCount}, PAS Site=${pasCount}`);
   }
+
+  // ===== FUNÇÕES PARA GERENCIAR PORTA DOS PROJETOS =====
+  function updatePortDisplay(projectIndex, port, status, isPamp) {
+    const portElementId = isPamp ? `pamp-port-${projectIndex}` : `port-${projectIndex}`;
+    const portElement = document.getElementById(portElementId);
+    
+    if (!portElement) {
+      console.log(`⚠️ Elemento porta não encontrado: ${portElementId}`);
+      return;
+    }
+    
+    console.log(`🔌 Atualizando porta para projeto ${projectIndex}: porta ${port}, status ${status}, PAMP: ${isPamp}`);
+    
+    // Remove classes de status anteriores
+    portElement.classList.remove('port-starting', 'port-in-use', 'port-running');
+    
+    if (status === 'starting') {
+      // Laranja - projeto iniciando, porta definida mas ainda não disponível
+      portElement.style.display = 'inline-flex';
+      portElement.style.backgroundColor = '#ff8c00';
+      portElement.style.color = 'white';
+      portElement.textContent = `Porta: ${port}`;
+      portElement.style.cursor = 'default';
+      portElement.title = 'Projeto iniciando...';
+      portElement.onclick = null;
+      portElement.classList.add('port-starting');
+      
+      // Atualiza tooltip com a porta atual (apenas para PAMP)
+      updateTooltipWithPort(projectIndex, port, isPamp);
+    } else if (status === 'in-use') {
+      // Vermelho - porta em uso, tentando liberar
+      portElement.style.display = 'inline-flex';
+      portElement.style.backgroundColor = '#dc3545';
+      portElement.style.color = 'white';
+      portElement.textContent = `Porta: ${port}`;
+      portElement.style.cursor = 'default';
+      portElement.title = 'Porta em uso, tentando liberar...';
+      portElement.onclick = null;
+      portElement.classList.add('port-in-use');
+      
+      // Atualiza tooltip com a porta atual (apenas para PAMP)
+      updateTooltipWithPort(projectIndex, port, isPamp);
+    } else if (status === 'running') {
+      // Verde - projeto rodando, porta clicável
+      portElement.style.display = 'inline-flex';
+      portElement.style.backgroundColor = '#28a745';
+      portElement.style.color = 'white';
+      portElement.textContent = `Porta: ${port}`;
+      portElement.style.cursor = 'pointer';
+      portElement.title = 'Clique para abrir no navegador';
+      portElement.classList.add('port-running');
+      
+      // Atualiza tooltip com a porta atual (apenas para PAMP)
+      updateTooltipWithPort(projectIndex, port, isPamp);
+      
+      portElement.onclick = () => {
+        // Define a URL base baseada no tipo de projeto
+        let baseUrl;
+        if (isPamp) {
+          // PAMP projects always open on the root port 4200
+          baseUrl = 'http://localhost:4200';
+        } else {
+          // PAS projects open on the PAS root port 9000
+          baseUrl = 'http://localhost:9000';
+        }
+        
+        console.log(`🌐 Abrindo navegador: ${baseUrl} (projeto ${isPamp ? 'PAMP' : 'PAS'} detectado na porta ${port})`);
+        // Send message to main process to open browser
+        require('electron').ipcRenderer.send('open-browser', { url: baseUrl });
+      };
+    }
+  }
+
+  function removePortDisplay(projectIndex, isPamp) {
+    const portElementId = isPamp ? `pamp-port-${projectIndex}` : `port-${projectIndex}`;
+    const portElement = document.getElementById(portElementId);
+    
+    if (portElement) {
+      portElement.style.display = 'none';
+      portElement.onclick = null;
+      console.log(`🔌 Porta removida para projeto ${projectIndex} (${isPamp ? 'PAMP' : 'PAS'})`);
+    }
+  }
+
+  // ===== LISTENERS IPC PARA PORTA =====
+  ipcRenderer.on('port-detected', (event, { projectIndex, port, status, isPamp }) => {
+    console.log(`📡 Port detected IPC recebido:`, { projectIndex, port, status, isPamp });
+    updatePortDisplay(projectIndex, port, status, isPamp);
+  });
+
+  ipcRenderer.on('port-removed', (event, { projectIndex, isPamp }) => {
+    console.log(`📡 Port removed IPC recebido:`, { projectIndex, isPamp });
+    removePortDisplay(projectIndex, isPamp);
+  });
 
   // Initialize UI after DOM is loaded
   document.addEventListener('DOMContentLoaded', function() {

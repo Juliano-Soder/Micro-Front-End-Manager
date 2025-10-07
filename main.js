@@ -3142,6 +3142,12 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       isPamp: isPampProject,
       index: projectIndex
     });
+    
+    // Remove a porta da UI quando o projeto for parado
+    event.reply('port-removed', {
+      projectIndex: projectIndex,
+      isPamp: isPampProject
+    });
 
     // Função para finalizar o processo de parada
     const finishStop = (message) => {
@@ -3281,6 +3287,12 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     
     // Marca o projeto como cancelado
     markProjectAsCanceled(projectPath);
+    
+    // Remove a porta da UI quando o projeto for cancelado
+    event.reply('port-removed', {
+      projectIndex: index,
+      isPamp: isPamp
+    });
     
     const projectName = path.basename(projectPath);
     let processCanceled = false;
@@ -3474,6 +3486,16 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     }
     
     console.log(`Executando comando: ${command} no caminho: ${projectPath}`);
+
+    // Se o projeto já tem uma porta definida, notifica a UI (laranja - ainda não rodando)
+    if (port) {
+      event.reply('port-detected', {
+        projectIndex: projectIndex,
+        port: port,
+        status: 'starting',
+        isPamp: isPampProject
+      });
+    }
 
     if (isPampProject) {
       event.reply('pamp-log', { 
@@ -3973,6 +3995,14 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           const message = `Porta ${detectedPort} em uso. Tentando matar o processo nessa porta...`;
           sendLog(message, false, true);
           
+          // Notifica a UI sobre a porta detectada (em laranja - não disponível ainda)
+          event.reply('port-detected', {
+            projectIndex: projectIndex,
+            port: detectedPort,
+            status: 'in-use',
+            isPamp: isPampProject
+          });
+          
           // Encerra o processo atual que está esperando input
           if (runningProcesses[projectPath]) {
             runningProcesses[projectPath].kill();
@@ -4013,7 +4043,44 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         }
       }
 
-      // Detecta palavras-chave para atualizar o status 
+      // ⚡ DETECTA PORTA DO ANGULAR LIVE DEVELOPMENT SERVER ⚡
+      const angularServerMatch = cleanData.match(/\*\* Angular Live Development Server is listening on localhost:(\d+)/);
+      const browserOpenMatch = cleanData.match(/open your browser on http:\/\/localhost:(\d+)\//); 
+      
+      // ⚡ DETECTA PORTA DO WEBPACK-DEV-SERVER (PAS PROJECTS) ⚡
+      const webpackServerMatch = cleanData.match(/Project is running at:/) || 
+                                cleanData.match(/Loopback: http:\/\/localhost:(\d+)\//); 
+      
+      let detectedServerPort = null;
+      if (angularServerMatch) {
+        detectedServerPort = angularServerMatch[1];
+      } else if (browserOpenMatch) {
+        detectedServerPort = browserOpenMatch[1];
+      } else if (webpackServerMatch && cleanData.includes('Loopback:')) {
+        const loopbackMatch = cleanData.match(/Loopback: http:\/\/localhost:(\d+)\//); 
+        if (loopbackMatch) {
+          detectedServerPort = loopbackMatch[1];
+        }
+      }
+      
+      if (detectedServerPort) {
+        console.log(`Detectada porta do servidor: ${detectedServerPort} para projeto ${projectName}`);
+        
+        // Salva a porta no projeto
+        if (projectIndex !== -1) {
+          projects[projectIndex].port = detectedServerPort;
+          saveProjects(projects);
+          console.log(`Porta ${detectedServerPort} salva para o projeto ${projectName}`);
+        }
+        
+        // Notifica a UI sobre a porta detectada e funcionando (verde - clicável)
+        event.reply('port-detected', {
+          projectIndex: projectIndex,
+          port: detectedServerPort,
+          status: 'running',
+          isPamp: isPampProject
+        });
+      }      // Detecta palavras-chave para atualizar o status 
       if (
         cleanData.toLowerCase().includes('successfully') || 
         cleanData.includes('√ Compiled successfully.') ||
@@ -4021,7 +4088,11 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         cleanData.includes('✓ Compiled successfully') ||
         cleanData.includes('ÔêÜ Compiled successfully') ||
         cleanData.includes('webpack compiled successfully') ||
-        (cleanData.includes('webpack') && cleanData.includes('compiled successfully'))
+        (cleanData.includes('webpack') && cleanData.includes('compiled successfully')) ||
+        cleanData.includes('webpack 5.99.3 compiled successfully') ||
+        cleanData.includes('No errors found.') ||
+        (cleanData.includes('webpack') && cleanData.match(/webpack \d+\.\d+\.\d+ compiled successfully/)) ||
+        cleanData.includes('compiled successfully in')
       ) {
         console.log(`Projeto detectado como rodando: ${projectPath}`);
         event.reply('status-update', { 
@@ -4030,6 +4101,19 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           isPamp: isPampProject,
           index: projectIndex 
         });
+        
+        // ⚡ ATUALIZA PORTA PARA VERDE QUANDO COMPILAÇÃO É BEM-SUCEDIDA ⚡
+        // Se o projeto já tem porta definida, atualiza para status 'running' (verde)
+        const project = projects[projectIndex];
+        if (project && project.port && projectIndex !== -1) {
+          console.log(`Atualizando porta ${project.port} para verde (running) - projeto ${projectName}`);
+          event.reply('port-detected', {
+            projectIndex: projectIndex,
+            port: project.port,
+            status: 'running',
+            isPamp: isPampProject
+          });
+        }
       }
     });
 
@@ -4380,6 +4464,109 @@ ipcMain.on('execute-command', (event, command) => {
       console.error(`Erro ao abrir terminal:`, error);
     }
   });
+
+  // Handler para abrir navegador
+  ipcMain.on('open-browser', (event, { url }) => {
+    console.log(`🌐 Abrindo navegador: ${url}`);
+    const { shell } = require('electron');
+    shell.openExternal(url).catch(error => {
+      console.error('Erro ao abrir navegador:', error);
+    });
+  });
+
+  // Handler para abrir arquivo environment.ts
+  ipcMain.on('open-environment-file', (event, { filePath, mpPampPath }) => {
+    console.log(`📝 Tentando abrir arquivo environment.ts: ${filePath}`);
+    console.log(`📝 Caminho do mp-pamp: ${mpPampPath}`);
+    
+    try {
+      // Verifica se o arquivo existe
+      if (!fs.existsSync(filePath)) {
+        console.error(`❌ Arquivo não encontrado: ${filePath}`);
+        
+        // Notifica o frontend sobre o erro
+        event.reply('environment-file-error', { 
+          error: 'Arquivo não encontrado',
+          message: `O arquivo environment.ts não foi encontrado em:\n${filePath}\n\nVerifique se o projeto mp-pamp está configurado corretamente e se a estrutura de pastas está completa.`
+        });
+        
+        dialog.showErrorBox('Arquivo não encontrado', 
+          `O arquivo environment.ts não foi encontrado em:\n${filePath}\n\nVerifique se o projeto mp-pamp está configurado corretamente e se a estrutura de pastas está completa.`);
+        return;
+      }
+      
+      console.log(`✅ Arquivo encontrado, abrindo: ${filePath}`);
+      
+      // Tenta abrir o arquivo
+      openFileWithEditor(filePath, (success) => {
+        if (success) {
+          // Notifica o frontend sobre o sucesso
+          event.reply('environment-file-opened', { 
+            success: true,
+            filePath: filePath
+          });
+        } else {
+          // Notifica o frontend sobre o erro
+          event.reply('environment-file-error', { 
+            error: 'Erro ao abrir editor',
+            message: 'Não foi possível abrir o editor de código.'
+          });
+        }
+      });
+      
+    } catch (error) {
+      console.error(`❌ Erro ao abrir arquivo environment.ts:`, error);
+      
+      // Notifica o frontend sobre o erro
+      event.reply('environment-file-error', { 
+        error: 'Erro inesperado',
+        message: `Erro inesperado ao tentar abrir o arquivo:\n${error.message}`
+      });
+      
+      dialog.showErrorBox('Erro', `Erro inesperado ao tentar abrir o arquivo:\n${error.message}`);
+    }
+  });
+
+  // Função auxiliar para abrir arquivo com editor
+  function openFileWithEditor(filePath, callback) {
+    // Define comandos baseados no sistema operacional
+    let codeCommand;
+    if (os.platform() === 'win32') {
+      codeCommand = `code "${filePath}"`;
+    } else if (os.platform() === 'darwin') {
+      // macOS
+      codeCommand = `code "${filePath}"`;
+    } else {
+      // Linux
+      codeCommand = `code "${filePath}" || gedit "${filePath}" || nano "${filePath}"`;
+    }
+    
+    console.log(`📝 Executando comando: ${codeCommand}`);
+    
+    exec(codeCommand, (codeError) => {
+      if (codeError) {
+        console.log('Editor de código não encontrado, tentando abrir com editor padrão...');
+        
+        // Se editores de código não estiverem disponíveis, abre com o editor padrão do sistema
+        const { shell } = require('electron');
+        shell.openPath(filePath).then((result) => {
+          if (result) {
+            console.error(`Erro ao abrir arquivo com editor padrão: ${result}`);
+            if (callback) callback(false);
+          } else {
+            console.log(`Arquivo environment.ts aberto com sucesso: ${filePath}`);
+            if (callback) callback(true);
+          }
+        }).catch((shellError) => {
+          console.error(`Erro ao abrir arquivo:`, shellError);
+          if (callback) callback(false);
+        });
+      } else {
+        console.log(`Arquivo environment.ts aberto no editor: ${filePath}`);
+        if (callback) callback(true);
+      }
+    });
+  }
 
   // Handler para procurar projeto existente na máquina
   ipcMain.on('browse-project-folder', async (event, { index, projectName }) => {
