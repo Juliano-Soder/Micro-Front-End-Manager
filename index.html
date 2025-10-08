@@ -371,6 +371,27 @@
       transform: scale(1.1);
     }
 
+    /* Editor icon styles */
+    .editor-icon {
+      width: 24px;
+      height: 24px;
+      cursor: pointer;
+      opacity: 0.8;
+      transition: all 0.3s ease;
+      margin-right: 5px;
+    }
+
+    .editor-icon:hover {
+      opacity: 1;
+      transform: scale(1.05);
+    }
+
+    .editor-icon.disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
     body.dark-mode .help-icon {
       background-color: #4CAF50;
     }
@@ -516,6 +537,24 @@
   
   // Store projects globally for reference
   let currentProjects = [];
+  let currentIDE = { id: 'vscode', name: 'Visual Studio Code', icon: 'vscode.png' };
+
+  // ===== FUNÇÃO PARA OBTER ÍCONE DA IDE ATUAL =====
+  function getCurrentIDEIcon() {
+    return `assets/${currentIDE.icon}`;
+  }
+
+  // ===== FUNÇÃO PARA ATUALIZAR ÍCONES DE IDE =====
+  function updateIDEIcons() {
+    const ideIcon = getCurrentIDEIcon();
+    
+    // Atualiza todos os ícones de IDE
+    const ideImages = document.querySelectorAll('img[id*="btn-editor"], img[id*="pamp-btn-editor"]');
+    ideImages.forEach(img => {
+      img.src = ideIcon;
+      img.title = `Abrir projeto no ${currentIDE.name}`;
+    });
+  }
 
   // Função para aplicar tema
   function applyTheme() {
@@ -540,6 +579,48 @@
         img.src = terminalIcon;
       }
     });
+  }
+
+  // ===== FUNÇÃO PARA ABRIR PROJETO NO EDITOR =====
+  function openProjectInEditor(projectIndex, isPamp) {
+    // Verifica se já está processando para evitar múltiplos cliques
+    const editorButtonId = isPamp ? `pamp-btn-editor-${projectIndex}` : `btn-editor-${projectIndex}`;
+    const editorButton = document.getElementById(editorButtonId);
+    
+    if (!editorButton || editorButton.classList.contains('disabled')) {
+      console.log('Editor já está sendo aberto, aguarde...');
+      return;
+    }
+    
+    // Pega o caminho do projeto
+    const inputId = isPamp ? `pamp-input-${projectIndex}` : `input-${projectIndex}`;
+    const inputElement = document.getElementById(inputId);
+    
+    if (!inputElement || !inputElement.value.trim()) {
+      alert('Caminho do projeto não está configurado.\nConfigure o caminho do projeto primeiro.');
+      return;
+    }
+    
+    const projectPath = inputElement.value.trim();
+    
+    // Desabilita o botão por 5 segundos
+    editorButton.classList.add('disabled');
+    editorButton.title = 'Abrindo editor...';
+    
+    console.log(`[DEBUG] Abrindo editor para projeto: ${projectPath}`);
+    
+    // Envia comando para abrir o projeto no editor
+    ipcRenderer.send('open-project-in-editor', { 
+      projectPath: projectPath,
+      projectIndex: projectIndex,
+      isPamp: isPamp
+    });
+    
+    // Reabilita o botão após 5 segundos
+    setTimeout(() => {
+      editorButton.classList.remove('disabled');
+      editorButton.title = 'Abrir projeto no editor de código';
+    }, 5000);
   }
 
   // ===== FUNÇÕES PARA CONTROLE INTELIGENTE DO TOOLTIP =====
@@ -931,6 +1012,24 @@
     });
   }
 
+  // ===== LISTENERS PARA CONFIGURAÇÃO DE IDE =====
+  // Escuta quando a IDE é alterada
+  ipcRenderer.on('ide-changed', (event, { id, name, icon }) => {
+    console.log(`🔧 IDE alterada para: ${name}`);
+    currentIDE = { id, name, icon };
+    updateIDEIcons();
+  });
+
+  // Carrega a IDE atual na inicialização
+  ipcRenderer.send('get-current-ide');
+
+  // Escuta resposta da IDE atual
+  ipcRenderer.on('current-ide', (event, ide) => {
+    console.log(`🔧 IDE atual carregada: ${ide.name}`);
+    currentIDE = ide;
+    updateIDEIcons();
+  });
+
   ipcRenderer.on('projects-loaded', (event, projects) => {
     // Store projects globally
     currentProjects = projects;
@@ -960,6 +1059,7 @@
             ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pamp-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, true)">↓ ${project.pendingCommits}</span>` : ''}
           </div>
           <div style="display: flex; align-items: center; gap: 5px;">
+            <img id="pamp-btn-editor-${realIndex}" src="${getCurrentIDEIcon()}" class="editor-icon" style="${!project.path ? 'display: none' : ''}" title="Abrir projeto no ${currentIDE.name}" alt="Editor" onclick="openProjectInEditor('${realIndex}', true)" />
             <img id="pamp-btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
             ${project.name !== 'mp-pamp' ? `
             <div class="tooltip" onmouseenter="showTooltip(event, ${realIndex})" onmouseleave="hideTooltip(${realIndex})">
@@ -1005,6 +1105,7 @@
     const pampMoveButton = document.getElementById(`pamp-btn-move-${realIndex}`);
     const pampDeleteButton = document.getElementById(`pamp-btn-delete-${realIndex}`);
     const pampLogDiv = document.getElementById(`pamp-log-${realIndex}`);
+    const pampEditorButton = document.getElementById(`pamp-btn-editor-${realIndex}`);
 
     // Event listeners para projetos PAMP
     pampInput.addEventListener('blur', () => {
@@ -1014,11 +1115,15 @@
           pampStartButton.disabled = false;
           pampMoveButton.style.display = 'inline-block';
           pampDeleteButton.style.display = 'inline-block';
+          pampEditorButton.style.display = 'inline-block';
+          pampTerminalButton.style.display = 'inline-block';
       }else {
           pampDeleteButton.style.display = 'none';
           pampMoveButton.style.display = 'none';
           pampDownloadButton.style.display = 'inline-block';
           pampStartButton.disabled = true;
+          pampEditorButton.style.display = 'none';
+          pampTerminalButton.style.display = 'none';
       }
     });
 
@@ -1117,7 +1222,10 @@
             ${project.gitBranch ? `<span id="pas-branch-${realIndex}" style="background: #007bff; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
             ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pas-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, false)">↓ ${project.pendingCommits}</span>` : ''}
           </div>
-          <img id="btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+          <div style="display: flex; align-items: center; gap: 5px;">
+            <img id="btn-editor-${realIndex}" src="${getCurrentIDEIcon()}" class="editor-icon" style="${!project.path ? 'display: none' : ''}" title="Abrir projeto no ${currentIDE.name}" alt="Editor" onclick="openProjectInEditor('${realIndex}', false)" />
+            <img id="btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+          </div>
         </div>
         <div class="input-with-folder" style="margin-bottom: 10px;">
           <input id="input-${realIndex}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
@@ -1142,6 +1250,7 @@
     const cancelButton = document.getElementById(`btn-cancel-${realIndex}`);
     const stopButton = document.getElementById(`btn-stop-${realIndex}`);
     const terminalButton = document.getElementById(`btn-terminal-${realIndex}`);
+    const editorButton = document.getElementById(`btn-editor-${realIndex}`);
     const moveButton = document.getElementById(`btn-move-${realIndex}`);
     const deleteButton = document.getElementById(`btn-delete-${realIndex}`);
     const logDiv = document.getElementById(`log-${realIndex}`);
@@ -1154,10 +1263,14 @@
           startButton.disabled = false;
           moveButton.style.display = 'inline-block';
           deleteButton.style.display = 'inline-block';
+          editorButton.style.display = 'inline-block';
+          terminalButton.style.display = 'inline-block';
       }else {
         deleteButton.style.display = 'none';
         moveButton.style.display = 'none';
         downloadButton.style.display = 'inline-block';
+        editorButton.style.display = 'none';
+        terminalButton.style.display = 'none';
       }
     });
   

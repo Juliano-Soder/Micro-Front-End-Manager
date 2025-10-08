@@ -9,6 +9,58 @@ const https = require('https');
 const http = require('http');
 const url = require('url');
 
+// Função para procurar IDE dinamicamente
+async function findIDEExecutable(ideConfig, platform) {
+  const searchPaths = ideConfig.searchPaths?.[platform];
+  if (!searchPaths || searchPaths.length === 0) {
+    return null;
+  }
+
+  for (const searchPath of searchPaths) {
+    try {
+      // Expande variáveis de ambiente
+      let expandedPath = searchPath.replace('%USERNAME%', os.userInfo().username);
+      
+      // Para Windows, tenta encontrar pastas com wildcards usando fs
+      if (platform === 'win32' && expandedPath.includes('*')) {
+        const basePath = expandedPath.substring(0, expandedPath.indexOf('*'));
+        const suffix = expandedPath.substring(expandedPath.indexOf('*') + 1);
+        
+        try {
+          const baseDir = path.dirname(basePath);
+          const files = fs.readdirSync(baseDir);
+          const matchingDirs = files.filter(file => 
+            file.toLowerCase().includes('intellij') || 
+            file.toLowerCase().includes('webstorm') || 
+            file.toLowerCase().includes('idea')
+          );
+          
+          for (const dir of matchingDirs) {
+            const fullPath = path.join(baseDir, dir, suffix);
+            if (fs.existsSync(fullPath)) {
+              console.log(`✅ IDE encontrada: ${fullPath}`);
+              return fullPath;
+            }
+          }
+        } catch (dirError) {
+          console.log(`❌ Erro ao buscar diretório: ${dirError.message}`);
+        }
+      } else {
+        // Caminho direto sem wildcards
+        if (fs.existsSync(expandedPath)) {
+          console.log(`✅ IDE encontrada: ${expandedPath}`);
+          return expandedPath;
+        }
+      }
+    } catch (error) {
+      console.log(`❌ Erro ao buscar em ${searchPath}: ${error.message}`);
+      continue;
+    }
+  }
+
+  return null;
+}
+
 // ===== CONFIGURAÇÃO DE HANDLERS IPC =====
 // CRÍTICO: Todos os handlers IPC devem ser registrados IMEDIATAMENTE após os imports
 
@@ -145,6 +197,165 @@ if (process.platform === 'win32') {
 const userDataPath = app.getPath('userData');
 const loginStateFile = path.join(userDataPath, 'login-state.json');
 const configFile = path.join(userDataPath, 'config.json');
+
+// ===== CONFIGURAÇÃO DE IDEs SUPORTADAS =====
+const IDE_CONFIG = {
+  vscode: {
+    name: 'Visual Studio Code',
+    icon: 'vscode.png',
+    commands: {
+      win32: 'code "{path}"',
+      darwin: 'code "{path}"',
+      linux: 'code "{path}" || code-insiders "{path}" || codium "{path}"'
+    }
+  },
+  webstorm: {
+    name: 'WebStorm',
+    icon: 'webstorm.png',
+    commands: {
+      win32: 'webstorm "{path}"',
+      darwin: 'webstorm "{path}"',
+      linux: 'webstorm "{path}"'
+    },
+    searchPaths: {
+      win32: [
+        'C:\\Program Files\\JetBrains\\WebStorm*\\bin\\webstorm64.exe',
+        'C:\\Users\\%USERNAME%\\AppData\\Local\\JetBrains\\Toolbox\\apps\\WebStorm\\ch-0\\*\\bin\\webstorm64.exe'
+      ],
+      darwin: [
+        '/Applications/WebStorm.app/Contents/MacOS/webstorm'
+      ],
+      linux: [
+        '/opt/webstorm/bin/webstorm.sh',
+        '~/webstorm/bin/webstorm.sh'
+      ]
+    }
+  },
+  intellij: {
+    name: 'IntelliJ IDEA',
+    icon: 'intellij.png',
+    commands: {
+      win32: 'idea "{path}"',
+      darwin: 'idea "{path}"',
+      linux: 'idea "{path}"'
+    },
+    searchPaths: {
+      win32: [
+        'C:\\Program Files\\JetBrains\\IntelliJ IDEA*\\bin\\idea64.exe',
+        'C:\\Program Files\\JetBrains\\IntelliJ IDEA Community Edition*\\bin\\idea64.exe',
+        'C:\\Users\\%USERNAME%\\AppData\\Local\\JetBrains\\Toolbox\\apps\\IDEA*\\bin\\idea64.exe'
+      ],
+      darwin: [
+        '/Applications/IntelliJ IDEA.app/Contents/MacOS/idea',
+        '/Applications/IntelliJ IDEA CE.app/Contents/MacOS/idea'
+      ],
+      linux: [
+        '/opt/idea/bin/idea.sh',
+        '/usr/local/bin/idea',
+        '~/idea/bin/idea.sh'
+      ]
+    }
+  },
+  sublime: {
+    name: 'Sublime Text',
+    icon: 'sublime.png',
+    commands: {
+      win32: 'subl "{path}"',
+      darwin: 'subl "{path}"',
+      linux: 'subl "{path}"'
+    },
+    searchPaths: {
+      win32: [
+        'C:\\Program Files\\Sublime Text*\\subl.exe',
+        'C:\\Program Files\\Sublime Text\\sublime_text.exe'
+      ],
+      darwin: [
+        '/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl',
+        '/usr/local/bin/subl'
+      ],
+      linux: [
+        '/usr/bin/subl',
+        '/opt/sublime_text/sublime_text'
+      ]
+    }
+  },
+  vim: {
+    name: 'Vim',
+    icon: 'vim.png',
+    commands: {
+      win32: 'nvim "{path}" || vim "{path}" || gvim "{path}"',
+      darwin: 'nvim "{path}" || vim "{path}"',
+      linux: 'nvim "{path}" || vim "{path}"'
+    },
+    searchPaths: {
+      win32: [
+        'C:\\Program Files\\Neovim\\bin\\nvim.exe',
+        'C:\\Program Files (x86)\\Vim\\vim*\\gvim.exe',
+        'C:\\tools\\neovim\\Neovim\\bin\\nvim.exe'
+      ],
+      darwin: [
+        '/usr/local/bin/nvim',
+        '/opt/homebrew/bin/nvim',
+        '/usr/local/bin/vim'
+      ],
+      linux: [
+        '/usr/bin/nvim',
+        '/usr/local/bin/nvim',
+        '/usr/bin/vim'
+      ]
+    }
+  },
+  notepad: {
+    name: 'Notepad++',
+    icon: 'notepad.png',
+    commands: {
+      win32: 'notepad++ "{path}"',
+      darwin: 'open -a "TextEdit" "{path}"', // Fallback para TextEdit no Mac
+      linux: 'gedit "{path}" || kate "{path}" || mousepad "{path}"' // Vários editores Linux
+    },
+    searchPaths: {
+      win32: [
+        'C:\\Program Files\\Notepad++\\notepad++.exe',
+        'C:\\Program Files (x86)\\Notepad++\\notepad++.exe'
+      ],
+      darwin: [
+        '/Applications/TextEdit.app/Contents/MacOS/TextEdit'
+      ],
+      linux: [
+        '/usr/bin/gedit',
+        '/usr/bin/kate',
+        '/usr/bin/mousepad'
+      ]
+    }
+  },
+  eclipse: {
+    name: 'Eclipse',
+    icon: 'eclipse.png',
+    commands: {
+      win32: 'eclipse -data "{path}"',
+      darwin: 'eclipse -data "{path}"',
+      linux: 'eclipse -data "{path}"'
+    }
+  },
+  androidstudio: {
+    name: 'Android Studio',
+    icon: 'androidStudio.png',
+    commands: {
+      win32: 'studio "{path}"',
+      darwin: 'studio "{path}"',
+      linux: 'studio.sh "{path}"'
+    }
+  },
+  xcode: {
+    name: 'Xcode',
+    icon: 'xcode.png',
+    commands: {
+      win32: 'echo "Xcode não disponível no Windows"', // Placeholder
+      darwin: 'xed "{path}"',
+      linux: 'echo "Xcode não disponível no Linux"' // Placeholder
+    }
+  }
+};
 const cacheFile = path.join(userDataPath, 'app-cache.json');
 
 // Cache global para dados da aplicação
@@ -827,7 +1038,8 @@ function getDefaultConfig() {
     darkMode: false,
     projectOrder: [], // Array para armazenar a ordem customizada dos projetos (deprecated)
     pasOrder: [], // Ordem específica dos projetos PAS
-    pampOrder: [] // Ordem específica dos projetos PAMP
+    pampOrder: [], // Ordem específica dos projetos PAMP
+    preferredIDE: 'vscode' // IDE preferida do usuário
   };
 }
 
@@ -4527,46 +4739,320 @@ ipcMain.on('execute-command', (event, command) => {
     }
   });
 
-  // Função auxiliar para abrir arquivo com editor
-  function openFileWithEditor(filePath, callback) {
-    // Define comandos baseados no sistema operacional
-    let codeCommand;
-    if (os.platform() === 'win32') {
-      codeCommand = `code "${filePath}"`;
-    } else if (os.platform() === 'darwin') {
-      // macOS
-      codeCommand = `code "${filePath}"`;
-    } else {
-      // Linux
-      codeCommand = `code "${filePath}" || gedit "${filePath}" || nano "${filePath}"`;
-    }
+  // Função auxiliar para abrir arquivo com editor preferido
+  async function openFileWithEditor(filePath, callback) {
+    console.log(`📝 Abrindo arquivo: ${filePath}`);
     
-    console.log(`📝 Executando comando: ${codeCommand}`);
-    
-    exec(codeCommand, (codeError) => {
-      if (codeError) {
-        console.log('Editor de código não encontrado, tentando abrir com editor padrão...');
-        
-        // Se editores de código não estiverem disponíveis, abre com o editor padrão do sistema
-        const { shell } = require('electron');
-        shell.openPath(filePath).then((result) => {
-          if (result) {
-            console.error(`Erro ao abrir arquivo com editor padrão: ${result}`);
-            if (callback) callback(false);
-          } else {
-            console.log(`Arquivo environment.ts aberto com sucesso: ${filePath}`);
-            if (callback) callback(true);
-          }
-        }).catch((shellError) => {
-          console.error(`Erro ao abrir arquivo:`, shellError);
-          if (callback) callback(false);
+    try {
+      const config = loadConfig();
+      const preferredIDE = config.preferredIDE || 'vscode';
+      const ideConfig = IDE_CONFIG[preferredIDE];
+      
+      if (!ideConfig) {
+        console.error(`❌ IDE não suportada: ${preferredIDE}`);
+        // Fallback para VS Code
+        await tryFallbackEditor(filePath, callback);
+        return;
+      }
+      
+      // Obtém o comando baseado no sistema operacional
+      const platform = os.platform();
+      let command = ideConfig.commands[platform];
+      
+      if (!command) {
+        console.error(`❌ Comando não disponível para ${ideConfig.name} no ${platform}`);
+        await tryFallbackEditor(filePath, callback);
+        return;
+      }
+      
+      // Substitui o placeholder {path} pelo caminho do arquivo
+      command = command.replace('{path}', filePath);
+      
+      console.log(`💻 Tentando abrir arquivo com ${ideConfig.name}: ${command}`);
+      
+      // Função para tentar comandos múltiplos (separados por ||)
+      const tryMultipleCommands = (commandString) => {
+        return new Promise((resolve, reject) => {
+          const commands = commandString.split(' || ').map(cmd => cmd.trim());
+          let currentIndex = 0;
+          
+          const tryNext = () => {
+            if (currentIndex >= commands.length) {
+              reject(new Error('Todos os comandos falharam'));
+              return;
+            }
+            
+            const currentCommand = commands[currentIndex];
+            console.log(`� Tentando comando ${currentIndex + 1}/${commands.length}: ${currentCommand}`);
+            
+            exec(currentCommand, (error, stdout, stderr) => {
+              if (error) {
+                console.log(`❌ Comando ${currentIndex + 1} falhou: ${error.message}`);
+                currentIndex++;
+                tryNext();
+              } else {
+                console.log(`✅ Arquivo aberto com sucesso usando ${ideConfig.name}`);
+                resolve();
+              }
+            });
+          };
+          
+          tryNext();
         });
+      };
+      
+      // Primeiro tenta o comando principal
+      try {
+        await tryMultipleCommands(command);
+        if (callback) callback(true);
+      } catch (mainError) {
+        console.log(`${ideConfig.name} não encontrado no PATH, buscando na máquina...`);
+        
+        // Procura a IDE dinamicamente na máquina
+        const foundExecutable = await findIDEExecutable(ideConfig, platform);
+        
+        if (foundExecutable) {
+          // Executa com o caminho encontrado
+          const foundCommand = `"${foundExecutable}" "${filePath}"`;
+          console.log(`💻 Executando com caminho encontrado: ${foundCommand}`);
+          
+          exec(foundCommand, (foundError) => {
+            if (foundError) {
+              console.log(`❌ Erro ao executar IDE encontrada: ${foundError.message}`);
+              tryFallbackEditor(filePath, callback);
+            } else {
+              console.log(`✅ Arquivo aberto com ${ideConfig.name}!`);
+              if (callback) callback(true);
+            }
+          });
+        } else {
+          console.log(`${ideConfig.name} não encontrado, usando fallback...`);
+          await tryFallbackEditor(filePath, callback);
+        }
+      }
+      
+    } catch (error) {
+      console.error(`❌ Erro ao abrir arquivo:`, error);
+      await tryFallbackEditor(filePath, callback);
+    }
+  }
+
+  // Função de fallback para abrir arquivo
+  async function tryFallbackEditor(filePath, callback) {
+    console.log('💾 Tentando abrir com editor padrão do sistema...');
+    
+    try {
+      const { shell } = require('electron');
+      const result = await shell.openPath(filePath);
+      
+      if (result) {
+        console.error(`❌ Erro ao abrir arquivo com editor padrão: ${result}`);
+        if (callback) callback(false);
       } else {
-        console.log(`Arquivo environment.ts aberto no editor: ${filePath}`);
+        console.log(`✅ Arquivo aberto com editor padrão do sistema: ${filePath}`);
         if (callback) callback(true);
       }
-    });
+    } catch (shellError) {
+      console.error(`❌ Erro ao abrir arquivo:`, shellError);
+      if (callback) callback(false);
+    }
   }
+
+  // Handler para abrir projeto no editor de código
+  ipcMain.on('open-project-in-editor', async (event, { projectPath, projectIndex, isPamp }) => {
+    console.log(`💻 Abrindo projeto no editor: ${projectPath}`);
+    
+    try {
+      // Verifica se o diretório existe
+      if (!fs.existsSync(projectPath)) {
+        console.error(`❌ Diretório não encontrado: ${projectPath}`);
+        dialog.showErrorBox('Diretório não encontrado', 
+          `O diretório do projeto não foi encontrado:\n${projectPath}\n\nVerifique se o caminho está correto.`);
+        return;
+      }
+      
+      // Carrega a configuração atual para obter a IDE preferida
+      const config = loadConfig();
+      const preferredIDE = config.preferredIDE || 'vscode';
+      const ideConfig = IDE_CONFIG[preferredIDE];
+      
+      if (!ideConfig) {
+        console.error(`❌ IDE não suportada: ${preferredIDE}`);
+        dialog.showErrorBox('IDE não suportada', 
+          `A IDE "${preferredIDE}" não é suportada.\nReverta para VS Code nas configurações.`);
+        return;
+      }
+      
+      // Obtém o comando baseado no sistema operacional
+      const platform = os.platform();
+      let command = ideConfig.commands[platform];
+      
+      if (!command) {
+        console.error(`❌ Comando não disponível para ${ideConfig.name} no ${platform}`);
+        dialog.showErrorBox('Comando não disponível', 
+          `${ideConfig.name} não possui comando configurado para ${platform}.\nTente usar outra IDE.`);
+        return;
+      }
+      
+      // Substitui o placeholder {path} pelo caminho real
+      command = command.replace('{path}', projectPath);
+      
+      console.log(`💻 Executando comando ${ideConfig.name}: ${command}`);
+      
+      // Função para tentar comandos múltiplos (separados por ||)
+      const tryMultipleCommands = (commandString) => {
+        return new Promise((resolve, reject) => {
+          const commands = commandString.split(' || ').map(cmd => cmd.trim());
+          let currentIndex = 0;
+          
+          const tryNext = () => {
+            if (currentIndex >= commands.length) {
+              reject(new Error('Todos os comandos falharam'));
+              return;
+            }
+            
+            const currentCommand = commands[currentIndex];
+            console.log(`💻 Tentando comando ${currentIndex + 1}/${commands.length}: ${currentCommand}`);
+            
+            exec(currentCommand, (error, stdout, stderr) => {
+              if (error) {
+                console.log(`❌ Comando ${currentIndex + 1} falhou: ${error.message}`);
+                currentIndex++;
+                tryNext();
+              } else {
+                console.log(`✅ ${ideConfig.name} aberto com sucesso via comando ${currentIndex + 1}`);
+                resolve();
+              }
+            });
+          };
+          
+          tryNext();
+        });
+      };
+      
+      // Primeiro tenta o comando principal (pode ter múltiplos comandos com ||)
+      try {
+        await tryMultipleCommands(command);
+      } catch (mainError) {
+        console.log(`${ideConfig.name} não encontrado no PATH, buscando na máquina...`);
+        
+        // Procura a IDE dinamicamente na máquina
+        const foundExecutable = await findIDEExecutable(ideConfig, os.platform());
+        
+        if (foundExecutable) {
+          // Executa com o caminho encontrado
+          const foundCommand = `"${foundExecutable}" "${projectPath}"`;
+          console.log(`💻 Executando com caminho encontrado: ${foundCommand}`);
+          
+          exec(foundCommand, (foundError) => {
+            if (foundError) {
+              console.log(`❌ Erro ao executar IDE encontrada: ${foundError.message}`);
+              openInExplorer();
+            } else {
+              console.log(`✅ ${ideConfig.name} aberto com sucesso!`);
+            }
+          });
+        } else {
+          console.log(`${ideConfig.name} não encontrado na máquina, abrindo no explorador...`);
+          openInExplorer();
+        }
+      }
+
+      // Função helper para abrir no explorador
+      function openInExplorer() {
+        let finalFallbackCommand;
+        if (os.platform() === 'win32') {
+          finalFallbackCommand = `start "" "${projectPath}"`;
+        } else if (os.platform() === 'darwin') {
+          finalFallbackCommand = `open "${projectPath}"`;
+        } else {
+          finalFallbackCommand = `xdg-open "${projectPath}"`;
+        }
+        
+        console.log(`💻 Abrindo no explorador: ${finalFallbackCommand}`);
+        
+        exec(finalFallbackCommand, (finalError) => {
+          if (finalError) {
+            console.error(`❌ Erro ao abrir: ${finalError.message}`);
+            dialog.showErrorBox('Erro ao abrir', 
+              `Não foi possível abrir o projeto.\n\nVerifique se ${ideConfig.name} está instalado.\n\nCaminho: ${projectPath}`);
+          } else {
+            console.log(`✅ Pasta aberta no explorador: ${projectPath}`);
+          }
+        });
+      }
+      
+    } catch (error) {
+      console.error(`❌ Erro ao abrir projeto no editor:`, error);
+      dialog.showErrorBox('Erro', `Erro inesperado ao tentar abrir o projeto:\n${error.message}`);
+    }
+  });
+
+  // ===== HANDLERS PARA CONFIGURAÇÃO DE IDE =====
+  // Handler para obter lista de IDEs disponíveis
+  ipcMain.on('get-available-ides', (event) => {
+    const ides = Object.keys(IDE_CONFIG).map(key => ({
+      id: key,
+      name: IDE_CONFIG[key].name,
+      icon: IDE_CONFIG[key].icon
+    }));
+    
+    event.reply('available-ides', ides);
+  });
+
+  // Handler para obter IDE atual
+  ipcMain.on('get-current-ide', (event) => {
+    const config = loadConfig();
+    const preferredIDE = config.preferredIDE || 'vscode';
+    
+    event.reply('current-ide', {
+      id: preferredIDE,
+      name: IDE_CONFIG[preferredIDE]?.name || 'Visual Studio Code',
+      icon: IDE_CONFIG[preferredIDE]?.icon || 'editor.png'
+    });
+  });
+
+  // Handler para alterar IDE preferida
+  ipcMain.on('set-preferred-ide', (event, { ideId }) => {
+    console.log(`🔧 Alterando IDE preferida para: ${ideId}`);
+    
+    if (!IDE_CONFIG[ideId]) {
+      console.error(`❌ IDE não suportada: ${ideId}`);
+      event.reply('ide-change-error', { error: 'IDE não suportada' });
+      return;
+    }
+    
+    try {
+      const config = loadConfig();
+      config.preferredIDE = ideId;
+      saveConfig(config);
+      
+      console.log(`✅ IDE alterada para: ${IDE_CONFIG[ideId].name}`);
+      
+      // Notifica a janela que fez a solicitação
+      event.reply('ide-changed', {
+        id: ideId,
+        name: IDE_CONFIG[ideId].name,
+        icon: IDE_CONFIG[ideId].icon
+      });
+
+      // Notifica TODAS as janelas sobre a mudança
+      const allWindows = BrowserWindow.getAllWindows();
+      allWindows.forEach(window => {
+        if (window.webContents !== event.sender) {
+          window.webContents.send('ide-changed', {
+            id: ideId,
+            name: IDE_CONFIG[ideId].name,
+            icon: IDE_CONFIG[ideId].icon
+          });
+        }
+      });
+      
+    } catch (error) {
+      console.error(`❌ Erro ao salvar configuração de IDE:`, error);
+      event.reply('ide-change-error', { error: error.message });
+    }
+  });
 
   // Handler para procurar projeto existente na máquina
   ipcMain.on('browse-project-folder', async (event, { index, projectName }) => {

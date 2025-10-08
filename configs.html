@@ -31,6 +31,35 @@
             position: relative;
             padding: 40px;
             background: inherit;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+        }
+
+        /* Esconder scrollbar mas manter funcionalidade */
+        .config-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .config-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .config-container::-webkit-scrollbar-thumb {
+            background: rgba(0,0,0,0.2);
+            border-radius: 4px;
+            transition: background 0.3s ease;
+        }
+
+        .config-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(0,0,0,0.4);
+        }
+
+        body.dark-mode .config-container::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2);
+        }
+
+        body.dark-mode .config-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(255,255,255,0.4);
         }
 
         .config-header {
@@ -409,6 +438,72 @@
             box-shadow: none;
         }
 
+        /* IDE Selection Styles */
+        .ide-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .ide-option {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #ffffff;
+            text-align: center;
+        }
+
+        .ide-option:hover {
+            border-color: #007bff;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        .ide-option.selected {
+            border-color: #007bff;
+            background: #e7f3ff;
+        }
+
+        body.dark-mode .ide-option {
+            background: #2d2d2d;
+            border-color: #555;
+        }
+
+        body.dark-mode .ide-option:hover {
+            border-color: #007bff;
+        }
+
+        body.dark-mode .ide-option.selected {
+            background: #1a365d;
+        }
+
+        .ide-icon {
+            width: 48px;
+            height: 48px;
+            margin-bottom: 10px;
+            object-fit: contain;
+        }
+
+        .ide-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: #333;
+        }
+
+        body.dark-mode .ide-name {
+            color: #ffffff;
+        }
+
+        .ide-radio {
+            margin-top: 8px;
+        }
+
         @keyframes fadeIn {
             from { opacity: 0; }
             to { opacity: 1; }
@@ -446,6 +541,16 @@
         <div class="config-section">
             <div class="config-item">
                 <div>
+                    <div class="config-label">💻 IDE Preferida</div>
+                    <div class="config-description">Escolha o editor de código que será usado para abrir os projetos</div>
+                </div>
+                <button class="order-button" onclick="openIDEModal()">Escolher IDE</button>
+            </div>
+        </div>
+
+        <div class="config-section">
+            <div class="config-item">
+                <div>
                     <div class="config-label">📋 Ordem dos MFEs PAS</div>
                     <div class="config-description">Configure a ordem de exibição dos projetos PAS (mp-pas-*)</div>
                 </div>
@@ -460,6 +565,16 @@
                     <div class="config-description">Configure a ordem de exibição dos projetos PAMP (mp-pamp-*)</div>
                 </div>
                 <button class="order-button" onclick="openOrderModal('pamp')">Configurar Ordem</button>
+            </div>
+        </div>
+
+        <div class="config-section">
+            <div class="config-item">
+                <div>
+                    <div class="config-label">💻 IDE Preferida</div>
+                    <div class="config-description">Escolha qual IDE será usada para abrir os projetos</div>
+                </div>
+                <button class="order-button" onclick="openIDEModal()">Configurar IDE</button>
             </div>
         </div>
 
@@ -483,6 +598,29 @@
                 <p style="margin-top: 20px; font-size: 14px; color: #666; text-align: center;">
                     💡 As alterações são salvas automaticamente quando você move os projetos
                 </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para seleção de IDE -->
+    <div id="ideModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Selecionar IDE Preferida</h2>
+                <button class="close-modal" onclick="closeIDEModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 20px; text-align: center; color: #666;">
+                    Escolha sua IDE preferida para abrir os projetos:
+                </p>
+                <div class="ide-grid" id="ideGrid">
+                    <!-- IDEs serão carregadas dinamicamente -->
+                </div>
+                <div style="text-align: center; margin-top: 20px;">
+                    <button onclick="saveIDESelection()" class="btn btn-primary" id="saveIDEBtn" disabled>
+                        Salvar Seleção
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -637,6 +775,186 @@
             modal.style.display = 'none';
             currentOrderType = '';
             currentOrder = [];
+        }
+
+        // Funções do Modal de IDE
+        let selectedIDE = null;
+
+        function openIDEModal() {
+            const modal = document.getElementById('ideModal');
+            modal.style.display = 'block';
+            loadIDEOptions();
+        }
+
+        function closeIDEModal() {
+            const modal = document.getElementById('ideModal');
+            modal.style.display = 'none';
+            selectedIDE = null;
+        }
+
+        async function loadIDEOptions() {
+            try {
+                // Solicita a IDE atual
+                ipcRenderer.send('get-current-ide');
+                
+                // Escuta a resposta
+                ipcRenderer.once('current-ide', (event, currentIDEData) => {
+                    const currentIDE = currentIDEData.id;
+                    
+                    const ides = [
+                        { name: 'vscode', displayName: 'Visual Studio Code' },
+                        { name: 'intellij', displayName: 'IntelliJ IDEA' },
+                        { name: 'webstorm', displayName: 'WebStorm' },
+                        { name: 'sublime', displayName: 'Sublime Text' },
+                        { name: 'vim', displayName: 'Vim' },
+                        { name: 'notepad', displayName: 'Notepad++' },
+                        { name: 'eclipse', displayName: 'Eclipse' },
+                        { name: 'androidstudio', displayName: 'Android Studio' },
+                        { name: 'xcode', displayName: 'Xcode' }
+                    ];
+
+                    const ideGrid = document.getElementById('ideGrid');
+                    ideGrid.innerHTML = '';
+
+                    ides.forEach(ide => {
+                        const ideOption = document.createElement('div');
+                        ideOption.className = `ide-option ${currentIDE === ide.name ? 'selected' : ''}`;
+                        ideOption.onclick = () => selectIDE(ide.name, ideOption);
+
+                        ideOption.innerHTML = `
+                            <img src="assets/${ide.name}.png" alt="${ide.displayName}" class="ide-icon">
+                            <div class="ide-name">${ide.displayName}</div>
+                            <input type="radio" name="ide" value="${ide.name}" class="ide-radio" ${currentIDE === ide.name ? 'checked' : ''}>
+                        `;
+
+                        ideGrid.appendChild(ideOption);
+                    });
+
+                    selectedIDE = currentIDE;
+                    updateSaveButton();
+                });
+                
+            } catch (error) {
+                console.error('Erro ao carregar IDEs:', error);
+            }
+        }
+
+        function selectIDE(ideName, element) {
+            // Remove seleção anterior
+            document.querySelectorAll('.ide-option').forEach(opt => {
+                opt.classList.remove('selected');
+                opt.querySelector('input').checked = false;
+            });
+
+            // Seleciona nova IDE
+            element.classList.add('selected');
+            element.querySelector('input').checked = true;
+            selectedIDE = ideName;
+            updateSaveButton();
+        }
+
+        function updateSaveButton() {
+            const saveBtn = document.getElementById('saveIDEBtn');
+            saveBtn.disabled = !selectedIDE;
+        }
+
+        async function saveIDESelection() {
+            if (!selectedIDE) return;
+
+            try {
+                // Feedback visual imediato
+                const saveBtn = document.getElementById('saveIDEBtn');
+                const originalText = saveBtn.textContent;
+                saveBtn.textContent = 'Salvando...';
+                saveBtn.disabled = true;
+
+                // Envia a mudança de IDE
+                ipcRenderer.send('set-preferred-ide', { ideId: selectedIDE });
+                
+                // Escuta confirmação de sucesso
+                ipcRenderer.once('ide-changed', (event, ideData) => {
+                    saveBtn.textContent = '✓ Salvo!';
+                    saveBtn.style.backgroundColor = '#28a745';
+                    
+                    setTimeout(() => {
+                        saveBtn.textContent = originalText;
+                        saveBtn.style.backgroundColor = '';
+                        saveBtn.disabled = false;
+                        closeIDEModal();
+                        
+                        // Mostrar mensagem de sucesso
+                        showNotification('IDE configurada com sucesso!', 'success');
+                    }, 1500);
+                });
+
+                // Escuta erros
+                ipcRenderer.once('ide-change-error', (event, errorData) => {
+                    saveBtn.textContent = originalText;
+                    saveBtn.disabled = false;
+                    console.error('Erro ao salvar IDE:', errorData.error);
+                    showNotification('Erro ao salvar configuração da IDE', 'error');
+                });
+                
+            } catch (error) {
+                console.error('Erro ao salvar IDE:', error);
+                showNotification('Erro ao salvar configuração da IDE', 'error');
+            }
+        }
+
+        // Fechar modal ao clicar fora
+        window.onclick = function(event) {
+            const ideModal = document.getElementById('ideModal');
+            const orderModal = document.getElementById('orderModal');
+            
+            if (event.target === ideModal) {
+                closeIDEModal();
+            }
+            if (event.target === orderModal) {
+                closeOrderModal();
+            }
+        }
+
+        // Função de notificação simples
+        function showNotification(message, type = 'info') {
+            // Cria elemento de notificação
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 12px 20px;
+                border-radius: 6px;
+                color: white;
+                font-weight: 500;
+                z-index: 10000;
+                opacity: 0;
+                transform: translateX(100%);
+                transition: all 0.3s ease;
+            `;
+            
+            // Define cor baseada no tipo
+            const colors = {
+                success: '#28a745',
+                error: '#dc3545',
+                info: '#007bff'
+            };
+            notification.style.backgroundColor = colors[type] || colors.info;
+            notification.textContent = message;
+            
+            document.body.appendChild(notification);
+            
+            // Anima entrada
+            requestAnimationFrame(() => {
+                notification.style.opacity = '1';
+                notification.style.transform = 'translateX(0)';
+            });
+            
+            // Remove após 3 segundos
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                notification.style.transform = 'translateX(100%)';
+                setTimeout(() => notification.remove(), 300);
+            }, 3000);
         }
 
         // Carrega projetos PAS
