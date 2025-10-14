@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configurações de Projetos</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #fff;
+            color: #333;
+            padding: 20px;
+            min-height: 100vh;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        body.dark-mode {
+            background: #1e1e1e;
+            color: #fff;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 30px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+
+        body.dark-mode .container {
+            background: #2d2d2d;
+            border-color: #444;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            text-align: center;
+            opacity: 0.9;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .project-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .project-item {
+            background: #f9f9f9;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            transition: all 0.2s ease;
+        }
+
+        body.dark-mode .project-item {
+            background: #3a3a3a;
+            border-color: #555;
+        }
+
+        .project-item:hover {
+            background: #f0f0f0;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        body.dark-mode .project-item:hover {
+            background: #444;
+        }
+
+        .project-info {
+            flex: 1;
+        }
+
+        .project-name {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #333;
+        }
+
+        body.dark-mode .project-name {
+            color: #e0e0e0;
+        }
+
+        .project-path {
+            font-size: 11px;
+            color: #666;
+            font-family: 'Courier New', monospace;
+        }
+
+        body.dark-mode .project-path {
+            color: #aaa;
+        }
+
+        .version-selector {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .version-option {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 8px 15px;
+            background: #fff;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        body.dark-mode .version-option {
+            background: #2d2d2d;
+            border-color: #555;
+        }
+
+        .version-option:hover {
+            border-color: #999;
+            background: #f9f9f9;
+        }
+
+        body.dark-mode .version-option:hover {
+            border-color: #777;
+            background: #3a3a3a;
+        }
+
+        .version-option.selected {
+            background: #333;
+            color: #fff;
+            border-color: #333;
+        }
+
+        body.dark-mode .version-option.selected {
+            background: #555;
+            border-color: #777;
+        }
+
+        .version-option.selected .version-tag {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+
+        .version-option input[type="radio"] {
+            display: none;
+        }
+
+        .version-label {
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .version-tag {
+            font-size: 11px;
+            background: #f0f0f0;
+            color: #666;
+            padding: 2px 8px;
+            border-radius: 3px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .empty-state-text {
+            font-size: 18px;
+        }
+
+        .info-box {
+            background: #f9f9f9;
+            border-left: 4px solid #333;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-left-width: 4px;
+            border-radius: 3px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        body.dark-mode .info-box {
+            background: #3a3a3a;
+            border-color: #555;
+            border-left-color: #777;
+            color: #fff;
+        }
+
+        .info-box strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚙️ Configurações de Projetos</h1>
+        <p class="subtitle">Selecione a versão do Node.js para cada projeto</p>
+
+        <div class="info-box">
+            <strong>ℹ️ Informação:</strong>
+            Cada projeto pode usar uma versão diferente do Node.js e Angular CLI.
+            As alterações são salvas automaticamente.
+            <br><br>
+            📚 <strong>Referência de Compatibilidade:</strong>
+            <a href="#" onclick="require('electron').shell.openExternal('https://angular.dev/reference/versions'); return false;" 
+               style="color: #4CAF50; text-decoration: none;">
+                Angular Version Compatibility Guide
+            </a>
+        </div>
+
+        <div class="project-list" id="projectList">
+            <!-- Projetos serão inseridos aqui via JavaScript -->
+        </div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        
+        let projects = [];
+        let projectConfigs = {};
+
+        // Recebe tema via IPC
+        ipcRenderer.on('apply-theme', (event, isDarkMode) => {
+            if (isDarkMode) {
+                document.body.classList.add('dark-mode');
+            } else {
+                document.body.classList.remove('dark-mode');
+            }
+            console.log('Tema aplicado:', isDarkMode ? 'escuro' : 'claro');
+        });
+
+        // Solicita lista de projetos e configurações
+        ipcRenderer.send('get-project-configs');
+
+        // Recebe dados
+        ipcRenderer.on('project-configs-data', (event, data) => {
+            console.log('[DEBUG] Dados recebidos:', data);
+            projects = data.projects;
+            projectConfigs = data.configs;
+            console.log('[DEBUG] Total de projetos:', projects.length);
+            renderProjects();
+        });
+
+        // Renderiza lista de projetos
+        function renderProjects() {
+            console.log('[DEBUG] Renderizando projetos...');
+            const projectList = document.getElementById('projectList');
+            
+            if (projects.length === 0) {
+                console.log('[DEBUG] Nenhum projeto encontrado');
+                projectList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📁</div>
+                        <div class="empty-state-text">Nenhum projeto encontrado. Adicione projetos na tela principal primeiro.</div>
+                    </div>
+                `;
+                return;
+            }
+            
+            console.log('[DEBUG] Renderizando', projects.length, 'projetos');
+
+            projectList.innerHTML = projects.map(project => {
+                // Usa versão configurada OU versão padrão do projeto
+                // Prioridade: 1) Configuração manual salva, 2) Default do projeto, 3) Fallback 16.10.0
+                const currentVersion = projectConfigs[project.name] || project.defaultVersion || '16.10.0';
+                
+                console.log(`[DEBUG] ${project.name}: savedConfig=${projectConfigs[project.name]}, default=${project.defaultVersion}, final=${currentVersion}`);
+                
+                return `
+                    <div class="project-item">
+                        <div class="project-info">
+                            <div class="project-name">📦 ${escapeHtml(project.name)}</div>
+                            <div class="project-path">${escapeHtml(project.path)}</div>
+                        </div>
+                        <div class="version-selector">
+                            ${createVersionOption(project.name, '16.10.0', 'Node 16', 'Angular 13', currentVersion)}
+                            ${createVersionOption(project.name, '18.18.2', 'Node 18', 'Angular 15', currentVersion)}
+                            ${createVersionOption(project.name, '20.19.5', 'Node 20', 'Angular 18', currentVersion)}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Adiciona listeners aos radio buttons
+            document.querySelectorAll('input[type="radio"]').forEach(radio => {
+                radio.addEventListener('change', handleVersionChange);
+            });
+        }
+
+        // Cria opção de versão
+        function createVersionOption(projectName, version, nodeLabel, angularLabel, currentVersion) {
+            const isSelected = version === currentVersion;
+            return `
+                <label class="version-option ${isSelected ? 'selected' : ''}" data-project="${projectName}" data-version="${version}">
+                    <input type="radio" 
+                           name="version-${projectName}" 
+                           value="${version}" 
+                           ${isSelected ? 'checked' : ''}>
+                    <div class="version-label">${nodeLabel}</div>
+                    <div class="version-tag">${angularLabel}</div>
+                </label>
+            `;
+        }
+
+        // Manipula mudança de versão
+        function handleVersionChange(event) {
+            const radio = event.target;
+            const projectName = radio.name.replace('version-', '');
+            const version = radio.value;
+            
+            // Atualiza configuração local
+            projectConfigs[projectName] = version;
+            
+            // Atualiza UI
+            document.querySelectorAll(`label[data-project="${projectName}"]`).forEach(label => {
+                if (label.dataset.version === version) {
+                    label.classList.add('selected');
+                } else {
+                    label.classList.remove('selected');
+                }
+            });
+            
+            // Envia atualização ao processo principal (salvamento automático)
+            ipcRenderer.send('update-project-version', { projectName, version });
+            
+            console.log(`✅ Configuração salva automaticamente: ${projectName} → Node ${version}`);
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

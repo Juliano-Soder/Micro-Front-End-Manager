@@ -48,7 +48,33 @@
 
 ---
 
-## 🛠️ Dependências
+## � Links Úteis
+
+### 📚 Documentação de Referência
+- **[Angular Version Compatibility Guide](https://angular.dev/reference/versions)** - Matriz de compatibilidade oficial entre Angular CLI e Node.js
+- **[ANGULAR-NODE-VERSIONS.md](./ANGULAR-NODE-VERSIONS.md)** - Guia completo de versões usadas no projeto
+- **[Node.js Downloads](https://nodejs.org/download/release/)** - Repositório oficial de versões do Node.js
+- **[Angular Update Guide](https://update.angular.io/)** - Guia interativo para atualizar versões do Angular
+
+### 📖 Documentação do Projeto
+- **[BUILD-GUIDE.md](./BUILD-GUIDE.md)** - Guia completo de compilação com Node.js portátil
+- **[PORTABLE-NODE-STRUCTURE.md](./PORTABLE-NODE-STRUCTURE.md)** - Estrutura de pastas do sistema portátil
+- **[FIXES-APPLIED.md](./FIXES-APPLIED.md)** - Histórico de correções aplicadas
+
+### 🎯 Compatibilidade de Versões no Projeto
+
+| Projeto | Node.js | Angular CLI | Status |
+|---------|---------|-------------|--------|
+| mp-pas-configuracoes | 18.18.2 | 15.2.10 | ✅ Padrão |
+| mp-pas-root | 16.10.0 | 13.3.11 | ✅ Padrão |
+| mp-pamp | 16.10.0 | 13.3.11 | ✅ Padrão |
+| Outros projetos | 16.10.0 | 13.3.11 | ✅ Padrão |
+
+**Nota:** As versões podem ser alteradas via menu `Dependências > Configurar Versões dos Projetos`
+
+---
+
+## �🛠️ Dependências
 
 ### Dependências de Produção
 - **[Electron](https://www.electronjs.org/)**: Framework para criar aplicativos desktop com tecnologias web.

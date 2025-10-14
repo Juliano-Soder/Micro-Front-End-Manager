@@ -149,6 +149,83 @@
       50% { opacity: 0.5; }
     }
 
+    /* Badges de Versão (Node.js e Angular) */
+    .version-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: bold;
+      border-radius: 12px;
+      transition: all 0.2s ease;
+      cursor: help;
+    }
+
+    .version-badge.node {
+      background: #68a063;
+      color: white;
+    }
+
+    .version-badge.angular {
+      background: #dd0031;
+      color: white;
+    }
+
+    .version-badge:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      opacity: 0.9;
+    }
+
+    .version-badge img {
+      width: 12px;
+      height: 12px;
+      object-fit: contain;
+    }
+
+    .version-badge .version-text {
+      font-weight: bold;
+    }
+
+    /* Botão de toggle para mostrar/esconder badges */
+    .toggle-versions-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 4px;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+
+    .toggle-versions-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+      border-color: rgba(255, 255, 255, 0.5);
+      transform: scale(1.1);
+    }
+
+    .toggle-versions-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* Badges escondidos por padrão */
+    .version-badges-container {
+      display: none;
+      gap: 8px;
+    }
+
+    .version-badges-container.visible {
+      display: inline-flex;
+    }
+
     /* Remover estilos antigos */
     #pinter-status, #status {
       display: none !important;
@@ -488,17 +565,11 @@
 <body>
   <h1>
     Micro Front-Ends 
-    <span id="node-version" style="font-size: 12px; margin-left: 10px; color: green;"></span>
-    <span id="angular-version" style="font-size: 12px; margin-left: 10px; color: green;"></span>
+    <span id="dependencies-status" style="font-size: 12px; margin-left: 10px;"></span>
     <span style="font-size: 10px; margin-left: 20px; color: #666; font-style: italic;" title="Atalhos para reiniciar">
       💡 Ctrl+R ou F5 = Reiniciar
     </span>
   </h1>
-  
-  <div class="version-info">
-    <div id="node-warning" style="font-size: 12px; color: orange;"></div>
-    <div id="angular-warning" style="font-size: 12px; color: orange;"></div>
-  </div>
 
   <!-- Nova seção de status com layout melhorado -->
   <div class="status-container">
@@ -1055,8 +1126,13 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <p style="margin: 0;"><strong>${project.name}</strong></p>
-            ${project.gitBranch ? `<span id="pamp-branch-${realIndex}" style="background: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
-            ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pamp-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, true)">↓ ${project.pendingCommits}</span>` : ''}
+            <span class="toggle-versions-btn" onclick="toggleVersionBadges(${realIndex}, true)" title="Mostrar/Esconder badges">›</span>
+            <div class="version-badges-container" id="pamp-version-badges-${realIndex}">
+              <span id="pamp-node-version-${realIndex}" class="version-badge node"><img src="assets/node.png" alt="Node.js" /><span class="version-text">...</span></span>
+              <span id="pamp-angular-version-${realIndex}" class="version-badge angular"><img src="assets/angular.png" alt="Angular" /><span class="version-text">...</span></span>
+              ${project.gitBranch ? `<span id="pamp-branch-${realIndex}" style="background: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
+              ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pamp-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, true)">↓ ${project.pendingCommits}</span>` : ''}
+            </div>
           </div>
           <div style="display: flex; align-items: center; gap: 5px;">
             <img id="pamp-btn-editor-${realIndex}" src="${getCurrentIDEIcon()}" class="editor-icon" style="${!project.path ? 'display: none' : ''}" title="Abrir projeto no ${currentIDE.name}" alt="Editor" onclick="openProjectInEditor('${realIndex}', true)" />
@@ -1219,8 +1295,13 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <p style="margin: 0;"><strong>${project.name}</strong></p>
-            ${project.gitBranch ? `<span id="pas-branch-${realIndex}" style="background: #007bff; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
-            ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pas-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, false)">↓ ${project.pendingCommits}</span>` : ''}
+            <span class="toggle-versions-btn" onclick="toggleVersionBadges(${realIndex}, false)" title="Mostrar/Esconder badges">›</span>
+            <div class="version-badges-container" id="pas-version-badges-${realIndex}">
+              <span id="pas-node-version-${realIndex}" class="version-badge node"><img src="assets/node.png" alt="Node.js" /><span class="version-text">...</span></span>
+              <span id="pas-angular-version-${realIndex}" class="version-badge angular"><img src="assets/angular.png" alt="Angular" /><span class="version-text">...</span></span>
+              ${project.gitBranch ? `<span id="pas-branch-${realIndex}" style="background: #007bff; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
+              ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pas-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, false)">↓ ${project.pendingCommits}</span>` : ''}
+            </div>
           </div>
           <div style="display: flex; align-items: center; gap: 5px;">
             <img id="btn-editor-${realIndex}" src="${getCurrentIDEIcon()}" class="editor-icon" style="${!project.path ? 'display: none' : ''}" title="Abrir projeto no ${currentIDE.name}" alt="Editor" onclick="openProjectInEditor('${realIndex}', false)" />
@@ -1376,6 +1457,10 @@
       // ⚡ DISPARA VERIFICAÇÃO GIT EM SEGUNDO PLANO ⚡
       console.log('[GIT-BG] 🚀 Disparando verificação Git em segundo plano...');
       ipcRenderer.send('start-background-git-check');
+      
+      // ⚡ ATUALIZA BADGES DE VERSÃO (Node.js e Angular CLI) ⚡
+      console.log('[VERSION-BADGES] 🔄 Atualizando badges de versão dos projetos...');
+      updateAllProjectVersionBadges();
     }, 200);
   });
 
@@ -1408,12 +1493,30 @@
     
     // Atualiza a interface da branch - CORRIGIDO OS IDs
     const branchElementId = isPamp ? `pamp-branch-${projectIndex}` : `pas-branch-${projectIndex}`;
-    const branchElement = document.getElementById(branchElementId);
-    if (branchElement && gitStatus.branch) {
-      branchElement.innerHTML = `<img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${gitStatus.branch}`;
-      console.log(`[GIT-BG] ✅ Branch atualizada para ${project.name}: ${gitStatus.branch}`);
-    } else {
-      console.log(`[GIT-BG] ⚠️ Elemento branch não encontrado: ${branchElementId}`);
+    let branchElement = document.getElementById(branchElementId);
+    
+    if (gitStatus.branch) {
+      // Se o elemento de branch não existe, cria dentro do container
+      if (!branchElement) {
+        const badgesContainerId = isPamp ? `pamp-version-badges-${projectIndex}` : `pas-version-badges-${projectIndex}`;
+        const badgesContainer = document.getElementById(badgesContainerId);
+        if (badgesContainer) {
+          const branchSpan = document.createElement('span');
+          branchSpan.id = branchElementId;
+          const branchColor = isPamp ? '#28a745' : '#007bff';
+          branchSpan.style.cssText = `background: ${branchColor}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;`;
+          badgesContainer.appendChild(branchSpan);
+          branchElement = branchSpan;
+          console.log(`[GIT-BG] 🆕 Badge de branch criado para ${project.name}`);
+        }
+      }
+      
+      if (branchElement) {
+        branchElement.innerHTML = `<img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${gitStatus.branch}`;
+        console.log(`[GIT-BG] ✅ Branch atualizada para ${project.name}: ${gitStatus.branch}`);
+      } else {
+        console.log(`[GIT-BG] ⚠️ Elemento branch não encontrado: ${branchElementId}`);
+      }
     }
     
     // Atualiza o badge de commits pendentes - CORRIGIDO OS IDs
@@ -1423,20 +1526,21 @@
     
     if (gitStatus.pendingCommits > 0) {
       console.log(`[GIT-BG] 📊 ${gitStatus.pendingCommits} commits pendentes - criando/atualizando badge`);
-      // Se não existe o elemento, cria
+      // Se não existe o elemento, cria dentro do container de badges
       if (!commitsElement) {
-        const branchElement = document.getElementById(branchElementId);
-        if (branchElement && branchElement.parentElement) {
+        const badgesContainerId = isPamp ? `pamp-version-badges-${projectIndex}` : `pas-version-badges-${projectIndex}`;
+        const badgesContainer = document.getElementById(badgesContainerId);
+        if (badgesContainer) {
           const commitsSpan = document.createElement('span');
           commitsSpan.id = commitsElementId;
           commitsSpan.style.cssText = 'background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;';
           commitsSpan.title = 'Clique para atualizar branch';
           commitsSpan.onclick = () => handleUpdateBranch(projectIndex, project.name, project.path, isPamp);
-          branchElement.parentElement.appendChild(commitsSpan);
+          badgesContainer.appendChild(commitsSpan);
           commitsElement = commitsSpan;
           console.log(`[GIT-BG] 🆕 Badge de commits criado para ${project.name}`);
         } else {
-          console.log(`[GIT-BG] ❌ Não foi possível criar badge - elemento branch não encontrado`);
+          console.log(`[GIT-BG] ❌ Não foi possível criar badge - container não encontrado`);
         }
       }
       
@@ -1453,16 +1557,17 @@
       console.log(`[GIT-BG] ✅ 0 commits pendentes - mostrando badge "Atualizado"`);
       // Mostra "Atualizado" quando não há commits pendentes
       if (!commitsElement) {
-        const branchElement = document.getElementById(branchElementId);
-        if (branchElement && branchElement.parentElement) {
+        const badgesContainerId = isPamp ? `pamp-version-badges-${projectIndex}` : `pas-version-badges-${projectIndex}`;
+        const badgesContainer = document.getElementById(badgesContainerId);
+        if (badgesContainer) {
           const commitsSpan = document.createElement('span');
           commitsSpan.id = commitsElementId;
           commitsSpan.style.cssText = 'background: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;';
-          branchElement.parentElement.appendChild(commitsSpan);
+          badgesContainer.appendChild(commitsSpan);
           commitsElement = commitsSpan;
           console.log(`[GIT-BG] 🆕 Badge "Atualizado" criado para ${project.name}`);
         } else {
-          console.log(`[GIT-BG] ❌ Não foi possível criar badge "Atualizado" - elemento branch não encontrado`);
+          console.log(`[GIT-BG] ❌ Não foi possível criar badge "Atualizado" - container não encontrado`);
         }
       }
       
@@ -2040,42 +2145,141 @@
     updateNexusStatusBadge(isLoggedIn, isLoggedIn ? 'Conectado automaticamente' : 'Necessário fazer login');
   });
 
-  ipcRenderer.send('load-node-info');
-  ipcRenderer.send('load-angular-info');
+  // Solicita status das dependências Node.js portátil
+  ipcRenderer.send('check-dependencies-status');
   
-  ipcRenderer.on('node-info', (event, { version, warning }) => {
-    const nodeVersionSpan = document.getElementById('node-version');
-    const nodeWarningDiv = document.getElementById('node-warning');
+  ipcRenderer.on('dependencies-status', (event, { installed, message, nodesPath }) => {
+    const dependenciesStatusSpan = document.getElementById('dependencies-status');
 
-    if (version) {
-      nodeVersionSpan.innerText = `Node.js: ${version}`;
-      nodeVersionSpan.style.color = version === 'v16.10.0' ? 'green' : 'orange';
+    if (installed) {
+      // ✅ Dependências instaladas - Verde com tooltip e link
+      dependenciesStatusSpan.innerHTML = `
+        <span class="dependencies-container" style="position: relative; display: inline-block;">
+          <span 
+            class="dependencies-text"
+            style="color: #4CAF50; font-weight: 500; cursor: help;"
+            title="Node.js portátil instalado localmente. Cada projeto usa sua versão configurada."
+          >
+            ✔️ Dependências instaladas
+          </span>
+          <a 
+            href="#" 
+            class="open-folder-link"
+            onclick="require('electron').ipcRenderer.send('open-nodes-folder', '${nodesPath.replace(/\\/g, '\\\\')}'); return false;" 
+            style="
+              position: absolute;
+              right: -110px;
+              top: 50%;
+              transform: translateY(-50%);
+              color: #0066cc;
+              text-decoration: none;
+              font-size: 11px;
+              white-space: nowrap;
+              opacity: 0;
+              pointer-events: none;
+              transition: opacity 0.2s ease;
+              background: rgba(0, 0, 0, 0.7);
+              padding: 2px 6px;
+              border-radius: 4px;
+            "
+            title="Abrir pasta das dependências Node.js portáteis"
+          >
+            📁 Abrir pasta
+          </a>
+        </span>
+      `;
+      
+      // Mostra link ao passar o mouse
+      const container = dependenciesStatusSpan.querySelector('.dependencies-container');
+      const link = container.querySelector('.open-folder-link');
+      
+      // Mantém visível quando o mouse está sobre o link
+      let hideTimeout;
+      const hideLink = () => {
+        hideTimeout = setTimeout(() => {
+          link.style.opacity = '0';
+          link.style.pointerEvents = 'none';
+        }, 100);
+      };
+      
+      const cancelHide = () => {
+        if (hideTimeout) clearTimeout(hideTimeout);
+      };
+      
+      container.addEventListener('mouseenter', () => {
+        cancelHide();
+        link.style.opacity = '1';
+        link.style.pointerEvents = 'auto';
+      });
+      
+      container.addEventListener('mouseleave', hideLink);
+      link.addEventListener('mouseenter', cancelHide);
+      link.addEventListener('mouseleave', hideLink);
+      
     } else {
-      nodeVersionSpan.innerHTML = `<a href="https://nodejs.org/" target="_blank" style="color: red; text-decoration: none;">Node.js não instalado (Baixar)</a>`;
-    }
-
-    if (warning) {
-      nodeWarningDiv.innerText = warning;
-    } else {
-      nodeWarningDiv.innerText = '';
-    }
-  });
-
-  ipcRenderer.on('angular-info', (event, { version, warning }) => {
-    const angularVersionSpan = document.getElementById('angular-version');
-    const angularWarningDiv = document.getElementById('angular-warning');
-
-    if (version) {
-      angularVersionSpan.innerText = `Angular CLI: ${version}`;
-      angularVersionSpan.style.color = version === '13.3.11' ? 'green' : 'orange';
-    } else {
-      angularVersionSpan.innerHTML = `<a href="https://angular.io/cli" target="_blank" style="color: red; text-decoration: none;">Angular CLI não instalado (Baixar)</a>`;
-    }
-
-    if (warning) {
-      angularWarningDiv.innerText = warning;
-    } else {
-      angularWarningDiv.innerText = '';
+      // ❗ Dependências não instaladas - Vermelho com tooltip e link
+      dependenciesStatusSpan.innerHTML = `
+        <span class="dependencies-container" style="position: relative; display: inline-block;">
+          <span 
+            class="dependencies-text"
+            style="color: #f44336; font-weight: 500; cursor: help;"
+            title="Node.js portátil não instalado. Use o menu 'Dependências > Instalar Dependências Node.js' para instalar."
+          >
+            ❗ Dependências não instaladas
+          </span>
+          <a 
+            href="#" 
+            class="open-folder-link"
+            onclick="require('electron').ipcRenderer.send('open-nodes-folder', '${nodesPath.replace(/\\/g, '\\\\')}'); return false;" 
+            style="
+              position: absolute;
+              right: -110px;
+              top: 50%;
+              transform: translateY(-50%);
+              color: #0066cc;
+              text-decoration: none;
+              font-size: 11px;
+              white-space: nowrap;
+              opacity: 0;
+              pointer-events: none;
+              transition: opacity 0.2s ease;
+              background: rgba(0, 0, 0, 0.7);
+              padding: 2px 6px;
+              border-radius: 4px;
+            "
+            title="Abrir pasta onde as dependências devem ser instaladas"
+          >
+            📁 Abrir pasta
+          </a>
+        </span>
+      `;
+      
+      // Mostra link ao passar o mouse
+      const container = dependenciesStatusSpan.querySelector('.dependencies-container');
+      const link = container.querySelector('.open-folder-link');
+      
+      // Mantém visível quando o mouse está sobre o link
+      let hideTimeout;
+      const hideLink = () => {
+        hideTimeout = setTimeout(() => {
+          link.style.opacity = '0';
+          link.style.pointerEvents = 'none';
+        }, 100);
+      };
+      
+      const cancelHide = () => {
+        if (hideTimeout) clearTimeout(hideTimeout);
+      };
+      
+      container.addEventListener('mouseenter', () => {
+        cancelHide();
+        link.style.opacity = '1';
+        link.style.pointerEvents = 'auto';
+      });
+      
+      container.addEventListener('mouseleave', hideLink);
+      link.addEventListener('mouseenter', cancelHide);
+      link.addEventListener('mouseleave', hideLink);
     }
   });
 
@@ -2376,6 +2580,100 @@
   // Initialize UI after DOM is loaded
   document.addEventListener('DOMContentLoaded', function() {
     applyTheme();
+  });
+
+  // Função para mostrar/esconder badges de versão
+  function toggleVersionBadges(projectIndex, isPamp) {
+    const prefix = isPamp ? 'pamp' : 'pas';
+    const container = document.getElementById(`${prefix}-version-badges-${projectIndex}`);
+    const btn = event.target; // O botão que foi clicado
+    
+    if (!container) return;
+    
+    if (container.classList.contains('visible')) {
+      // Esconder badges
+      container.classList.remove('visible');
+      btn.textContent = '›';
+      btn.title = 'Mostrar badges';
+    } else {
+      // Mostrar badges
+      container.classList.add('visible');
+      btn.textContent = '‹';
+      btn.title = 'Esconder badges';
+    }
+  }
+
+  // Função para atualizar badges de versão de um projeto específico
+  async function updateProjectVersionBadges(projectName, projectIndex, isPamp = false) {
+    try {
+      // Buscar configurações de versão de Node para todos os projetos
+      const versionConfigs = await ipcRenderer.invoke('get-all-node-versions');
+      
+      // Mapeamento de versões Node -> Angular CLI (sincronizado com node-version-config.js)
+      const nodeToAngularMap = {
+        '16.10.0': '13.3.11',
+        '18.18.2': '15.2.10',
+        '20.19.5': '18.2.0'
+      };
+
+      // Busca a versão configurada para este projeto ou usa padrão
+      let nodeVersion = versionConfigs[projectName];
+      
+      // Se não tem configuração, busca o padrão do projeto
+      if (!nodeVersion) {
+        // Valores padrão baseados no nome do projeto
+        if (projectName === 'mp-pas-configuracoes') {
+          nodeVersion = '18.18.2';
+        } else {
+          nodeVersion = '16.10.0';
+        }
+      }
+
+      const angularVersion = nodeToAngularMap[nodeVersion] || 'N/A';
+      
+      // Determina o prefixo do ID baseado no tipo de projeto
+      const prefix = isPamp ? 'pamp' : 'pas';
+
+      // Atualiza badges do projeto
+      const nodeBadge = document.getElementById(`${prefix}-node-version-${projectIndex}`);
+      const angularBadge = document.getElementById(`${prefix}-angular-version-${projectIndex}`);
+
+      if (nodeBadge) {
+        nodeBadge.querySelector('.version-text').textContent = nodeVersion;
+        nodeBadge.title = `Node.js ${nodeVersion}`;
+      }
+
+      if (angularBadge) {
+        angularBadge.querySelector('.version-text').textContent = angularVersion;
+        angularBadge.title = `Angular CLI ${angularVersion}`;
+      }
+
+      console.log(`✅ Badges do projeto ${projectName} atualizados: Node ${nodeVersion}, Angular CLI ${angularVersion}`);
+    } catch (error) {
+      console.error(`❌ Erro ao atualizar badges do projeto ${projectName}:`, error);
+    }
+  }
+
+  // Atualiza todos os badges de versão dos projetos carregados
+  async function updateAllProjectVersionBadges() {
+    if (!currentProjects || currentProjects.length === 0) {
+      console.log('⚠️ Nenhum projeto carregado ainda');
+      return;
+    }
+
+    console.log('🔄 Atualizando badges de versão de todos os projetos...');
+    
+    for (let i = 0; i < currentProjects.length; i++) {
+      const project = currentProjects[i];
+      const isPamp = project.name && (project.name.startsWith('mp-pamp') || project.name === 'mp-pamp');
+      await updateProjectVersionBadges(project.name, i, isPamp);
+    }
+  }
+
+  // Atualiza badges quando as configurações são alteradas
+  ipcRenderer.on('node-versions-updated', () => {
+    console.log('🔄 Configurações de versão atualizadas, recarregando badges...');
+    updateAllProjectVersionBadges();
   });
 </script>
 </body>

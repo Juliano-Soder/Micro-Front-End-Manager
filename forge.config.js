@@ -5,6 +5,10 @@ module.exports = {
   packagerConfig: {
     asar: true,
     icon: './OIP',
+    // Inclui pasta nodes na compilação (será copiada para fora do .asar)
+    extraResource: [
+      './nodes'
+    ],
     win32metadata: {
       CompanyName: "Grupo Casas Bahia",
       FileDescription: "Gerenciador de Micro Front-Ends",
