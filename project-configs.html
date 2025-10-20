@@ -119,14 +119,16 @@
 
         .version-option {
             display: flex;
-            align-items: center;
-            gap: 5px;
-            padding: 8px 15px;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 10px 15px;
             background: #fff;
             border: 2px solid #ddd;
             border-radius: 5px;
             cursor: pointer;
             transition: all 0.2s ease;
+            min-width: 140px;
         }
 
         body.dark-mode .version-option {
@@ -155,11 +157,6 @@
             border-color: #777;
         }
 
-        .version-option.selected .version-tag {
-            background: rgba(255, 255, 255, 0.2);
-            color: #fff;
-        }
-
         .version-option input[type="radio"] {
             display: none;
         }
@@ -168,14 +165,87 @@
             font-size: 14px;
             font-weight: bold;
             cursor: pointer;
+            width: 100%;
         }
 
-        .version-tag {
+        .cli-selector-inline {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            width: 100%;
+            padding: 4px 0;
+        }
+
+        .cli-label-inline {
             font-size: 11px;
-            background: #f0f0f0;
-            color: #666;
-            padding: 2px 8px;
+            font-weight: normal;
+            opacity: 0.8;
+            white-space: nowrap;
+        }
+
+        .cli-dropdown-inline {
+            flex: 1;
+            padding: 2px 6px;
+            border: 1px solid #ddd;
             border-radius: 3px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+            font-size: 11px;
+            cursor: pointer;
+            min-width: 60px;
+        }
+
+        body.dark-mode .cli-dropdown-inline {
+            background: #2d2d2d;
+            border-color: #666;
+            color: #fff;
+        }
+
+        body.dark-mode .cli-dropdown-inline option {
+            background: #2d2d2d;
+            color: #fff;
+        }
+
+        .version-option.selected .cli-dropdown-inline {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.3);
+            color: #fff;
+        }
+
+        body.dark-mode .version-option.selected .cli-dropdown-inline {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.3);
+            color: #fff;
+        }
+
+        body.dark-mode .version-option.selected .cli-dropdown-inline option {
+            background: #3a3a3a;
+            color: #fff;
+        }
+
+        .cli-dropdown-inline:hover {
+            background: rgba(255, 255, 255, 1);
+            border-color: #0066cc;
+        }
+
+        body.dark-mode .cli-dropdown-inline:hover {
+            background: #3a3a3a;
+            border-color: #3399ff;
+        }
+
+        .cli-dropdown-inline:focus {
+            outline: none;
+            border-color: #0066cc;
+        }
+
+        body.dark-mode .cli-dropdown-inline:focus {
+            border-color: #3399ff;
+        }
+
+        .cli-status {
+            font-size: 10px;
+            opacity: 0.7;
+            margin-top: 2px;
         }
 
         .empty-state {
@@ -217,6 +287,8 @@
             display: block;
             margin-bottom: 5px;
         }
+
+
     </style>
 </head>
 <body>
@@ -246,6 +318,26 @@
         
         let projects = [];
         let projectConfigs = {};
+        let angularCliConfigs = {}; // Armazena versões do Angular CLI escolhidas
+
+        // Matriz de compatibilidade Node.js x Angular CLI
+        const ANGULAR_COMPATIBILITY = {
+            '16.10.0': {
+                nodeLabel: 'Node 16',
+                defaultCli: '13',
+                compatibleCli: ['13', '14']
+            },
+            '18.18.2': {
+                nodeLabel: 'Node 18',
+                defaultCli: '15',
+                compatibleCli: ['15', '16', '17']
+            },
+            '20.19.5': {
+                nodeLabel: 'Node 20',
+                defaultCli: '18',
+                compatibleCli: ['17', '18']
+            }
+        };
 
         // Recebe tema via IPC
         ipcRenderer.on('apply-theme', (event, isDarkMode) => {
@@ -295,15 +387,15 @@
                 console.log(`[DEBUG] ${project.name}: savedConfig=${projectConfigs[project.name]}, default=${project.defaultVersion}, final=${currentVersion}`);
                 
                 return `
-                    <div class="project-item">
+                    <div class="project-item" data-project="${escapeHtml(project.name)}">
                         <div class="project-info">
                             <div class="project-name">📦 ${escapeHtml(project.name)}</div>
                             <div class="project-path">${escapeHtml(project.path)}</div>
                         </div>
                         <div class="version-selector">
-                            ${createVersionOption(project.name, '16.10.0', 'Node 16', 'Angular 13', currentVersion)}
-                            ${createVersionOption(project.name, '18.18.2', 'Node 18', 'Angular 15', currentVersion)}
-                            ${createVersionOption(project.name, '20.19.5', 'Node 20', 'Angular 18', currentVersion)}
+                            ${createVersionOption(project.name, '16.10.0', 'Node 16', currentVersion)}
+                            ${createVersionOption(project.name, '18.18.2', 'Node 18', currentVersion)}
+                            ${createVersionOption(project.name, '20.19.5', 'Node 20', currentVersion)}
                         </div>
                     </div>
                 `;
@@ -315,44 +407,205 @@
             });
         }
 
-        // Cria opção de versão
-        function createVersionOption(projectName, version, nodeLabel, angularLabel, currentVersion) {
+        // Cria opção de versão com CLI integrada
+        function createVersionOption(projectName, version, nodeLabel, currentVersion) {
             const isSelected = version === currentVersion;
+            const compatibility = ANGULAR_COMPATIBILITY[version];
+            const currentCli = angularCliConfigs[projectName + '-' + version] || compatibility.defaultCli;
+            
+            const cliOptions = compatibility.compatibleCli.map(cli => 
+                `<option value="${cli}" ${cli === currentCli ? 'selected' : ''}>${cli}</option>`
+            ).join('');
+
             return `
-                <label class="version-option ${isSelected ? 'selected' : ''}" data-project="${projectName}" data-version="${version}">
+                <label class="version-option ${isSelected ? 'selected' : ''}" 
+                       data-project="${projectName}" 
+                       data-version="${version}"
+                       onclick="handleNodeClick(event, '${projectName}', '${version}')">
                     <input type="radio" 
                            name="version-${projectName}" 
                            value="${version}" 
                            ${isSelected ? 'checked' : ''}>
                     <div class="version-label">${nodeLabel}</div>
-                    <div class="version-tag">${angularLabel}</div>
+                    <div class="cli-selector-inline">
+                        <span class="cli-label-inline">CLI:</span>
+                        <select class="cli-dropdown-inline" 
+                                data-project="${projectName}" 
+                                data-node-version="${version}"
+                                onchange="handleCliChange(event, '${projectName}', '${version}')"
+                                onclick="event.stopPropagation()">
+                            ${cliOptions}
+                        </select>
+                    </div>
                 </label>
             `;
         }
 
-        // Manipula mudança de versão
-        function handleVersionChange(event) {
-            const radio = event.target;
-            const projectName = radio.name.replace('version-', '');
-            const version = radio.value;
+        // Manipula clique no botão do Node (label)
+        function handleNodeClick(event, projectName, nodeVersion) {
+            // Se clicou no dropdown, não faz nada (deixa o dropdown abrir)
+            if (event.target.classList.contains('cli-dropdown-inline')) {
+                return;
+            }
             
-            // Atualiza configuração local
-            projectConfigs[projectName] = version;
+            // Seleciona o Node
+            const radio = document.querySelector(`input[name="version-${projectName}"][value="${nodeVersion}"]`);
+            if (radio) {
+                radio.checked = true;
+                
+                // Atualiza configuração local
+                projectConfigs[projectName] = nodeVersion;
+                
+                // Atualiza UI
+                document.querySelectorAll(`label[data-project="${projectName}"]`).forEach(label => {
+                    if (label.dataset.version === nodeVersion) {
+                        label.classList.add('selected');
+                    } else {
+                        label.classList.remove('selected');
+                    }
+                });
+                
+                // Pega a versão da CLI selecionada neste Node
+                const dropdown = event.currentTarget.querySelector('.cli-dropdown-inline');
+                const cliVersion = dropdown ? dropdown.value : ANGULAR_COMPATIBILITY[nodeVersion].defaultCli;
+                
+                // Mostra status de "verificando/instalando"
+                showInstallationStatus(projectName, nodeVersion, 'checking');
+                
+                // Envia atualização ao processo principal (salvamento automático + instalação do Node)
+                ipcRenderer.send('update-project-version', { projectName, version: nodeVersion });
+                
+                // Instala a CLI automaticamente
+                installAngularCli(projectName, nodeVersion, cliVersion);
+                
+                console.log(`✅ Configuração salva: ${projectName} → Node ${nodeVersion}, CLI ${cliVersion}`);
+            }
+        }
+
+        // Manipula mudança no dropdown da CLI
+        function handleCliChange(event, projectName, nodeVersion) {
+            event.stopPropagation(); // Impede de selecionar o Node
             
-            // Atualiza UI
-            document.querySelectorAll(`label[data-project="${projectName}"]`).forEach(label => {
-                if (label.dataset.version === version) {
-                    label.classList.add('selected');
-                } else {
-                    label.classList.remove('selected');
-                }
+            const cliVersion = event.target.value;
+            const configKey = projectName + '-' + nodeVersion;
+            angularCliConfigs[configKey] = cliVersion;
+            
+            console.log(`🔧 CLI alterada: ${projectName} (Node ${nodeVersion}) → CLI ${cliVersion}`);
+            
+            // Instala automaticamente a nova versão da CLI
+            installAngularCli(projectName, nodeVersion, cliVersion);
+        }
+
+        // Instala versão específica do Angular CLI no Node portátil
+        function installAngularCli(projectName, nodeVersion, cliVersion) {
+            console.log(`🔧 Instalando Angular CLI ${cliVersion} no Node ${nodeVersion} (${projectName})...`);
+            
+            // Mostra feedback visual temporário
+            const projectItem = document.querySelector(`.project-item[data-project="${projectName}"]`);
+            const label = projectItem.querySelector(`label[data-version="${nodeVersion}"]`);
+            const dropdown = label.querySelector('.cli-dropdown-inline');
+            
+            const originalBg = dropdown.style.background;
+            dropdown.style.background = '#fff3cd';
+            dropdown.disabled = true;
+            
+            // Envia para o backend instalar a CLI no Node portátil específico
+            ipcRenderer.send('install-angular-cli-portable', { 
+                projectName, 
+                nodeVersion, 
+                cliVersion 
             });
             
-            // Envia atualização ao processo principal (salvamento automático)
-            ipcRenderer.send('update-project-version', { projectName, version });
-            
-            console.log(`✅ Configuração salva automaticamente: ${projectName} → Node ${version}`);
+            // Simula feedback por enquanto
+            setTimeout(() => {
+                dropdown.style.background = '#d4edda';
+                setTimeout(() => {
+                    dropdown.style.background = originalBg;
+                    dropdown.disabled = false;
+                }, 1000);
+            }, 1500);
         }
+
+        // Mostra status da instalação
+        function showInstallationStatus(projectName, version, status) {
+            // Encontra o item do projeto
+            const projectItems = document.querySelectorAll('.project-item');
+            const projectItem = Array.from(projectItems).find(item => {
+                const nameEl = item.querySelector('.project-name');
+                return nameEl && nameEl.textContent.includes(projectName);
+            });
+            
+            if (!projectItem) return;
+            
+            // Remove status anterior
+            const oldStatus = projectItem.querySelector('.installation-status');
+            if (oldStatus) oldStatus.remove();
+            
+            // Adiciona novo status
+            const statusEl = document.createElement('div');
+            statusEl.className = 'installation-status';
+            
+            if (status === 'checking') {
+                statusEl.innerHTML = '🔍 Verificando...';
+                statusEl.style.color = '#666';
+            } else if (status === 'installing') {
+                statusEl.innerHTML = '⏳ Instalando Node.js ' + version + '...';
+                statusEl.style.color = '#007bff';
+            } else if (status === 'success') {
+                statusEl.innerHTML = '✅ Node.js ' + version + ' instalado!';
+                statusEl.style.color = '#28a745';
+                setTimeout(() => statusEl.remove(), 3000);
+            } else if (status === 'already-installed') {
+                statusEl.innerHTML = '✅ Node.js ' + version + ' já instalado';
+                statusEl.style.color = '#28a745';
+                setTimeout(() => statusEl.remove(), 2000);
+            } else if (status === 'error') {
+                statusEl.innerHTML = '❌ Erro na instalação';
+                statusEl.style.color = '#dc3545';
+                setTimeout(() => statusEl.remove(), 5000);
+            }
+            
+            statusEl.style.fontSize = '12px';
+            statusEl.style.marginTop = '8px';
+            statusEl.style.fontWeight = 'bold';
+            
+            projectItem.querySelector('.project-info').appendChild(statusEl);
+        }
+
+        // Listener para status de instalação do Node
+        ipcRenderer.on('installation-status', (event, { projectName, version, status, message }) => {
+            console.log(`[INSTALLATION] ${projectName} → ${version}: ${status} - ${message}`);
+            showInstallationStatus(projectName, version, status);
+        });
+
+        // Listener para status de instalação da CLI
+        ipcRenderer.on('cli-installation-status', (event, { projectName, nodeVersion, cliVersion, status, message }) => {
+            console.log(`[CLI INSTALLATION] ${projectName} (Node ${nodeVersion}) → CLI ${cliVersion}: ${status} - ${message}`);
+            
+            const projectItem = document.querySelector(`.project-item[data-project="${projectName}"]`);
+            if (!projectItem) return;
+            
+            const label = projectItem.querySelector(`label[data-version="${nodeVersion}"]`);
+            if (!label) return;
+            
+            const dropdown = label.querySelector('.cli-dropdown-inline');
+            if (!dropdown) return;
+            
+            if (status === 'success') {
+                dropdown.style.background = '#d4edda';
+                dropdown.disabled = false;
+                setTimeout(() => {
+                    dropdown.style.background = '';
+                }, 2000);
+            } else if (status === 'error') {
+                dropdown.style.background = '#f8d7da';
+                dropdown.disabled = false;
+                alert(`Erro ao instalar CLI ${cliVersion}: ${message}`);
+                setTimeout(() => {
+                    dropdown.style.background = '';
+                }, 3000);
+            }
+        });
 
         // Escape HTML
         function escapeHtml(text) {

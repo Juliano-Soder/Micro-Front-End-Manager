@@ -277,13 +277,128 @@ ipcMain.on('get-project-configs', (event) => {
 });
 
 // Atualiza versão de um projeto
-ipcMain.on('update-project-version', (event, { projectName, version }) => {
+ipcMain.on('update-project-version', async (event, { projectName, version }) => {
   if (!projectConfigManager) {
     projectConfigManager = new ProjectConfigManager();
   }
   
   projectConfigManager.setProjectNodeVersion(projectName, version);
   console.log(`[DEBUG] Versão do ${projectName} atualizada para ${version}`);
+  
+  // Verifica se a versão do Node.js já está instalada
+  if (!nodeInstaller) {
+    nodeInstaller = new NodeInstaller(null);
+  }
+  
+  try {
+    const nodePaths = require('./node-version-config').getNodeExecutablePath(version, require('./node-version-config').getCurrentOS());
+    const isInstalled = require('fs').existsSync(nodePaths.nodeExe);
+    
+    if (!isInstalled) {
+      console.log(`🔧 Instalando Node.js ${version} automaticamente...`);
+      event.reply('installation-status', { 
+        projectName, 
+        version, 
+        status: 'installing',
+        message: `Instalando Node.js ${version}...`
+      });
+      
+      await nodeInstaller.installNodeVersion(version);
+      
+      console.log(`✅ Node.js ${version} instalado com sucesso!`);
+      event.reply('installation-status', { 
+        projectName, 
+        version, 
+        status: 'success',
+        message: `Node.js ${version} instalado com sucesso!`
+      });
+    } else {
+      console.log(`✅ Node.js ${version} já está instalado`);
+      event.reply('installation-status', { 
+        projectName, 
+        version, 
+        status: 'already-installed',
+        message: `Node.js ${version} já está instalado`
+      });
+    }
+  } catch (error) {
+    console.error(`❌ Erro ao instalar Node.js ${version}:`, error);
+    event.reply('installation-status', { 
+      projectName, 
+      version, 
+      status: 'error',
+      message: `Erro ao instalar Node.js ${version}: ${error.message}`
+    });
+  }
+});
+
+// Instala Angular CLI em Node portátil específico
+ipcMain.on('install-angular-cli-portable', async (event, { projectName, nodeVersion, cliVersion }) => {
+  console.log(`🔧 Instalando Angular CLI ${cliVersion} no Node ${nodeVersion} portátil para ${projectName}...`);
+  
+  try {
+    const { getNodeExecutablePath } = require('./node-version-config');
+    const currentOS = require('./node-version-config').getCurrentOS();
+    const nodePaths = getNodeExecutablePath(nodeVersion, currentOS);
+    
+    // Verifica se o Node está instalado
+    if (!fs.existsSync(nodePaths.nodeExe)) {
+      console.error(`❌ Node.js ${nodeVersion} não está instalado`);
+      event.reply('cli-installation-status', {
+        projectName,
+        nodeVersion,
+        cliVersion,
+        status: 'error',
+        message: `Node.js ${nodeVersion} não encontrado`
+      });
+      return;
+    }
+    
+    // Monta comando para instalar CLI no Node portátil
+    const npmExe = nodePaths.npmExe || nodePaths.nodeExe.replace('node.exe', 'npm.cmd');
+    const installCommand = `"${npmExe}" install -g @angular/cli@${cliVersion}`;
+    
+    console.log(`📝 Executando: ${installCommand}`);
+    
+    exec(installCommand, { 
+      maxBuffer: 1024 * 1024 * 10,
+      env: {
+        ...process.env,
+        PATH: path.dirname(nodePaths.nodeExe) + path.delimiter + process.env.PATH
+      }
+    }, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`❌ Erro ao instalar Angular CLI ${cliVersion}:`, error.message);
+        event.reply('cli-installation-status', {
+          projectName,
+          nodeVersion,
+          cliVersion,
+          status: 'error',
+          message: `Erro: ${error.message}`
+        });
+        return;
+      }
+      
+      console.log(`✅ Angular CLI ${cliVersion} instalado com sucesso no Node ${nodeVersion}`);
+      event.reply('cli-installation-status', {
+        projectName,
+        nodeVersion,
+        cliVersion,
+        status: 'success',
+        message: `CLI ${cliVersion} instalado com sucesso`
+      });
+    });
+    
+  } catch (error) {
+    console.error(`❌ Erro ao instalar Angular CLI:`, error);
+    event.reply('cli-installation-status', {
+      projectName,
+      nodeVersion,
+      cliVersion,
+      status: 'error',
+      message: error.message
+    });
+  }
 });
 
 // Salva configurações de projetos
@@ -689,62 +804,25 @@ async function preloadNodeInfo() {
 
 async function preloadAngularInfo() {
   try {
-    console.log('🔍 Pré-carregando informações do Angular CLI...');
+    console.log('🔍 Verificando instalações locais de Node.js portátil...');
     
     return new Promise((resolve) => {
-      // Usar exec assíncrono com timeout maior
-      exec('ng version', { timeout: 15000 }, (error, stdout, stderr) => {
-        if (error) {
-          console.log('[ERROR] Angular CLI nao disponivel no pre-carregamento:', error.message);
-          
-          // NÃO salva no cache quando há erro - deixa para verificação posterior
-          appCache.angularInfo = {
-            version: null,
-            available: false,
-            needsReverification: true, // Flag para indicar que precisa reverificar
-            cacheSkipped: true // Indica que o cache foi pulado por erro
-          };
-          resolve();
-          return;
-        }
-        
-        const angularOutput = stdout.toString();
-        console.log('[SUCCESS] Angular CLI encontrado no pre-carregamento');
-        const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
-        
-        if (angularCliMatch) {
-          const version = angularCliMatch[1];
-          // SOMENTE salva no cache quando CONFIRMADO como disponível
-          appCache.angularInfo = {
-            version: version,
-            available: true,
-            confirmed: true, // Flag para indicar que foi confirmado
-            fullOutput: angularOutput
-          };
-          console.log(`[SUCCESS] Angular CLI pre-carregado e confirmado: ${version}`);
-        } else {
-          // Mesmo sem versão detectada, se chegou aqui é porque está instalado
-          appCache.angularInfo = {
-            version: 'Instalado (versão não detectada)',
-            available: true,
-            confirmed: true,
-            fullOutput: angularOutput
-          };
-          console.log('[SUCCESS] Angular CLI pre-carregado (versao nao detectada mas confirmado)');
-        }
-        
-        resolve();
-      });
+      // Com Node.js portátil, não precisamos verificar ng version global
+      // A verificação será feita por projeto baseado no Node portátil configurado
+      console.log('✅ Sistema usando Node.js portátil - verificação por projeto ativa');
+      
+      appCache.angularInfo = {
+        version: 'Portátil (verificado por projeto)',
+        available: true,
+        portable: true,
+        confirmed: true
+      };
+      
+      resolve();
     });
   } catch (error) {
-    console.error('Erro no pré-carregamento do Angular:', error);
-    // NÃO define cache em caso de erro
-    appCache.angularInfo = {
-      version: null,
-      available: false,
-      needsReverification: true,
-      cacheSkipped: true
-    };
+    console.error('Erro ao inicializar sistema portátil:', error);
+    return Promise.resolve();
   }
 }
 
@@ -1680,86 +1758,10 @@ function openConfigWindow() {
 
 // Função para instalar dependências
 function handleInstallDependencies() {
-  const installWindow = new BrowserWindow({
-    width: 600,
-    height: 400,
-    modal: true,
-    parent: mainWindow,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-    },
-    autoHideMenuBar: true,
-    titleBarStyle: 'hidden',
-  });
-
-  installWindow.loadFile('install.html');
-
-  installWindow.webContents.once('did-finish-load', () => {
-    console.log('A janela de instalação foi carregada.');
-    installWindow.webContents.send('start-installation');
-  });
-
-  // Tratamento seguro para fechamento da janela
-  const closeHandler = () => {
-    if (!installWindow.isDestroyed()) {
-      try {
-        installWindow.close();
-        console.log('✅ Janela de instalação fechada com sucesso');
-      } catch (error) {
-        console.error('Erro ao fechar janela de instalação:', error);
-      }
-    }
-  };
-
-  // Listener único para esta instância da janela
-  const closeListener = () => {
-    closeHandler();
-    ipcMain.removeListener('close-install-window', closeListener);
-  };
-
-  ipcMain.once('close-install-window', closeListener);
-
-  // Quando a janela de instalação é fechada, reabilita o menu
-  installWindow.on('closed', () => {
-    const menuItem = appMenu ? appMenu.getMenuItemById('install-deps') : null;
-    if (menuItem) {
-      menuItem.label = 'Instalar Dependências';
-      menuItem.enabled = true;
-    }
-    // Remove o listener se ainda existir
-    ipcMain.removeListener('close-install-window', closeListener);
-    console.log('🧹 Limpeza de handlers da janela de instalação concluída');
-  });
-
-  // Tratamento para quando a janela é fechada via [x] - PREVINE TRAVAMENTO
-  installWindow.on('close', (event) => {
-    console.log('Janela de instalação sendo fechada pelo usuário...');
-    // Não previne o fechamento - deixa fechar normalmente
-  });
-
-  // Tratamento para quando a janela é destruída - PREVINE VAZAMENTOS
-  installWindow.on('destroy', () => {
-    console.log('Janela de instalação destruída - removendo handlers');
-    ipcMain.removeListener('close-install-window', closeListener);
-  });
-
-  // Tratamento para erros não capturados
-  installWindow.webContents.on('crashed', () => {
-    console.error('Janela de instalação teve crash');
-    if (!installWindow.isDestroyed()) {
-      installWindow.close();
-    }
-  });
-
-  // Tratamento para contexto não responsivo
-  installWindow.webContents.on('unresponsive', () => {
-    console.warn('Janela de instalação não está respondendo');
-  });
-
-  installWindow.webContents.on('responsive', () => {
-    console.log('Janela de instalação voltou a responder');
-  });
+  console.log('📦 Abrindo instalador de dependências (Node.js portátil)');
+  
+  // Usa o novo sistema de instalação com Node.js portátil
+  openInstallerWindow();
 }
 
 // Função para abrir janela do instalador de Node.js
@@ -3381,25 +3383,16 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       }
 
       // Prossegue com a inicialização normal
-      console.log(`[START] 🔄 Liberando porta ${port}...`);
+      console.log(`[START] 🔄 Iniciando projeto...`);
       
-      // Derruba qualquer processo rodando na porta
-      exec(`npx kill-port ${port}`, (err) => {
-        if (err) {
-          event.reply('log', { path: projectPath, message: `⚠️ Erro ao liberar a porta ${port}: ${err.message}` });
-        } else {
-          event.reply('log', { path: projectPath, message: `✅ Porta ${port} liberada. Iniciando projeto...` });
-        }
+      // Não precisamos mais liberar porta - o Angular faz isso automaticamente
+      // Verifica cancelamento antes de iniciar projeto
+      if (checkCancelationAndExit(projectPath, "início do projeto após verificação Git")) {
+        return;
+      }
       
-        // Aguarda 10 segundos antes de iniciar o projeto
-        setTimeout(() => {
-          // Verifica cancelamento antes de iniciar projeto
-          if (checkCancelationAndExit(projectPath, "início do projeto após verificação Git")) {
-            return;
-          }
-          startProject(event, projectPath, port);
-        }, 10000);
-      });
+      console.log(`[START-DEBUG] 🎯 Chamando startProject para ${projectPath}`);
+      startProject(event, projectPath, port);
     }).catch(error => {
       console.log(`[START] ❌ Erro na verificação Git: ${error.message}`);
       event.reply('log', { 
@@ -3408,20 +3401,12 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       });
       
       // Continua mesmo com erro no Git
-      exec(`npx kill-port ${port}`, (err) => {
-        if (err) {
-          event.reply('log', { path: projectPath, message: `⚠️ Erro ao liberar a porta ${port}: ${err.message}` });
-        } else {
-          event.reply('log', { path: projectPath, message: `✅ Porta ${port} liberada. Iniciando projeto...` });
-        }
+      if (checkCancelationAndExit(projectPath, "início do projeto após erro Git")) {
+        return;
+      }
       
-        setTimeout(() => {
-          if (checkCancelationAndExit(projectPath, "início do projeto após erro Git")) {
-            return;
-          }
-          startProject(event, projectPath, port);
-        }, 10000);
-      });
+      console.log(`[START-DEBUG] 🎯 Chamando startProject após erro Git para ${projectPath}`);
+      startProject(event, projectPath, port);
     });
   });
 
@@ -3811,8 +3796,11 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
   });
 
   function startProject(event, projectPath, port) {
+    console.log(`[DEBUG] ======= startProject INICIADO para ${projectPath} =======`);
+    
     // Verifica se o projeto foi cancelado antes de iniciar
     if (checkCancelationAndExit(projectPath, "início da função startProject")) {
+      console.log(`[DEBUG] Projeto cancelado, saindo...`);
       return;
     }
     
@@ -3821,24 +3809,30 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
     const isPampProject = projectName.startsWith('mp-pamp');
     const projectIndex = projects.findIndex(p => p.path === projectPath);
     
+    console.log(`[DEBUG] Projeto: ${projectName}, isPamp: ${isPampProject}, index: ${projectIndex}`);
+    
     // 🎯 OBTÉM VERSÃO DO NODE.JS PARA ESTE PROJETO
     if (!projectConfigManager) {
       projectConfigManager = new ProjectConfigManager();
+      console.log(`[DEBUG] ProjectConfigManager criado`);
     }
     
     const nodeVersion = projectConfigManager.getProjectNodeVersion(projectName);
-    console.log(`🎯 Projeto ${projectName} usando Node.js ${nodeVersion}`);
+    console.log(`[DEBUG] 🎯 Projeto ${projectName} usando Node.js ${nodeVersion}`);
     
     // Obtém caminhos do Node.js portátil
     let nodePaths;
     try {
+      console.log(`[DEBUG] Tentando obter caminhos do Node.js ${nodeVersion}...`);
       nodePaths = getNodeExecutablePath(nodeVersion);
-      console.log(`✅ Node.js portátil encontrado em: ${nodePaths.nodeDir}`);
+      console.log(`[DEBUG] ✅ Node.js portátil encontrado em: ${nodePaths.nodeDir}`);
+      console.log(`[DEBUG] Node exe: ${nodePaths.nodeExe}`);
+      console.log(`[DEBUG] NPM cmd: ${nodePaths.npmCmd}`);
       
       // Verifica se o executável existe
       if (!fs.existsSync(nodePaths.nodeExe)) {
         const errorMsg = `❌ Node.js ${nodeVersion} não está instalado. Use "Instalar Dependências Node.js" no menu.`;
-        console.error(errorMsg);
+        console.error(`[DEBUG] ${errorMsg}`);
         
         if (isPampProject) {
           event.reply('pamp-log', { 
@@ -3857,7 +3851,8 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       }
     } catch (error) {
       const errorMsg = `❌ Erro ao obter Node.js portátil: ${error.message}`;
-      console.error(errorMsg);
+      console.error(`[DEBUG] ${errorMsg}`);
+      console.error(`[DEBUG] Stack do erro:`, error.stack);
       
       if (isPampProject) {
         event.reply('pamp-log', { 
@@ -4140,9 +4135,13 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       
       const lowerMessage = message.toLowerCase();
       
+      // ⚡ PRIMEIRO: Verifica se é WARNING (NUNCA é erro crítico) ⚡
+      if (lowerMessage.includes('warn') || lowerMessage.includes('warning')) {
+        return false; // Warnings NUNCA são erros críticos
+      }
+      
       // Lista de padrões que NÃO são erros críticos (apenas warnings/informações)
       const nonCriticalPatterns = [
-        'warning:',
         'deprecated',
         'deprecation',
         'the `form-control-focus()` mixin has been deprecated',
@@ -4567,6 +4566,13 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       } catch (err) {
         console.error('Erro ao limpar caracteres ANSI:', err);
         cleanData = data.toString().trim();
+      }
+
+      // ⚡ IGNORA LINHAS MUITO CURTAS QUE SÃO APENAS NOMES DE COMANDOS ⚡
+      // Exemplos: "npm", "ng", "node" (sem contexto adicional)
+      if (cleanData.length <= 10 && !cleanData.includes(':') && !cleanData.includes('error')) {
+        console.log(`[STDERR] Ignorando linha curta sem contexto: "${cleanData}"`);
+        return;
       }
 
       // ⚡ ANÁLISE MELHORADA DE ERROS NO STDERR ⚡
@@ -5667,697 +5673,19 @@ ipcMain.on('execute-command', (event, command) => {
     await removeRecursive(dirPath);
   }
 
-  // Handler para instalação de dependências - usando 'on' em vez de 'once' para permitir múltiplas execuções
-  ipcMain.on('start-installation', async (event) => {
-    // Previne múltiplas execuções simultâneas
-    if (global.installationInProgress) {
-      event.reply('installation-log', '⚠️ Uma instalação já está em progresso...');
-      return;
-    }
+  // ============================================================================
+  // ⚠️ HANDLER ANTIGO 'start-installation' REMOVIDO
+  // ============================================================================
+  // Este handler foi descontinuado pois tentava instalar Node.js globalmente
+  // no sistema do usuário, o que não está alinhado com o sistema portátil.
+  //
+  // SISTEMA ATUAL: Use 'start-node-installation' que utiliza o NodeInstaller
+  // para gerenciar Node.js portátil instalado localmente na pasta do executável.
+  //
+  // O código antigo foi removido nas linhas 5742-6438 (cerca de 700 linhas).
+  // Commit anterior: [feature/0.0.9] caso precise recuperar o código.
+  // ============================================================================
 
-    global.installationInProgress = true;
-
-    console.log('Iniciando instalação de dependências (Git, Node.js e Angular CLI)...');
-
-    // Função para cleanup quando instalação terminar ou der erro
-    const cleanupInstallation = () => {
-      global.installationInProgress = false;
-      console.log('🧹 Limpeza da instalação concluída');
-    };
-
-    try {
-      event.reply('installation-log', 'Iniciando instalação de dependências...');
-      event.reply('installation-log', 'Verificando Git, Node.js e Angular CLI...');
-
-      const sendLog = (message) => {
-        console.log(message); // Log no console para depuração
-        // Verifica se o event sender ainda existe antes de enviar
-        try {
-          if (event && event.reply && !event.sender.isDestroyed()) {
-            event.reply('installation-log', message);
-          }
-        } catch (error) {
-          console.warn('Não foi possível enviar log para janela (provavelmente fechada):', message);
-        }
-      };
-
-    // Função para verificar Git
-    const checkGit = async () => {
-      sendLog('🔍 Passo 1: Verificando Git...');
-      try {
-        const gitVersion = execSync('git --version', { encoding: 'utf8' }).trim();
-        sendLog(`✅ Git encontrado: ${gitVersion}`);
-        return true;
-      } catch (error) {
-        sendLog('❌ Git não encontrado no sistema.');
-        return false;
-      }
-    };
-
-    // Função para instalar Git
-    const installGit = async () => {
-      const isWindows = os.platform() === 'win32';
-      const isLinux = os.platform() === 'linux';
-      const isMac = os.platform() === 'darwin';
-      
-      sendLog('📥 Iniciando instalação do Git...');
-      
-      if (isWindows) {
-        return await installGitWindows();
-      } else if (isLinux) {
-        return await installGitLinux();
-      } else if (isMac) {
-        return await installGitMac();
-      } else {
-        sendLog('❌ Sistema operacional não suportado para instalação automática do Git.');
-        sendLog('Por favor, instale o Git manualmente em: https://git-scm.com/downloads');
-        return false;
-      }
-    };
-
-    // Instalação do Git no Windows
-    const installGitWindows = async () => {
-      try {
-        sendLog('🪟 Detectado sistema Windows');
-        
-        // Função helper para aguardar confirmação do usuário
-        const waitForUserConfirmation = (message) => {
-          return new Promise((resolve) => {
-            sendLog(message);
-            sendLog('');
-            
-            // Para instalação de dependências, assumimos que o usuário quer continuar
-            // já que ele clicou propositalmente em "Instalar Dependências"
-            sendLog('💡 Prosseguindo automaticamente...');
-            sendLog('   (Usuário já confirmou ao clicar em "Instalar Dependências")');
-            sendLog('');
-            
-            // Pequeno delay para dar tempo de ler a mensagem
-            setTimeout(() => {
-              sendLog('✅ Continuando com a instalação...');
-              resolve(true);
-            }, 1500);
-          });
-        };
-        
-        // Verifica se winget está disponível
-        let hasWinget = false;
-        let hasChoco = false;
-        
-        try {
-          sendLog('🔍 Verificando se winget está instalado...');
-          await execPromise('winget --version');
-          sendLog('✅ winget encontrado!');
-          hasWinget = true;
-        } catch (wingetError) {
-          sendLog('❌ winget não encontrado');
-        }
-        
-        // Verifica se chocolatey está disponível
-        if (!hasWinget) {
-          try {
-            sendLog('🔍 Verificando se chocolatey está instalado...');
-            await execPromise('choco --version');
-            sendLog('✅ chocolatey encontrado!');
-            hasChoco = true;
-          } catch (chocoError) {
-            sendLog('❌ chocolatey não encontrado');
-          }
-        }
-        
-        // Se nenhum gerenciador está disponível, oferece instalação
-        if (!hasWinget && !hasChoco) {
-          sendLog('');
-          sendLog('🛠️ Nenhum gerenciador de pacotes encontrado (winget/chocolatey)');
-          sendLog('Para instalar o Git automaticamente, precisamos de um gerenciador de pacotes.');
-          sendLog('');
-          sendLog('Opções disponíveis:');
-          sendLog('1. winget (recomendado - moderno e integrado ao Windows)');
-          sendLog('2. chocolatey (alternativa popular)');
-          sendLog('');
-          
-          // Tenta instalar winget primeiro
-          const shouldInstallWinget = await waitForUserConfirmation('🔄 Deseja instalar o winget (Microsoft App Installer)?');
-          
-          if (shouldInstallWinget) {
-            try {
-              sendLog('� Instalando winget (Microsoft App Installer)...');
-              sendLog('Isso pode levar alguns minutos...');
-              
-              // Método 1: Tenta via Microsoft Store (mais confiável)
-              try {
-                sendLog('🏪 Abrindo Microsoft Store...');
-                await execPromise('start ms-windows-store://pdp/?ProductId=9NBLGGH4NNS1');
-                sendLog('ℹ️ Microsoft Store aberta para instalar "App Installer".');
-                sendLog('Após a instalação na Store, volte aqui.');
-                
-                const continueAfterStore = await waitForUserConfirmation('✅ Instalou o App Installer via Microsoft Store?');
-                if (continueAfterStore) {
-                  // Verifica se winget agora está disponível
-                  await execPromise('winget --version');
-                  sendLog('✅ winget instalado e funcionando!');
-                  hasWinget = true;
-                } else {
-                  throw new Error('Usuário não confirmou instalação via Store');
-                }
-                
-              } catch (storeError) {
-                sendLog('⚠️ Método via Store não funcionou, tentando download direto...');
-                
-                // Método 2: Download direto do pacote
-                try {
-                  const downloadWingetCommand = [
-                    '$ProgressPreference = "SilentlyContinue"',
-                    'Write-Output "Baixando Microsoft App Installer..."',
-                    '$url = "https://github.com/microsoft/winget-cli/releases/latest/download/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"',
-                    '$output = "$env:TEMP\\Microsoft.DesktopAppInstaller.msixbundle"',
-                    'Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing',
-                    'Write-Output "Instalando Microsoft App Installer..."',
-                    'Add-AppxPackage -Path $output',
-                    'Write-Output "winget instalado com sucesso!"'
-                  ].join('; ');
-                  
-                  await execPromise(`powershell -ExecutionPolicy Bypass -Command "${downloadWingetCommand}"`);
-                  
-                  // Verifica se a instalação funcionou
-                  await execPromise('winget --version');
-                  sendLog('✅ winget instalado com sucesso via download direto!');
-                  hasWinget = true;
-                } catch (downloadError) {
-                  throw new Error(`Falha no download: ${downloadError.message}`);
-                }
-              }
-            } catch (error) {
-              sendLog(`❌ Erro na instalação do winget: ${error.message}`);
-            }
-          }
-          
-          // Se winget falhou, tenta chocolatey
-          if (!hasWinget) {
-            const shouldInstallChoco = await waitForUserConfirmation('🔄 winget não disponível. Deseja instalar o chocolatey?');
-            
-            if (shouldInstallChoco) {
-              try {
-                sendLog('📥 Instalando chocolatey...');
-                sendLog('Isso pode levar alguns minutos...');
-                
-                const installChocoCommand = [
-                  'Set-ExecutionPolicy Bypass -Scope Process -Force',
-                  '[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072',
-                  'iex ((New-Object System.Net.WebClient).DownloadString("https://community.chocolatey.org/install.ps1"))'
-                ].join('; ');
-                
-                await execPromise(`powershell -ExecutionPolicy Bypass -Command "${installChocoCommand}"`);
-                sendLog('✅ chocolatey instalado com sucesso!');
-                hasChoco = true;
-                
-                // Recarrega PATH para chocolatey
-                sendLog('🔄 Recarregando variáveis de ambiente...');
-                process.env.PATH = process.env.PATH + ';C:\\ProgramData\\chocolatey\\bin';
-                
-              } catch (chocoInstallError) {
-                sendLog(`❌ Erro na instalação do chocolatey: ${chocoInstallError.message}`);
-                sendLog('💡 Instalação manual do chocolatey:');
-                sendLog('1. Abra PowerShell como Administrador');
-                sendLog('2. Execute: Set-ExecutionPolicy Bypass -Scope Process -Force');
-                sendLog('3. Execute: iex ((New-Object System.Net.WebClient).DownloadString("https://chocolatey.org/install.ps1"))');
-                sendLog('4. Reinicie este processo');
-              }
-            }
-          }
-        }
-        
-        // Agora tenta instalar Git com o gerenciador disponível
-        sendLog('');
-        sendLog('📥 Tentando instalar Git...');
-        
-        if (hasWinget) {
-          try {
-            sendLog('🔄 Instalando Git via winget...');
-            await execPromise('winget install --id Git.Git -e --source winget --silent');
-            sendLog('✅ Git instalado com sucesso via winget!');
-            return true;
-          } catch (wingetGitError) {
-            sendLog(`⚠️ Falha na instalação via winget: ${wingetGitError.message}`);
-            hasWinget = false; // Marca como não disponível para próxima tentativa
-          }
-        }
-        
-        if (hasChoco) {
-          try {
-            sendLog('🔄 Instalando Git via chocolatey...');
-            await execPromise('choco install git -y');
-            sendLog('✅ Git instalado com sucesso via chocolatey!');
-            return true;
-          } catch (chocoGitError) {
-            sendLog(`⚠️ Falha na instalação via chocolatey: ${chocoGitError.message}`);
-          }
-        }
-        
-        // Se chegou aqui, todos os métodos falharam
-        sendLog('');
-        sendLog('❌ Instalação automática do Git falhou');
-        sendLog('💡 Instalação manual recomendada:');
-        sendLog('');
-        sendLog('📋 OPÇÕES DE INSTALAÇÃO MANUAL:');
-        sendLog('1. Site oficial: https://git-scm.com/download/win');
-        sendLog('2. Via Microsoft Store: procure "Git"');
-        sendLog('3. Via GitHub Desktop (inclui Git): https://desktop.github.com/');
-        sendLog('');
-        sendLog('⚠️ Após a instalação manual:');
-        sendLog('• Reinicie o Micro Front-End Manager');
-        sendLog('• Ou adicione Git ao PATH do sistema');
-        sendLog('');
-        
-        return false;
-        
-      } catch (error) {
-        sendLog(`❌ Erro crítico na instalação do Git no Windows: ${error.message}`);
-        return false;
-      }
-    };
-
-    // Instalação do Git no Linux
-    const installGitLinux = async () => {
-      try {
-        sendLog('🐧 Detectado sistema Linux');
-        
-        // Tenta detectar a distribuição
-        let installCommand = '';
-        
-        try {
-          // Ubuntu/Debian
-          await execPromise('which apt-get');
-          installCommand = 'sudo apt-get update && sudo apt-get install -y git';
-          sendLog('📦 Usando apt-get (Ubuntu/Debian)...');
-        } catch {
-          try {
-            // CentOS/RHEL/Fedora
-            await execPromise('which yum');
-            installCommand = 'sudo yum install -y git';
-            sendLog('📦 Usando yum (CentOS/RHEL)...');
-          } catch {
-            try {
-              // Fedora moderno
-              await execPromise('which dnf');
-              installCommand = 'sudo dnf install -y git';
-              sendLog('📦 Usando dnf (Fedora)...');
-            } catch {
-              try {
-                // Arch Linux
-                await execPromise('which pacman');
-                installCommand = 'sudo pacman -S --noconfirm git';
-                sendLog('📦 Usando pacman (Arch Linux)...');
-              } catch {
-                sendLog('❌ Gerenciador de pacotes não identificado.');
-                sendLog('Por favor, instale o Git manualmente usando seu gerenciador de pacotes.');
-                return false;
-              }
-            }
-          }
-        }
-        
-        sendLog(`🔄 Executando: ${installCommand}`);
-        await execPromise(installCommand);
-        sendLog('✅ Git instalado com sucesso no Linux!');
-        return true;
-        
-      } catch (error) {
-        sendLog(`❌ Erro na instalação do Git no Linux: ${error.message}`);
-        sendLog('💡 Tente executar manualmente:');
-        sendLog('   Ubuntu/Debian: sudo apt-get install git');
-        sendLog('   CentOS/RHEL: sudo yum install git');
-        sendLog('   Fedora: sudo dnf install git');
-        sendLog('   Arch: sudo pacman -S git');
-        return false;
-      }
-    };
-
-    // Instalação do Git no macOS
-    const installGitMac = async () => {
-      try {
-        sendLog('🍎 Detectado sistema macOS');
-        
-        // Tenta usar Homebrew primeiro
-        try {
-          sendLog('🔄 Tentando instalar via Homebrew...');
-          await execPromise('brew install git');
-          sendLog('✅ Git instalado com sucesso via Homebrew!');
-          return true;
-        } catch (brewError) {
-          sendLog('⚠️ Homebrew não disponível ou falhou');
-        }
-        
-        // Se Homebrew falhou, usa Xcode Command Line Tools
-        try {
-          sendLog('🔄 Tentando instalar via Xcode Command Line Tools...');
-          await execPromise('xcode-select --install');
-          sendLog('✅ Git será instalado com Xcode Command Line Tools');
-          sendLog('ℹ️ Pode ser necessário confirmar a instalação na janela que abriu');
-          return true;
-        } catch (xcodeError) {
-          sendLog('❌ Erro ao instalar Command Line Tools');
-        }
-        
-        sendLog('💡 Para instalação manual no macOS:');
-        sendLog('1. Instale Homebrew: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"');
-        sendLog('2. Execute: brew install git');
-        sendLog('Ou baixe em: https://git-scm.com/download/mac');
-        
-        return false;
-        
-      } catch (error) {
-        sendLog(`❌ Erro na instalação do Git no macOS: ${error.message}`);
-        return false;
-      }
-    };
-  
-    const installNodeWindows = async () => {
-      sendLog('🔍 Passo 2: Verificando Node.js...');
-      
-      // Primeira verificação: Node.js já está na versão correta?
-      try {
-        const nodeVersion = execSync('node -v', { encoding: 'utf8' }).trim();
-        sendLog(`Node.js encontrado: ${nodeVersion}`);
-        if (nodeVersion === 'v16.10.0') {
-          sendLog('✓ Node.js já está instalado na versão 16.10.0.');
-          sendLog('Nenhuma ação necessária para o Node.js.');
-          return Promise.resolve();
-        } else {
-          sendLog(`⚠️ Versão atual: ${nodeVersion} (recomendada: v16.10.0)`);
-          sendLog('IMPORTANTE: Se você já tem projetos funcionando com esta versão,');
-          sendLog('pode não ser necessário fazer upgrade. Prosseguindo com verificações...');
-        }
-      } catch {
-        sendLog('Node.js não encontrado no PATH do sistema.');
-      }
-
-      // Segunda verificação: NVM está instalado?
-      sendLog('Verificando se NVM (Node Version Manager) está disponível...');
-      try {
-        const nvmVersion = execSync('nvm version', { encoding: 'utf8' }).trim();
-        sendLog(`✓ NVM encontrado: ${nvmVersion}`);
-        
-        // Se NVM existe, verifica se Node.js 16.10.0 já está instalado via NVM
-        try {
-          const nvmList = execSync('nvm list', { encoding: 'utf8' });
-          if (nvmList.includes('16.10.0')) {
-            sendLog('✓ Node.js 16.10.0 já está instalado via NVM.');
-            sendLog('Ativando Node.js 16.10.0...');
-            await execPromise('nvm use 16.10.0');
-            sendLog('✓ Node.js 16.10.0 ativado com sucesso.');
-            return Promise.resolve();
-          } else {
-            sendLog('Node.js 16.10.0 não encontrado. Instalando via NVM...');
-            await execPromise('nvm install 16.10.0');
-            await execPromise('nvm use 16.10.0');
-            sendLog('✓ Node.js 16.10.0 instalado e ativado via NVM.');
-            return Promise.resolve();
-          }
-        } catch (nvmListError) {
-          sendLog('Erro ao listar versões do NVM. Tentando instalar Node.js 16.10.0...');
-          try {
-            await execPromise('nvm install 16.10.0');
-            await execPromise('nvm use 16.10.0');
-            sendLog('✓ Node.js 16.10.0 instalado e ativado via NVM.');
-            return Promise.resolve();
-          } catch (installError) {
-            sendLog(`Erro ao instalar via NVM existente: ${installError.message}`);
-            sendLog('Prosseguindo com método alternativo...');
-          }
-        }
-      } catch {
-        sendLog('NVM não encontrado no sistema.');
-      }
-
-      // Terceira verificação: Se Node.js existe mas não é a versão ideal
-      try {
-        const nodeVersion = execSync('node -v', { encoding: 'utf8' }).trim();
-        if (nodeVersion && nodeVersion !== 'v16.10.0') {
-          sendLog('═══════════════════════════════════════════════════════════════');
-          sendLog('⚠️  ATENÇÃO: Node.js já está instalado em uma versão diferente!');
-          sendLog(`   Versão atual: ${nodeVersion}`);
-          sendLog(`   Versão recomendada: v16.10.0`);
-          sendLog('');
-          sendLog('OPÇÕES DISPONÍVEIS:');
-          sendLog('1. Manter a versão atual (pode funcionar para a maioria dos casos)');
-          sendLog('2. Instalar NVM para gerenciar múltiplas versões');
-          sendLog('3. Substituir por Node.js 16.10.0 (pode afetar outros projetos)');
-          sendLog('');
-          sendLog('Por segurança, mantendo a versão atual instalada.');
-          sendLog('Se houver problemas, considere instalar o NVM manualmente.');
-          sendLog('═══════════════════════════════════════════════════════════════');
-          return Promise.resolve();
-        }
-      } catch {
-        // Node.js não existe, prosseguir com instalação
-      }
-
-      // Quarta opção: Instalar NVM apenas se nada foi encontrado
-      sendLog('');
-      sendLog('Nenhuma instalação adequada do Node.js ou NVM foi encontrada.');
-      sendLog('Iniciando instalação do NVM para gerenciamento de versões...');
-
-      try {
-        // Download e instalação do NVM (apenas se nada foi encontrado)
-        const nvmDir = path.join(os.homedir(), 'nvm');
-        sendLog(`Criando diretório NVM em: ${nvmDir}`);
-        
-        if (!fs.existsSync(nvmDir)) {
-          fs.mkdirSync(nvmDir, { recursive: true });
-        }
-
-        const nvmZipUrl = 'https://github.com/coreybutler/nvm-windows/releases/download/1.2.2/nvm-noinstall.zip';
-        const nvmZipPath = path.join(os.tmpdir(), 'nvm-noinstall.zip');
-        
-        sendLog('Baixando NVM for Windows...');
-        await downloadFileWithRetry(nvmZipUrl, nvmZipPath);
-        
-        sendLog('Extraindo NVM...');
-        await extractZip(nvmZipPath, nvmDir);
-        
-        // Adicionar NVM ao PATH do usuário
-        sendLog('Configurando NVM no PATH...');
-        await addToUserPath(nvmDir);
-        
-        // Configurar NVM
-        const settingsPath = path.join(nvmDir, 'settings.txt');
-        const settingsContent = `root: ${nvmDir}\npath: ${path.join(nvmDir, 'nodejs')}\n`;
-        fs.writeFileSync(settingsPath, settingsContent);
-        
-        sendLog('Aguardando configuração do PATH (10 segundos)...');
-        await new Promise(resolve => setTimeout(resolve, 10000));
-        
-        // Instalar Node.js via NVM
-        sendLog('Instalando Node.js 16.10.0 via NVM recém-instalado...');
-        await execPromise(`"${path.join(nvmDir, 'nvm.exe')}" install 16.10.0`);
-        await execPromise(`"${path.join(nvmDir, 'nvm.exe')}" use 16.10.0`);
-        
-        sendLog('✓ NVM e Node.js 16.10.0 instalados com sucesso.');
-        
-      } catch (error) {
-        sendLog(`Erro na instalação via NVM: ${error.message}`);
-        sendLog('Tentando instalação direta do Node.js como último recurso...');
-        
-        // Fallback: instalação direta (apenas se tudo falhar)
-        const installerUrl = 'https://nodejs.org/dist/v16.10.0/node-v16.10.0-x64.msi';
-        const installerPath = path.join(os.tmpdir(), 'node-v16.10.0-x64.msi');
-        
-        sendLog('Baixando instalador oficial do Node.js...');
-        await downloadFileWithRetry(installerUrl, installerPath);
-        
-        sendLog('Executando instalador do Node.js... (Isso pode demorar alguns minutos)');
-        sendLog('AVISO: Esta instalação pode substituir versões existentes do Node.js!');
-        await execPromise(`msiexec /i "${installerPath}" /quiet /norestart`);
-        
-        sendLog('Aguardando finalização da instalação (30 segundos)...');
-        await new Promise(resolve => setTimeout(resolve, 30000));
-        
-        sendLog('✓ Node.js instalado com sucesso via instalador MSI.');
-      }
-    };
-
-    const installNodeLinux = async () => {
-      sendLog('Detectado sistema Linux. Verificando Node.js...');
-      
-      // Verifica se Node.js já está instalado na versão correta
-      try {
-        const nodeVersion = execSync('node -v', { encoding: 'utf8' }).trim();
-        sendLog(`Node.js encontrado: ${nodeVersion}`);
-        if (nodeVersion === 'v16.10.0') {
-          sendLog('✓ Node.js já está instalado na versão 16.10.0.');
-          sendLog('Nenhuma ação necessária para o Node.js.');
-          return Promise.resolve();
-        } else {
-          sendLog(`⚠️ Versão atual: ${nodeVersion} (recomendada: v16.10.0)`);
-          sendLog('IMPORTANTE: Se você já tem projetos funcionando com esta versão,');
-          sendLog('pode não ser necessário fazer upgrade. Prosseguindo com instalação...');
-        }
-      } catch {
-        sendLog('Node.js não encontrado. Instalando Node.js 16.x...');
-      }
-
-      try {
-        // Usar NodeSource repository para versão específica
-        sendLog('Configurando repositório NodeSource...');
-        await execPromise('curl -fsSL https://deb.nodesource.com/setup_16.x | sudo -E bash -');
-        
-        sendLog('Instalando Node.js 16.x...');
-        await execPromise('sudo apt-get install -y nodejs');
-        
-        sendLog('✓ Node.js instalado com sucesso no Linux.');
-      } catch (error) {
-        sendLog(`Erro na instalação no Linux: ${error.message}`);
-        throw error;
-      }
-    };
-
-    const installNode = () => {
-      if (os.platform() === 'win32') {
-        return installNodeWindows();
-      } else {
-        return installNodeLinux();
-      }
-    };
-  
-    const installAngular = async () => {
-      sendLog('Passo 2: Verificando Angular CLI...');
-      try {
-        const angularVersion = execSync('ng version', { encoding: 'utf8' });
-        sendLog(`Angular CLI encontrado: ${angularVersion.split('\n')[0]}`);
-        if (angularVersion.includes('13.3.11')) {
-          sendLog('Angular CLI já está instalado na versão 13.3.11.');
-          return Promise.resolve();
-        } else {
-          sendLog('Versão diferente encontrada. Instalando versão 13.3.11...');
-        }
-      } catch {
-        sendLog('Angular CLI não encontrado. Iniciando instalação...');
-      }
-
-      try {
-        sendLog('Verificando se npm está disponível...');
-        execSync('npm --version', { encoding: 'utf8' });
-        sendLog('npm encontrado. Instalando Angular CLI...');
-        
-        // Primeiro desinstala versões existentes
-        sendLog('Removendo versões anteriores do Angular CLI...');
-        try {
-          await execPromise('npm uninstall -g @angular/cli');
-        } catch {
-          // Ignora erro se não existir
-        }
-        
-        sendLog('Instalando Angular CLI versão 13.3.11... (Isso pode demorar alguns minutos)');
-        await execPromise('npm install -g @angular/cli@13.3.11');
-        
-        sendLog('Verificando instalação do Angular CLI...');
-        const installedVersion = execSync('ng version', { encoding: 'utf8' });
-        sendLog(`Angular CLI instalado com sucesso: ${installedVersion.split('\n')[0]}`);
-        
-      } catch (error) {
-        throw new Error(`Erro ao instalar Angular CLI: ${error.message}`);
-      }
-    };
-
-    console.log('Iniciando instalação das dependências (Git, Node.js e Angular CLI)...');
-    sendLog('=== INSTALAÇÃO DE DEPENDÊNCIAS ===');
-    sendLog('Verificando e instalando: Git, Node.js e Angular CLI');
-    sendLog('ATENÇÃO: Este processo pode demorar vários minutos.');
-    sendLog('Mantenha a janela aberta e aguarde a conclusão.');
-    sendLog('Você pode fechar esta janela a qualquer momento clicando no [X].');
-    sendLog('');
-  
-    try {
-      // Verifica e instala Git primeiro
-      const gitInstalled = await checkGit();
-      if (!gitInstalled) {
-        sendLog('🔧 Git não encontrado. Tentando instalar...');
-        const gitInstallSuccess = await installGit();
-        if (gitInstallSuccess) {
-          sendLog('✅ Git instalado com sucesso!');
-        } else {
-          sendLog('⚠️ Git não foi instalado automaticamente.');
-          sendLog('⚠️ Alguns recursos podem não funcionar corretamente.');
-          sendLog('💡 Instale manualmente em: https://git-scm.com/downloads');
-        }
-        sendLog('');
-      }
-      
-      // Continua com Node.js
-      await installNode();
-      sendLog('');
-      sendLog('✓ Node.js configurado com sucesso!');
-      sendLog('');
-      
-      await installAngular();
-      sendLog('');
-      sendLog('✓ Angular CLI configurado com sucesso!');
-      sendLog('');
-      
-      sendLog('=== INSTALAÇÃO CONCLUÍDA ===');
-      sendLog('Todas as dependências foram instaladas com sucesso!');
-      sendLog('RECOMENDAÇÃO: Reinicie o aplicativo para garantir que as');
-      sendLog('novas versões sejam reconhecidas corretamente.');
-      sendLog('Você pode usar: Ctrl+R ou F5 ou Menu > File > Reiniciar Aplicativo');
-      event.reply('installation-complete');
-      
-      // Mostra dialog sugerindo reinício após pequeno delay
-      setTimeout(() => {
-        dialog.showMessageBox(mainWindow, {
-          type: 'info',
-          title: 'Instalação Concluída',
-          message: 'Dependências instaladas com sucesso!',
-          detail: 'Recomendamos reiniciar o aplicativo para garantir que as novas versões sejam reconhecidas corretamente.\n\nDeseja reiniciar agora?',
-          buttons: ['Agora não', 'Reiniciar Agora'],
-          defaultId: 1,
-          cancelId: 0
-        }).then((result) => {
-          if (result.response === 1) {
-            console.log('Reiniciando aplicativo após instalação...');
-            // Para todos os processos em execução
-            Object.keys(runningProcesses).forEach(processPath => {
-              try {
-                runningProcesses[processPath].kill();
-                console.log(`Processo parado: ${processPath}`);
-              } catch (error) {
-                console.error(`Erro ao parar processo ${processPath}:`, error);
-              }
-            });
-            
-            // Reinicia o aplicativo
-            app.relaunch();
-            app.exit();
-          }
-        });
-      }, 2000); // 2 segundos de delay para não interferir com o fechamento da janela de instalação
-      
-    } catch (err) {
-      sendLog('');
-      sendLog('❌ ERRO DURANTE A INSTALAÇÃO:');
-      sendLog(`Detalhes: ${err.message}`);
-      sendLog('');
-      sendLog('SUGESTÕES:');
-      sendLog('1. Verifique sua conexão com a internet');
-      sendLog('2. Execute o aplicativo como administrador');
-      sendLog('3. Desative temporariamente o antivírus');
-      sendLog('4. Tente novamente em alguns minutos');
-      sendLog('');
-      sendLog('Se o problema persistir, você pode instalar manualmente:');
-      sendLog('- Node.js 16.10.0: https://nodejs.org/dist/v16.10.0/');
-      sendLog('- Angular CLI: npm install -g @angular/cli@13.3.11');
-    }
-
-    } catch (globalError) {
-      console.error('Erro global na instalação:', globalError);
-      sendLog(`❌ Erro crítico na instalação: ${globalError.message}`);
-    } finally {
-      // Sempre limpa o estado de instalação
-      cleanupInstallation();
-    }
-  });
-
-  // Função global para mostrar mensagem sobre Git ausente
   function showGitInstallationGuidance() {
     const isGitAvailable = checkGitGlobal();
     if (!isGitAvailable) {
@@ -6476,74 +5804,21 @@ ipcMain.on('execute-command', (event, command) => {
     });
   }
 
-  // 🔍 VERIFICAÇÃO DE BACKGROUND DO ANGULAR CLI APÓS APP CARREGAR
-  // Agenda uma verificação adicional do Angular CLI após o app estar totalmente carregado
-  // Isso garante que mesmo se a verificação inicial falhar, teremos uma segunda chance
+  // 🔍 SISTEMA DE NODE.JS PORTÁTIL
+  // Com Node.js portátil, não precisamos verificar CLI global em background
+  // A verificação é feita por projeto usando o Node configurado
   setTimeout(() => {
-    console.log('🔍 [BACKGROUND] Iniciando verificação de background do Angular CLI...');
+    console.log('✅ [PORTABLE] Sistema usando Node.js portátil - CLI gerenciado localmente');
     
-    // Só faz a verificação de background se não temos cache confirmado
-    const hasConfirmedCache = appCache.angularInfo && 
-                             appCache.angularInfo.available && 
-                             appCache.angularInfo.confirmed;
-    
-    if (hasConfirmedCache) {
-      console.log('⚡ [BACKGROUND] Cache já confirmado - pulando verificação de background');
-      return;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('angular-info', { 
+        version: 'Portátil (por projeto)', 
+        warning: null,
+        portable: true
+      });
+      console.log('📡 [PORTABLE] Interface notificada sobre sistema portátil');
     }
-    
-    console.log('🔍 [BACKGROUND] Verificando Angular CLI em background...');
-    exec('ng version', { timeout: 25000 }, (error, stdout, stderr) => {
-      if (!error && stdout) {
-        const angularOutput = stdout.toString();
-        const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
-        
-        if (angularCliMatch) {
-          const version = angularCliMatch[1];
-          console.log(`✅ [BACKGROUND] Angular CLI encontrado em verificação de background: ${version}`);
-          
-          // SALVA NO CACHE - esta é uma confirmação positiva
-          appCache.angularInfo = {
-            version: version,
-            available: true,
-            confirmed: true,
-            fullOutput: angularOutput
-          };
-          saveAppCache();
-          
-          // Notifica a interface sobre a mudança
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            let warning = null;
-            if (version !== '13.3.11') {
-              warning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${version}, o que pode causar problemas.`;
-            }
-            mainWindow.webContents.send('angular-info', { version, warning });
-            console.log('📡 [BACKGROUND] Interface notificada sobre Angular CLI encontrado');
-          }
-          
-        } else {
-          const version = 'Instalado (versão não detectada)';
-          console.log('✅ [BACKGROUND] Angular CLI instalado em background (versão não detectada)');
-          
-          appCache.angularInfo = {
-            version: version,
-            available: true,
-            confirmed: true,
-            fullOutput: angularOutput
-          };
-          saveAppCache();
-          
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('angular-info', { version, warning: null });
-            console.log('📡 [BACKGROUND] Interface notificada sobre Angular CLI (versão não detectada)');
-          }
-        }
-      } else {
-        console.log('❌ [BACKGROUND] Verificação de background do Angular CLI falhou:', error?.message);
-        // Não sobrescreve cache confirmado anterior, apenas ignora este erro
-      }
-    });
-  }, 5000); // 5 segundos após o app carregar
+  }, 2000);
 }
 
 // Evento principal do aplicativo
@@ -6673,3 +5948,4 @@ function clearElectronCacheIfNeeded() {
     }
   }
 }
+

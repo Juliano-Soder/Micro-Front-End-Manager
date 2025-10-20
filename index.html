@@ -231,83 +231,102 @@
       display: none !important;
     }
 
-    /* ===== BOTÕES TOGGLE MODERNOS ===== */
+    /* ===== SISTEMA DE ABAS (TABS) ===== */
     .toggle-buttons-container {
       display: flex;
-      gap: 12px;
-      margin-bottom: 20px;
-      flex-wrap: wrap;
+      gap: 0;
+      margin-bottom: 0;
+      border-bottom: 2px solid #ddd;
+    }
+
+    body.dark-mode .toggle-buttons-container {
+      border-bottom-color: #444;
     }
 
     .toggle-btn {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 16px;
+      padding: 12px 24px;
+      background: none;
       border: none;
-      border-radius: 8px;
-      font-size: 13px;
+      border-bottom: 3px solid transparent;
+      border-radius: 0;
+      font-size: 14px;
       font-weight: 500;
       cursor: pointer;
-      transition: all 0.3s ease;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    }
-
-    .toggle-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-    }
-
-    .toggle-btn:active {
-      transform: translateY(0);
-    }
-
-    .toggle-btn.pas-btn {
-      background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-    }
-
-    .toggle-btn.pamp-btn {
-      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    }
-
-    .toggle-btn.expanded {
-      background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-    }
-
-    .toggle-btn .toggle-icon {
-      font-size: 12px;
-      transition: transform 0.3s ease;
-    }
-
-    .toggle-btn.expanded .toggle-icon {
-      transform: rotate(90deg);
+      transition: all 0.2s ease;
+      position: relative;
     }
 
     .toggle-btn .toggle-text {
-      font-weight: 600;
+      font-weight: 500;
     }
 
     .toggle-btn .toggle-count {
-      background: rgba(255, 255, 255, 0.2);
-      padding: 2px 6px;
+      padding: 2px 8px;
       border-radius: 10px;
       font-size: 11px;
-      font-weight: bold;
+      font-weight: 600;
+      margin-left: 4px;
     }
 
-    /* Suporte ao modo dark */
+    /* ==== TEMA CLARO (Light Mode) ==== */
+    body:not(.dark-mode) .toggle-btn {
+      color: #666;
+    }
+
+    body:not(.dark-mode) .toggle-btn:hover {
+      color: #000;
+      background-color: rgba(0, 0, 0, 0.02);
+    }
+
+    body:not(.dark-mode) .toggle-btn.expanded {
+      color: #000;
+      border-bottom-color: #000;
+      font-weight: 600;
+    }
+
+    body:not(.dark-mode) .toggle-btn .toggle-count {
+      background: #e0e0e0;
+      color: #666;
+    }
+
+    body:not(.dark-mode) .toggle-btn.expanded .toggle-count {
+      background: #000;
+      color: #fff;
+    }
+
+    /* ==== TEMA ESCURO (Dark Mode) ==== */
     body.dark-mode .toggle-btn {
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+      color: #999;
     }
 
     body.dark-mode .toggle-btn:hover {
-      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+      color: #fff;
+      background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    body.dark-mode .toggle-btn.expanded {
+      color: #fff;
+      border-bottom-color: #fff;
+      font-weight: 600;
     }
 
     body.dark-mode .toggle-btn .toggle-count {
-      background: rgba(0, 0, 0, 0.2);
+      background: #444;
+      color: #999;
+    }
+
+    body.dark-mode .toggle-btn.expanded .toggle-count {
+      background: #fff;
+      color: #000;
+    }
+
+    /* Conteúdo das abas */
+    #pamp-mfes, #projects {
+      padding: 20px 0;
+      min-height: 200px;
     }
 
     /* Version info */
@@ -587,13 +606,11 @@
     <!-- Botões Toggle Modernos para MFEs -->
     <div class="toggle-buttons-container">
       <button id="toggle-mfes" class="toggle-btn pas-btn">
-        <span class="toggle-icon">▶</span>
-        <span class="toggle-text">PAS Site</span>
+        <span class="toggle-text">PAS</span>
         <span class="toggle-count" id="pas-count">0</span>
       </button>
       <button id="toggle-pamp-mfes" class="toggle-btn pamp-btn">
-        <span class="toggle-icon">▶</span>
-        <span class="toggle-text">PAMP Admin</span>
+        <span class="toggle-text">PAMP</span>
         <span class="toggle-count" id="pamp-count">0</span>
       </button>
     </div>
@@ -921,16 +938,13 @@
 
   // ===== FUNÇÕES PARA BOTÕES TOGGLE MODERNOS =====
   function updateToggleButton(button, isExpanded, count = 0) {
-    const icon = button.querySelector('.toggle-icon');
     const countElement = button.querySelector('.toggle-count');
     
-    // Atualiza ícone com rotação suave
+    // Atualiza estado de expandido
     if (isExpanded) {
       button.classList.add('expanded');
-      icon.textContent = '▼';
     } else {
       button.classList.remove('expanded');
-      icon.textContent = '▶';
     }
     
     // Atualiza contador
@@ -1164,8 +1178,8 @@
         <span id="pamp-port-${realIndex}" style="display: none; margin-right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: default;"></span>
         <button id="pamp-btn-cancel-${realIndex}" style="display: none; margin-right: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
         <button id="pamp-btn-stop-${realIndex}" style="display: none;">Parar</button>
-        <button id="pamp-btn-move-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #007acc; color: white;">Mover para...</button>
-        <button id="pamp-btn-delete-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
+        <button id="pamp-btn-move-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #5a6c7d; color: white;">Mover para...</button>
+        <button id="pamp-btn-delete-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #8b5a5a; color: white;">Deletar</button>
         <div id="pamp-log-${realIndex}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
       </div>
     `;
@@ -1240,6 +1254,13 @@
     });
 
     pampStartButton.addEventListener('click', (event) => {
+      // Limpa o console antes de iniciar
+      const pampLogDiv = document.getElementById(`pamp-log-${realIndex}`);
+      if (pampLogDiv) {
+        pampLogDiv.innerText = ''; // Zera os logs antigos
+        pampLogDiv.style.display = 'none'; // Esconde até aparecer novos logs
+      }
+      
       pampStartButton.disabled = true;
       pampStartButton.innerText = 'Executando...';
       pampCancelButton.style.display = 'inline-block';
@@ -1317,8 +1338,8 @@
         <span id="port-${realIndex}" style="display: none; margin-right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: default;"></span>
         <button id="btn-cancel-${realIndex}" style="display: none; margin-right: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
         <button id="btn-stop-${realIndex}" style="display: none;">Parar</button>
-        <button id="btn-move-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #007acc; color: white;">Mover para...</button>
-        <button id="btn-delete-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
+        <button id="btn-move-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #5a6c7d; color: white;">Mover para...</button>
+        <button id="btn-delete-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #8b5a5a; color: white;">Deletar</button>
         <div id="log-${realIndex}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
       </div>
     `;
@@ -1364,6 +1385,13 @@
     });
   
     startButton.addEventListener('click', (event) => {
+      // Limpa o console antes de iniciar
+      const logDiv = document.getElementById(`log-${realIndex}`);
+      if (logDiv) {
+        logDiv.innerText = ''; // Zera os logs antigos
+        logDiv.style.display = 'none'; // Esconde até aparecer novos logs
+      }
+      
       startButton.disabled = true;
       startButton.innerText = 'Executando...';
       cancelButton.style.display = 'inline-block';
@@ -1633,20 +1661,34 @@
       lowerMessage.includes('warnings but no errors') ||
       (lowerMessage.includes('compiled') && lowerMessage.includes('ms'));
     
-    // Detecta erros de compilação
+    // Detecta warnings (NÃO devem ser tratados como erros críticos)
+    const isWarning = 
+      lowerMessage.includes('warn') ||
+      lowerMessage.includes('warning');
+    
+    // Detecta erros de compilação (EXCETO warnings)
     const isCompilationError = 
-      lowerMessage.includes('compilation error') ||
-      lowerMessage.includes('build error') ||
-      lowerMessage.includes('typescript error') ||
-      lowerMessage.includes('webpack error') ||
-      lowerMessage.includes('failed to compile') ||
-      lowerMessage.includes('compilation failed') ||
-      lowerMessage.includes('build failed') ||
-      error === true ||
-      (lowerMessage.includes('compiled with') && lowerMessage.includes('error'));
+      !isWarning && (
+        lowerMessage.includes('compilation error') ||
+        lowerMessage.includes('build error') ||
+        lowerMessage.includes('typescript error') ||
+        lowerMessage.includes('webpack error') ||
+        lowerMessage.includes('failed to compile') ||
+        lowerMessage.includes('compilation failed') ||
+        lowerMessage.includes('build failed') ||
+        (lowerMessage.includes('compiled with') && lowerMessage.includes('error'))
+      );
+    
+    // Trata `error` do IPC: se é warning, ignora o flag de erro
+    const isTrueError = error === true && !isWarning;
+    
+    // 🐛 DEBUG: Log para entender o que está acontecendo
+    if (error === true) {
+      console.log(`🐛 [DEBUG] error=true recebido | message="${message}" | isWarning=${isWarning} | isTrueError=${isTrueError}`);
+    }
 
     // ⚡ SEMPRE EXIBE REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
-    let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || error;
+    let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || isTrueError || isWarning;
     
     // Para outras mensagens, verifica duplicação
     if (!shouldShow && pampLogDiv) {
@@ -1675,11 +1717,14 @@
       // ⚡ FORMATAÇÃO ESPECIAL PARA DIFERENTES TIPOS DE MENSAGEM ⚡
       let formattedMessage = message;
       
-      if (isRebuildMessage) {
+      if (isWarning) {
+        // Warnings não recebem ícone de erro, apenas mostra a mensagem
+        formattedMessage = message;
+      } else if (isRebuildMessage) {
         formattedMessage = `🔄 [REBUILD] ${message}`;
       } else if (isCompilationComplete) {
         formattedMessage = `✅ [SUCESSO] ${message}`;
-      } else if (isCompilationError || error) {
+      } else if (isCompilationError || isTrueError) {
         formattedMessage = `❌ [ERRO] ${message}`;
       } else if (isImportant) {
         formattedMessage = `⚡ [IMPORTANTE] ${message}`;
@@ -2061,17 +2106,31 @@
         lowerMessage.includes('warnings but no errors') ||
         (lowerMessage.includes('compiled') && lowerMessage.includes('ms'));
       
-      // Detecta erros de compilação
+      // Detecta warnings (NÃO devem ser tratados como erros críticos)
+      const isWarning = 
+        lowerMessage.includes('warn') ||
+        lowerMessage.includes('warning');
+      
+      // Detecta erros de compilação (EXCETO warnings)
       const isCompilationError = 
-        lowerMessage.includes('compilation error') ||
-        lowerMessage.includes('build error') ||
-        lowerMessage.includes('typescript error') ||
-        lowerMessage.includes('webpack error') ||
-        lowerMessage.includes('failed to compile') ||
-        lowerMessage.includes('compilation failed') ||
-        lowerMessage.includes('build failed') ||
-        error === true ||
-        (lowerMessage.includes('compiled with') && lowerMessage.includes('error'));
+        !isWarning && (
+          lowerMessage.includes('compilation error') ||
+          lowerMessage.includes('build error') ||
+          lowerMessage.includes('typescript error') ||
+          lowerMessage.includes('webpack error') ||
+          lowerMessage.includes('failed to compile') ||
+          lowerMessage.includes('compilation failed') ||
+          lowerMessage.includes('build failed') ||
+          (lowerMessage.includes('compiled with') && lowerMessage.includes('error'))
+        );
+      
+      // Trata `error` do IPC: se é warning, ignora o flag de erro
+      const isTrueError = error === true && !isWarning;
+      
+      // 🐛 DEBUG: Log para entender o que está acontecendo
+      if (error === true) {
+        console.log(`🐛 [DEBUG-PAS] error=true recebido | message="${message}" | isWarning=${isWarning} | isTrueError=${isTrueError}`);
+      }
       
       // Log messages para projetos específicos
       currentProjects.forEach((project, index) => {
@@ -2079,7 +2138,7 @@
             const logDiv = document.getElementById(`log-${index}`);
             if (logDiv) {
               // ⚡ SEMPRE EXIBE REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
-              let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || error;
+              let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || isTrueError || isWarning;
               
               // Para outras mensagens, verifica duplicação
               if (!shouldShow) {
@@ -2106,11 +2165,14 @@
               // ⚡ FORMATAÇÃO ESPECIAL PARA DIFERENTES TIPOS DE MENSAGEM ⚡
               let formattedMessage = message;
               
-              if (isRebuildMessage) {
+              if (isWarning) {
+                // Warnings não recebem ícone de erro, apenas mostra a mensagem
+                formattedMessage = message;
+              } else if (isRebuildMessage) {
                 formattedMessage = `🔄 [REBUILD] ${message}`;
               } else if (isCompilationComplete) {
                 formattedMessage = `✅ [SUCESSO] ${message}`;
-              } else if (isCompilationError || error) {
+              } else if (isCompilationError || isTrueError) {
                 formattedMessage = `❌ [ERRO] ${message}`;
               } else if (isImportant) {
                 formattedMessage = `⚡ [IMPORTANTE] ${message}`;
