@@ -26,14 +26,15 @@
         }
 
         .container {
-            max-width: 900px;
+            max-width: none;
             margin: 0 auto;
             background: #fff;
             border: 1px solid #ddd;
             border-radius: 5px;
-            padding: 30px;
+            padding: 20px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
             transition: background-color 0.3s, border-color 0.3s;
+            min-height: calc(100vh - 40px);
         }
 
         body.dark-mode .container {
@@ -66,8 +67,8 @@
             border: 1px solid #ddd;
             border-radius: 5px;
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            gap: 30px;
             margin-bottom: 15px;
             transition: all 0.2s ease;
         }
@@ -87,7 +88,9 @@
         }
 
         .project-info {
-            flex: 1;
+            min-width: 280px;
+            max-width: 320px;
+            flex: 0 0 auto;
         }
 
         .project-name {
@@ -95,6 +98,9 @@
             font-weight: bold;
             margin-bottom: 5px;
             color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         body.dark-mode .project-name {
@@ -105,6 +111,10 @@
             font-size: 11px;
             color: #666;
             font-family: 'Courier New', monospace;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
         }
 
         body.dark-mode .project-path {
@@ -113,8 +123,12 @@
 
         .version-selector {
             display: flex;
+            flex-wrap: wrap;
             gap: 10px;
-            align-items: center;
+            align-items: flex-start;
+            flex: 1;
+            justify-content: flex-start;
+            min-width: 0;
         }
 
         .version-option {
@@ -128,7 +142,9 @@
             border-radius: 5px;
             cursor: pointer;
             transition: all 0.2s ease;
-            min-width: 140px;
+            width: 140px;
+            height: 80px;
+            flex-shrink: 0;
         }
 
         body.dark-mode .version-option {
@@ -288,6 +304,118 @@
             margin-bottom: 5px;
         }
 
+        /* Status badges */
+        .status-badge {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-left: 8px;
+            white-space: nowrap;
+            display: inline-block;
+        }
+
+        .version-label {
+            display: flex;
+            align-items: center;
+            flex-wrap: nowrap;
+            gap: 8px;
+            min-width: 0; /* Permite shrinking */
+        }
+
+        .node-label {
+            font-weight: 500;
+            flex-shrink: 0; /* Não permite que o nome do Node shrink */
+        }
+
+        .version-option {
+            min-width: 200px;
+            margin-bottom: 10px;
+        }
+
+        .project-item {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+
+        body.dark-mode .project-item {
+            background: #2a2a2a;
+            border-color: #444;
+        }
+
+        .status-badge.not-installed {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        body.dark-mode .status-badge.not-installed {
+            background: #5d2b2b;
+            color: #f1b2b5;
+            border-color: #7a4142;
+        }
+
+        .status-badge.in-use {
+            background: #1e3a8a;
+            color: #dbeafe;
+            border-color: #3b82f6;
+        }
+
+        body.dark-mode .status-badge.in-use {
+            background: #1e40af;
+            color: #bfdbfe;
+            border-color: #60a5fa;
+        }
+
+        .version-option.disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .install-notice {
+            font-size: 11px;
+            color: #888;
+            font-style: italic;
+            margin-top: 4px;
+        }
+
+        body.dark-mode .install-notice {
+            color: #aaa;
+        }
+
+        /* Media Queries para Layout Responsivo */
+        @media (max-width: 800px) {
+            .project-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+            
+            .project-info {
+                min-width: 100%;
+                max-width: 100%;
+            }
+            
+            .version-selector {
+                width: 100%;
+                justify-content: flex-start;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .version-selector {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .version-option {
+                width: 100%;
+                height: 70px;
+            }
+        }
+
 
     </style>
 </head>
@@ -319,23 +447,24 @@
         let projects = [];
         let projectConfigs = {};
         let angularCliConfigs = {}; // Armazena versões do Angular CLI escolhidas
+        let availableNodeVersions = {}; // Versões disponíveis carregadas dinamicamente
 
-        // Matriz de compatibilidade Node.js x Angular CLI
+        // Matriz de compatibilidade Node.js x Angular CLI (padrões corretos)
         const ANGULAR_COMPATIBILITY = {
             '16.10.0': {
-                nodeLabel: 'Node 16',
-                defaultCli: '13',
-                compatibleCli: ['13', '14']
+                nodeLabel: 'Node 16.10.0',
+                defaultCli: '@angular/cli@13.3.11',
+                compatibleCli: ['@angular/cli@13.3.11', '@angular/cli@14.2.12']
             },
             '18.18.2': {
-                nodeLabel: 'Node 18',
-                defaultCli: '15',
-                compatibleCli: ['15', '16', '17']
+                nodeLabel: 'Node 18.18.2',
+                defaultCli: '@angular/cli@15.2.10',
+                compatibleCli: ['@angular/cli@15.2.10', '@angular/cli@16.2.14', '@angular/cli@17.3.10']
             },
             '20.19.5': {
-                nodeLabel: 'Node 20',
-                defaultCli: '18',
-                compatibleCli: ['17', '18']
+                nodeLabel: 'Node 20.19.5',
+                defaultCli: '@angular/cli@18.2.0',
+                compatibleCli: ['@angular/cli@17.3.10', '@angular/cli@18.2.0']
             }
         };
 
@@ -349,8 +478,14 @@
             console.log('Tema aplicado:', isDarkMode ? 'escuro' : 'claro');
         });
 
-        // Solicita lista de projetos e configurações
-        ipcRenderer.send('get-project-configs');
+        // Aplica tema inicial e aguarda dados automáticos
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log('[DEBUG] DOM carregado, aguardando dados automáticos...');
+            // Aplica dark mode por padrão até receber o tema correto
+            document.body.classList.add('dark-mode');
+            
+            // Não precisa solicitar - os dados são enviados automaticamente pelo backend
+        });
 
         // Recebe dados
         ipcRenderer.on('project-configs-data', (event, data) => {
@@ -358,7 +493,31 @@
             projects = data.projects;
             projectConfigs = data.configs;
             console.log('[DEBUG] Total de projetos:', projects.length);
-            renderProjects();
+            // Só renderiza se já tiver as versões disponíveis ou se não há projetos
+            if (Object.keys(availableNodeVersions).length > 0 || projects.length === 0) {
+                renderProjects();
+            }
+        });
+
+        // Recebe versões disponíveis do Node.js
+        ipcRenderer.on('available-node-versions', (event, versions) => {
+            console.log('[DEBUG] Versões disponíveis:', versions);
+            availableNodeVersions = versions;
+            // Atualiza compatibilidade com versões dinâmicas
+            Object.keys(versions).forEach(version => {
+                if (!ANGULAR_COMPATIBILITY[version]) {
+                    // Adiciona versões não configuradas com padrões sensatos
+                    ANGULAR_COMPATIBILITY[version] = {
+                        nodeLabel: `Node ${version}`,
+                        defaultCli: '@angular/cli@latest',
+                        compatibleCli: ['@angular/cli@latest']
+                    };
+                }
+            });
+            // Renderiza após receber versões disponíveis
+            if (projects.length > 0) {
+                renderProjects();
+            }
         });
 
         // Renderiza lista de projetos
@@ -386,6 +545,9 @@
                 
                 console.log(`[DEBUG] ${project.name}: savedConfig=${projectConfigs[project.name]}, default=${project.defaultVersion}, final=${currentVersion}`);
                 
+                // Gera opções para todas as versões disponíveis
+                const versionOptions = generateVersionOptions(project.name, currentVersion);
+                
                 return `
                     <div class="project-item" data-project="${escapeHtml(project.name)}">
                         <div class="project-info">
@@ -393,9 +555,7 @@
                             <div class="project-path">${escapeHtml(project.path)}</div>
                         </div>
                         <div class="version-selector">
-                            ${createVersionOption(project.name, '16.10.0', 'Node 16', currentVersion)}
-                            ${createVersionOption(project.name, '18.18.2', 'Node 18', currentVersion)}
-                            ${createVersionOption(project.name, '20.19.5', 'Node 20', currentVersion)}
+                            ${versionOptions}
                         </div>
                     </div>
                 `;
@@ -403,12 +563,39 @@
 
             // Adiciona listeners aos radio buttons
             document.querySelectorAll('input[type="radio"]').forEach(radio => {
-                radio.addEventListener('change', handleVersionChange);
+                radio.addEventListener('change', (event) => {
+                    const projectName = event.target.name.replace('version-', '');
+                    const version = event.target.value;
+                    handleNodeClick(event, projectName, version);
+                });
             });
         }
 
+        // Gera opções de versão para todas as versões disponíveis
+        function generateVersionOptions(projectName, currentVersion) {
+            // Se não há versões carregadas ainda, usa as padrões
+            if (!availableNodeVersions || Object.keys(availableNodeVersions).length === 0) {
+                const defaultVersions = ['16.10.0', '18.18.2', '20.19.5'];
+                return defaultVersions.map(version => {
+                    const compatibility = ANGULAR_COMPATIBILITY[version];
+                    const nodeLabel = compatibility ? compatibility.nodeLabel : `Node ${version}`;
+                    return createVersionOption(projectName, version, nodeLabel, currentVersion);
+                }).join('');
+            }
+
+            // Usa versões disponíveis do sistema
+            return Object.keys(availableNodeVersions).map(version => {
+                const versionData = availableNodeVersions[version];
+                const compatibility = ANGULAR_COMPATIBILITY[version];
+                const nodeLabel = compatibility ? compatibility.nodeLabel : `Node ${version}`;
+                const isInstalled = versionData && versionData.installed;
+                
+                return createVersionOption(projectName, version, nodeLabel, currentVersion, isInstalled);
+            }).join('');
+        }
+
         // Cria opção de versão com CLI integrada
-        function createVersionOption(projectName, version, nodeLabel, currentVersion) {
+        function createVersionOption(projectName, version, nodeLabel, currentVersion, isInstalled = true) {
             const isSelected = version === currentVersion;
             const compatibility = ANGULAR_COMPATIBILITY[version];
             const currentCli = angularCliConfigs[projectName + '-' + version] || compatibility.defaultCli;
@@ -417,25 +604,38 @@
                 `<option value="${cli}" ${cli === currentCli ? 'selected' : ''}>${cli}</option>`
             ).join('');
 
+            // Apenas mostra tag "em uso" se estiver selecionado
+            const statusBadge = isSelected ? 
+                '<span class="status-badge in-use">🎯 Em Uso</span>' : 
+                (isInstalled ? '' : '<span class="status-badge not-installed">⚠️ Não Instalado</span>');
+
             return `
-                <label class="version-option ${isSelected ? 'selected' : ''}" 
+                <label class="version-option ${isSelected ? 'selected' : ''} ${!isInstalled ? 'disabled' : ''}" 
                        data-project="${projectName}" 
                        data-version="${version}"
                        onclick="handleNodeClick(event, '${projectName}', '${version}')">
                     <input type="radio" 
                            name="version-${projectName}" 
                            value="${version}" 
-                           ${isSelected ? 'checked' : ''}>
-                    <div class="version-label">${nodeLabel}</div>
-                    <div class="cli-selector-inline">
-                        <span class="cli-label-inline">CLI:</span>
-                        <select class="cli-dropdown-inline" 
-                                data-project="${projectName}" 
-                                data-node-version="${version}"
-                                onchange="handleCliChange(event, '${projectName}', '${version}')"
-                                onclick="event.stopPropagation()">
-                            ${cliOptions}
-                        </select>
+                           ${isSelected ? 'checked' : ''}
+                           ${!isInstalled ? 'disabled' : ''}>
+                    <div class="version-info">
+                        <div class="version-label">
+                            <span class="node-label">${nodeLabel}</span>
+                            ${statusBadge}
+                        </div>
+                        ${isInstalled ? `
+                        <div class="cli-selector-inline">
+                            <span class="cli-label-inline">CLI:</span>
+                            <select class="cli-dropdown-inline" 
+                                    data-project="${projectName}" 
+                                    data-node-version="${version}"
+                                    onchange="handleCliChange(event, '${projectName}', '${version}')"
+                                    onclick="event.stopPropagation()">
+                                ${cliOptions}
+                            </select>
+                        </div>
+                        ` : '<div class="install-notice">Instale esta versão primeiro</div>'}
                     </div>
                 </label>
             `;
@@ -456,12 +656,26 @@
                 // Atualiza configuração local
                 projectConfigs[projectName] = nodeVersion;
                 
-                // Atualiza UI
+                // Atualiza UI e tags "em uso"
                 document.querySelectorAll(`label[data-project="${projectName}"]`).forEach(label => {
+                    const versionLabelDiv = label.querySelector('.version-label');
+                    
                     if (label.dataset.version === nodeVersion) {
                         label.classList.add('selected');
+                        
+                        // Remove qualquer tag "em uso" existente e adiciona nova
+                        const existingInUse = versionLabelDiv.querySelector('.status-badge.in-use');
+                        if (existingInUse) existingInUse.remove();
+                        
+                        const nodeLabel = versionLabelDiv.querySelector('.node-label');
+                        nodeLabel.insertAdjacentHTML('afterend', '<span class="status-badge in-use">🎯 Em Uso</span>');
+                        
                     } else {
                         label.classList.remove('selected');
+                        
+                        // Remove tag "em uso" das outras versões
+                        const inUseTag = versionLabelDiv.querySelector('.status-badge.in-use');
+                        if (inUseTag) inUseTag.remove();
                     }
                 });
                 
