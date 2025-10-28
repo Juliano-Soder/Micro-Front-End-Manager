@@ -29,8 +29,9 @@
   "author": "Juliano Soder",
   "license": "ISC",
   "dependencies": {
+    "adm-zip": "^0.5.10",
     "electron-squirrel-startup": "^1.0.1",
-    "adm-zip": "^0.5.10"
+    "tar": "^7.5.1"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.8.0",

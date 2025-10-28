@@ -9,13 +9,22 @@ const https = require('https');
 const http = require('http');
 const url = require('url');
 
+// ===== CARREGAR HANDLERS IPC IMEDIATAMENTE =====
+console.log('[MAIN] Carregando handlers IPC...');
+require('./ipc-handlers');
+console.log('[MAIN] ✅ Handlers IPC carregados!');
+
+// Registrar handler crítico para debugging
+console.log('[MAIN] INÍCIO: Preparando para registrar handler start-node-installation...');
+
 // Imports para gerenciamento de Node.js portátil
 const NodeInstaller = require('./node-installer');
 const ProjectConfigManager = require('./project-config-manager');
 const { 
   NODE_VERSIONS, 
   getNodeExecutablePath, 
-  getCurrentOS 
+  getCurrentOS,
+  getNodesBasePath
 } = require('./node-version-config');
 
 // Instâncias globais
@@ -23,6 +32,82 @@ let nodeInstaller = null;
 let projectConfigManager = null;
 let installerWindow = null;
 let projectConfigsWindow = null;
+let newCLIsWindow = null;
+
+// ===== REGISTRAR HANDLER CRÍTICO IMEDIATAMENTE =====
+console.log('[MAIN] EXECUTANDO: Registrando handler start-node-installation AGORA...');
+ipcMain.on('start-node-installation', async () => {
+  console.log('[DEBUG] ===== start-node-installation RECEBIDO =====');
+  console.log('[DEBUG] installerWindow exists?', !!installerWindow);
+  console.log('[DEBUG] nodeInstaller exists?', !!nodeInstaller);
+  
+  if (!nodeInstaller) {
+    console.log('[DEBUG] Criando novo NodeInstaller...');
+    nodeInstaller = new NodeInstaller(installerWindow);
+  } else {
+    console.log('[DEBUG] Usando NodeInstaller existente, atualizando janela...');
+    nodeInstaller.setMainWindow(installerWindow);
+  }
+  
+  try {
+    console.log('[DEBUG] Iniciando installAllVersions...');
+    await nodeInstaller.installAllVersions();
+    console.log('[DEBUG] installAllVersions CONCLUÍDO com sucesso');
+    
+    // Salva flag de instalação completa
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    let settings = {};
+    
+    try {
+      if (fs.existsSync(settingsPath)) {
+        settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      }
+    } catch (error) {
+      console.error('Erro ao ler settings:', error);
+    }
+    
+    settings.dependenciesInstalled = true;
+    settings.lastInstallDate = new Date().toISOString();
+    
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+    
+    if (installerWindow && !installerWindow.isDestroyed()) {
+      installerWindow.webContents.send('installation-complete', {
+        success: true,
+        message: 'Todas as dependências foram instaladas com sucesso!'
+      });
+    }
+    
+  } catch (error) {
+    console.error('[DEBUG] Erro na instalação:', error);
+    
+    if (installerWindow && !installerWindow.isDestroyed()) {
+      installerWindow.webContents.send('installation-complete', {
+        success: false,
+        message: `Erro na instalação: ${error.message}`
+      });
+    }
+  }
+});
+console.log('[MAIN] ✅ Handler start-node-installation registrado!');
+
+// Outros handlers
+ipcMain.on('close-installer-window', () => {
+  if (installerWindow && !installerWindow.isDestroyed()) {
+    installerWindow.close();
+    installerWindow = null;
+  }
+});
+
+ipcMain.on('reinstall-response', async (event, { version, shouldReinstall }) => {
+  if (shouldReinstall && nodeInstaller) {
+    try {
+      await nodeInstaller.reinstallNodeVersion(version);
+    } catch (error) {
+      nodeInstaller.sendLog(`Erro na reinstalação: ${error.message}`, true);
+    }
+  }
+});
 
 // Função para procurar IDE dinamicamente
 async function findIDEExecutable(ideConfig, platform) {
@@ -168,72 +253,6 @@ ipcMain.on('open-installer-window', () => {
   openInstallerWindow();
 });
 
-// Inicia instalação
-ipcMain.on('start-node-installation', async () => {
-  console.log('[DEBUG] Iniciando instalação do Node.js');
-  
-  if (!nodeInstaller) {
-    nodeInstaller = new NodeInstaller(installerWindow);
-  }
-  
-  try {
-    await nodeInstaller.installAllVersions();
-    
-    // Salva flag de instalação completa
-    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
-    let settings = {};
-    
-    try {
-      if (fs.existsSync(settingsPath)) {
-        settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-      }
-    } catch (error) {
-      console.error('Erro ao ler settings:', error);
-    }
-    
-    settings.dependenciesInstalled = true;
-    settings.lastInstallDate = new Date().toISOString();
-    
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-    
-    if (installerWindow && !installerWindow.isDestroyed()) {
-      installerWindow.webContents.send('installation-complete', {
-        success: true,
-        message: 'Todas as dependências foram instaladas com sucesso!'
-      });
-    }
-    
-  } catch (error) {
-    console.error('[DEBUG] Erro na instalação:', error);
-    
-    if (installerWindow && !installerWindow.isDestroyed()) {
-      installerWindow.webContents.send('installation-complete', {
-        success: false,
-        message: `Erro na instalação: ${error.message}`
-      });
-    }
-  }
-});
-
-// Fecha janela do instalador
-ipcMain.on('close-installer-window', () => {
-  if (installerWindow && !installerWindow.isDestroyed()) {
-    installerWindow.close();
-    installerWindow = null;
-  }
-});
-
-// Resposta sobre reinstalação
-ipcMain.on('reinstall-response', async (event, { version, shouldReinstall }) => {
-  if (shouldReinstall && nodeInstaller) {
-    try {
-      await nodeInstaller.reinstallNodeVersion(version);
-    } catch (error) {
-      nodeInstaller.sendLog(`Erro na reinstalação: ${error.message}`, true);
-    }
-  }
-});
-
 // ===== HANDLERS PARA CONFIGURAÇÕES DE PROJETOS =====
 
 // Abre janela de configurações de projetos
@@ -274,6 +293,45 @@ ipcMain.on('get-project-configs', (event) => {
     projects: projectsList,
     configs: configs
   });
+});
+
+// Obtém versões disponíveis do Node.js
+ipcMain.on('get-available-node-versions', (event) => {
+  console.log('[DEBUG] Solicitação de versões disponíveis recebida');
+  
+  const { NODE_VERSIONS } = require('./node-version-config');
+  const fs = require('fs');
+  const path = require('path');
+  
+  // Verifica quais versões estão instaladas
+  const availableVersions = {};
+  const nodesBasePath = getNodesBasePath();
+  const currentOS = getCurrentOS();
+  const osPath = path.join(nodesBasePath, currentOS);
+  
+  Object.keys(NODE_VERSIONS).forEach(version => {
+    const versionConfig = NODE_VERSIONS[version];
+    const folderName = typeof versionConfig.folderName === 'object' 
+      ? versionConfig.folderName[currentOS] 
+      : versionConfig.folderName;
+    
+    const nodeDir = path.join(osPath, folderName);
+    const nodeExePath = path.join(nodeDir, currentOS === 'windows' ? 'node.exe' : 'bin/node');
+    const npmPath = path.join(nodeDir, currentOS === 'windows' ? 'npm.cmd' : 'bin/npm');
+    
+    const isInstalled = fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
+    
+    availableVersions[version] = {
+      version: version,
+      label: versionConfig.nodeLabel || `Node ${version}`,
+      installed: isInstalled,
+      angularVersion: versionConfig.angularVersion,
+      angularPackage: versionConfig.angularPackage
+    };
+  });
+  
+  console.log('[DEBUG] Versões disponíveis:', availableVersions);
+  event.reply('available-node-versions', availableVersions);
 });
 
 // Atualiza versão de um projeto
@@ -412,6 +470,63 @@ ipcMain.on('save-project-configs', (event, configs) => {
   });
   
   console.log('[DEBUG] Configurações de projetos salvas');
+});
+
+// ===== HANDLERS PARA NOVAS CLIs =====
+
+// Salva configuração de usar sistema global
+ipcMain.on('save-global-system-config', (event, useGlobal) => {
+  try {
+    const configPath = path.join(__dirname, 'global-system-config.json');
+    const config = { useGlobalSystem: useGlobal };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    console.log(`[DEBUG] Configuração global salva: usar sistema global = ${useGlobal}`);
+  } catch (error) {
+    console.error('[ERROR] Erro ao salvar configuração global:', error);
+  }
+});
+
+// Obtém configuração de usar sistema global
+ipcMain.on('get-global-system-config', (event) => {
+  try {
+    const configPath = path.join(__dirname, 'global-system-config.json');
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      event.reply('global-system-config', config.useGlobalSystem);
+    } else {
+      event.reply('global-system-config', false);
+    }
+  } catch (error) {
+    console.error('[ERROR] Erro ao carregar configuração global:', error);
+    event.reply('global-system-config', false);
+  }
+});
+
+// Abre pasta de versões instaladas
+ipcMain.on('open-installed-versions-folder', (event) => {
+  try {
+    console.log(`[CUSTOM-CLI] Abrindo pasta de versões instaladas...`);
+    const { shell } = require('electron');
+    const nodeVersionConfig = require('./node-version-config');
+    const nodesPath = nodeVersionConfig.getNodesBasePath();
+    
+    console.log(`[CUSTOM-CLI] Caminho: ${nodesPath}`);
+    
+    if (!fs.existsSync(nodesPath)) {
+      console.warn(`[CUSTOM-CLI] ⚠️ Caminho não existe: ${nodesPath}`);
+      return;
+    }
+    
+    shell.openPath(nodesPath).then((error) => {
+      if (error) {
+        console.error(`[CUSTOM-CLI] ❌ Erro ao abrir pasta: ${error}`);
+      } else {
+        console.log(`[CUSTOM-CLI] ✅ Pasta aberta com sucesso`);
+      }
+    });
+  } catch (error) {
+    console.error('[CUSTOM-CLI] ❌ Erro ao abrir pasta:', error);
+  }
 });
 
 // Retorna todas as versões de Node configuradas para os projetos
@@ -1794,9 +1909,31 @@ function openInstallerWindow() {
   // Inicializa NodeInstaller quando a janela estiver pronta
   installerWindow.webContents.once('did-finish-load', () => {
     console.log('✅ Janela do instalador carregada');
+    
+    // Abre DevTools para debug
+    // Para desenvolvimento - descomente a linha abaixo se precisar debugar
+    // installerWindow.webContents.openDevTools();
+    
     if (!nodeInstaller) {
       nodeInstaller = new NodeInstaller(installerWindow);
+      console.log('[DEBUG] NodeInstaller criado para janela do instalador');
+    } else {
+      console.log('[DEBUG] NodeInstaller já existe, atualizando janela');
+      nodeInstaller.setMainWindow(installerWindow);
     }
+    
+    // Log para verificar se está funcionando
+    console.log('[DEBUG] Enviando mensagem de teste para installerWindow');
+    installerWindow.webContents.send('installer-log', { 
+      message: 'Janela do instalador carregada com sucesso!', 
+      isError: false 
+    });
+    
+    // TESTE CRÍTICO: Verificar se handlers IPC estão funcionando
+    console.log('[DEBUG] ===== TESTE DE HANDLERS IPC =====');
+    console.log('[DEBUG] Listando todos os handlers registrados...');
+    console.log('[DEBUG] handlers start-node-installation:', ipcMain.listenerCount('start-node-installation'));
+    console.log('[DEBUG] ===== FIM DO TESTE =====');
   });
 
   // Limpa referência quando fechada
@@ -1816,8 +1953,10 @@ function openProjectConfigsWindow() {
   }
 
   projectConfigsWindow = new BrowserWindow({
-    width: 900,
-    height: 700,
+    width: 1000,
+    height: 800,
+    minWidth: 800,
+    minHeight: 600,
     modal: true,
     parent: mainWindow,
     webPreferences: {
@@ -1825,12 +1964,15 @@ function openProjectConfigsWindow() {
       contextIsolation: false,
     },
     autoHideMenuBar: true,
-    resizable: false,
+    resizable: true,
     title: 'Configurações de Projetos',
     icon: path.join(__dirname, 'OIP.ico'),
   });
 
   projectConfigsWindow.loadFile(path.join(__dirname, 'project-configs.html'));
+
+  // Para desenvolvimento - descomente a linha abaixo se precisar debugar
+  // projectConfigsWindow.webContents.openDevTools();
 
   // Inicializa ProjectConfigManager quando a janela estiver pronta
   projectConfigsWindow.webContents.once('did-finish-load', () => {
@@ -1849,7 +1991,7 @@ function openProjectConfigsWindow() {
       console.error('Erro ao enviar tema:', error);
     }
     
-    // Envia lista de projetos automaticamente após um pequeno delay
+    // Aguarda um pouco mais para garantir que a página está totalmente carregada
     setTimeout(() => {
       const configs = projectConfigManager.getAllConfigs();
       const { getDefaultNodeVersion } = require('./node-version-config');
@@ -1870,17 +2012,123 @@ function openProjectConfigsWindow() {
         configs: configs
       });
       
+      // Envia dados dos projetos
       projectConfigsWindow.webContents.send('project-configs-data', {
         projects: projectsList,
         configs: configs
       });
-    }, 500);
+      
+      // Envia versões disponíveis do Node.js
+      setTimeout(() => {
+        console.log('[AUTO-SEND] Enviando versões disponíveis...');
+        const { NODE_VERSIONS } = require('./node-version-config');
+        const fs = require('fs');
+        const path = require('path');
+        
+        const availableVersions = {};
+        const nodesBasePath = getNodesBasePath();
+        const currentOS = getCurrentOS();
+        const osPath = path.join(nodesBasePath, currentOS);
+        
+        Object.keys(NODE_VERSIONS).forEach(version => {
+          const versionConfig = NODE_VERSIONS[version];
+          const folderName = typeof versionConfig.folderName === 'object' 
+            ? versionConfig.folderName[currentOS] 
+            : versionConfig.folderName;
+          
+          const nodeDir = path.join(osPath, folderName);
+          const nodeExePath = path.join(nodeDir, currentOS === 'windows' ? 'node.exe' : 'bin/node');
+          const npmPath = path.join(nodeDir, currentOS === 'windows' ? 'npm.cmd' : 'bin/npm');
+          
+          const isInstalled = fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
+          
+          availableVersions[version] = {
+            version: version,
+            label: versionConfig.nodeLabel || `Node ${version}`,
+            installed: isInstalled,
+            angularVersion: versionConfig.angularVersion,
+            angularPackage: versionConfig.angularPackage
+          };
+        });
+        
+        console.log('[AUTO-SEND] Versões disponíveis:', availableVersions);
+        projectConfigsWindow.webContents.send('available-node-versions', availableVersions);
+      }, 200);
+      
+    }, 1000); // Aumentado de 500ms para 1000ms
   });
 
   // Limpa referência quando fechada
   projectConfigsWindow.on('closed', () => {
     projectConfigsWindow = null;
     console.log('🧹 Janela de configurações de projetos fechada');
+  });
+}
+
+// Função para abrir janela de novas CLIs
+function openNewCLIsWindow() {
+  console.log('[DEBUG] Abrindo janela de novas CLIs');
+  
+  if (newCLIsWindow && !newCLIsWindow.isDestroyed()) {
+    newCLIsWindow.focus();
+    return;
+  }
+
+  newCLIsWindow = new BrowserWindow({
+    width: 900,
+    height: 700,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    },
+    icon: path.join(__dirname, 'OIP.ico'),
+    title: 'Adicionar novas CLIs',
+    resizable: true,
+    minimizable: true,
+    maximizable: true
+  });
+
+  newCLIsWindow.loadFile(path.join(__dirname, 'new-clis.html'));
+
+  // Abrir DevTools automaticamente para debug
+  // Para desenvolvimento - descomente a linha abaixo se precisar debugar
+  // newCLIsWindow.webContents.openDevTools();
+
+  // Listener para erros de carregamento
+  newCLIsWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.error(`❌ Erro ao carregar new-clis.html: ${errorCode} - ${errorDescription}`);
+  });
+
+  // Listener para erros de processo
+  newCLIsWindow.webContents.on('crashed', () => {
+    console.error('❌ Processo da janela de CLIs crashou!');
+  });
+
+  newCLIsWindow.webContents.on('preload-error', (event, preloadPath, error) => {
+    console.error(`❌ Erro ao carregar preload: ${preloadPath}`, error);
+  });
+
+  newCLIsWindow.webContents.once('did-finish-load', () => {
+    console.log('✅ Janela de novas CLIs carregada');
+    
+    // Envia o tema atual para a janela
+    try {
+      const configPath = path.join(userDataPath, 'config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        const isDarkMode = config.darkMode === true;
+        newCLIsWindow.webContents.send('apply-theme', isDarkMode);
+        console.log(`🎨 Tema enviado para novas CLIs: ${isDarkMode ? 'escuro' : 'claro'}`);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao carregar tema para novas CLIs:', error);
+    }
+  });
+
+  // Limpa referência quando fechada
+  newCLIsWindow.on('closed', () => {
+    newCLIsWindow = null;
+    console.log('🧹 Janela de novas CLIs fechada');
   });
 }
 
@@ -2659,7 +2907,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         },
         { type: 'separator' },
         {
-          label: '⚙️ Configurações de Projetos',
+          label: '⚙️ Configurar CLIs projetos',
           id: 'project-configs',
           click: () => {
             // Desabilita temporariamente
@@ -2674,10 +2922,42 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
             // Reabilita após um tempo
             setTimeout(() => {
               if (menuItem) {
-                menuItem.label = '⚙️ Configurações de Projetos';
+                menuItem.label = '⚙️ Configurar CLIs projetos';
                 menuItem.enabled = true;
               }
             }, 1000);
+          },
+        },
+        {
+          label: '📦 Adicionar novas CLIs',
+          id: 'new-clis',
+          click: () => {
+            // Desabilita temporariamente
+            const menuItem = appMenu ? appMenu.getMenuItemById('new-clis') : null;
+            if (menuItem) {
+              menuItem.label = 'Abrindo...';
+              menuItem.enabled = false;
+            }
+
+            openNewCLIsWindow();
+
+            // Reabilita após um tempo
+            setTimeout(() => {
+              if (menuItem) {
+                menuItem.label = '📦 Adicionar novas CLIs';
+                menuItem.enabled = true;
+              }
+            }, 1000);
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '📁 Ver versões instaladas',
+          click: () => {
+            const { shell } = require('electron');
+            const nodeVersionConfig = require('./node-version-config');
+            const nodesPath = nodeVersionConfig.getNodesBasePath();
+            shell.openPath(nodesPath);
           },
         },
       ],
@@ -2731,9 +3011,6 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       }, 300);
     }, 800); // Reduzido de 2000ms para 800ms
   });
-
-  // Remove todos os listeners IPC existentes para evitar duplicação
-  ipcMain.removeAllListeners();
 
   // Adiciona listener para tecla F5 (Refresh/Restart)
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -3811,6 +4088,20 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
     
     console.log(`[DEBUG] Projeto: ${projectName}, isPamp: ${isPampProject}, index: ${projectIndex}`);
     
+    // 🎯 VERIFICA SE DEVE USAR SISTEMA GLOBAL OU PORTÁTIL
+    let useGlobalSystem = false;
+    try {
+      const configPath = path.join(__dirname, 'global-system-config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        useGlobalSystem = config.useGlobalSystem || false;
+      }
+    } catch (error) {
+      console.error('[ERROR] Erro ao ler configuração global:', error);
+    }
+
+    console.log(`[DEBUG] Usar sistema global: ${useGlobalSystem}`);
+
     // 🎯 OBTÉM VERSÃO DO NODE.JS PARA ESTE PROJETO
     if (!projectConfigManager) {
       projectConfigManager = new ProjectConfigManager();
@@ -3820,19 +4111,81 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
     const nodeVersion = projectConfigManager.getProjectNodeVersion(projectName);
     console.log(`[DEBUG] 🎯 Projeto ${projectName} usando Node.js ${nodeVersion}`);
     
-    // Obtém caminhos do Node.js portátil
+    // Obtém caminhos do Node.js (portátil ou global)
     let nodePaths;
-    try {
-      console.log(`[DEBUG] Tentando obter caminhos do Node.js ${nodeVersion}...`);
-      nodePaths = getNodeExecutablePath(nodeVersion);
-      console.log(`[DEBUG] ✅ Node.js portátil encontrado em: ${nodePaths.nodeDir}`);
-      console.log(`[DEBUG] Node exe: ${nodePaths.nodeExe}`);
-      console.log(`[DEBUG] NPM cmd: ${nodePaths.npmCmd}`);
+    let command;
+    
+    if (useGlobalSystem) {
+      // USA SISTEMA GLOBAL (PATH do Windows)
+      console.log(`[DEBUG] 🌐 Usando Node.js e CLIs globais do sistema`);
       
-      // Verifica se o executável existe
-      if (!fs.existsSync(nodePaths.nodeExe)) {
-        const errorMsg = `❌ Node.js ${nodeVersion} não está instalado. Use "Instalar Dependências Node.js" no menu.`;
+      // Define comandos usando binários globais
+      if (projectName === 'mp-pas-root') {
+        command = `npm run start`; // Webpack
+      } else if (projectName.startsWith('mp-pas-')) {
+        const scriptName = projectName.replace('mp-', ''); // Remove apenas 'mp-', mantém 'pas-'
+        command = `npm run serve:single-spa:${scriptName}`;
+      } else if (isPampProject) {
+        command = `npm run serve`; // PAMP
+      } else {
+        command = `npm run start`; // Padrão
+      }
+      
+      console.log(`[DEBUG] 🌐 Comando global: ${command}`);
+      
+    } else {
+      // USA SISTEMA PORTÁTIL (como antes)
+      try {
+        console.log(`[DEBUG] 📦 Tentando obter caminhos do Node.js portátil ${nodeVersion}...`);
+        nodePaths = getNodeExecutablePath(nodeVersion);
+        console.log(`[DEBUG] ✅ Node.js portátil encontrado em: ${nodePaths.nodeDir}`);
+        console.log(`[DEBUG] Node exe: ${nodePaths.nodeExe}`);
+        console.log(`[DEBUG] NPM cmd: ${nodePaths.npmCmd}`);
+        
+        // Verifica se o executável existe
+        if (!fs.existsSync(nodePaths.nodeExe)) {
+          const errorMsg = `❌ Node.js ${nodeVersion} não está instalado. Use "Instalar Dependências Node.js" no menu.`;
+          console.error(`[DEBUG] ${errorMsg}`);
+          
+          if (isPampProject) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: errorMsg,
+              index: projectIndex,
+              name: projectName,
+              error: true
+            });
+            event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
+          } else {
+            event.reply('log', { path: projectPath, message: errorMsg });
+            event.reply('process-stopped', { path: projectPath });
+          }
+          return;
+        }
+        
+        // 🎯 CONSTRÓI COMANDOS USANDO NODE.JS PORTÁTIL
+        const nodeExe = `"${nodePaths.nodeExe}"`;
+        const npmCmd = `"${nodePaths.npmCmd}"`;
+        const ngCmd = `"${nodePaths.ngCmd}"`;
+
+        // Ajusta o comando para projetos específicos
+        if (projectName === 'mp-pas-root') {
+          command = `${npmCmd} run start`; // Comando específico para o mp-pas-root (usa webpack)
+        } else if (projectName.startsWith('mp-pas-')) {
+          // Para projetos PAS, usa npm run com o script correto (mantém o 'pas-' no nome)
+          // Não podemos usar ng.cmd diretamente com node.exe (ng.cmd é batch, não JavaScript)
+          const scriptName = projectName.replace('mp-', ''); // Remove apenas 'mp-', mantém 'pas-'
+          command = `${npmCmd} run serve:single-spa:${scriptName}`;
+        } else if (isPampProject) {
+          // Para projetos PAMP, usa npm run serve
+          command = `${npmCmd} run serve`;
+        } else {
+          command = `${npmCmd} run start`; // Comando padrão para outros projetos
+        }
+      } catch (error) {
+        const errorMsg = `❌ Erro ao obter Node.js portátil: ${error.message}`;
         console.error(`[DEBUG] ${errorMsg}`);
+        console.error(`[DEBUG] Stack do erro:`, error.stack);
         
         if (isPampProject) {
           event.reply('pamp-log', { 
@@ -3849,47 +4202,6 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         }
         return;
       }
-    } catch (error) {
-      const errorMsg = `❌ Erro ao obter Node.js portátil: ${error.message}`;
-      console.error(`[DEBUG] ${errorMsg}`);
-      console.error(`[DEBUG] Stack do erro:`, error.stack);
-      
-      if (isPampProject) {
-        event.reply('pamp-log', { 
-          path: projectPath, 
-          message: errorMsg,
-          index: projectIndex,
-          name: projectName,
-          error: true
-        });
-        event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
-      } else {
-        event.reply('log', { path: projectPath, message: errorMsg });
-        event.reply('process-stopped', { path: projectPath });
-      }
-      return;
-    }
-    
-    let command;
-    
-    // 🎯 CONSTRÓI COMANDOS USANDO NODE.JS PORTÁTIL
-    const nodeExe = `"${nodePaths.nodeExe}"`;
-    const npmCmd = `"${nodePaths.npmCmd}"`;
-    const ngCmd = `"${nodePaths.ngCmd}"`;
-
-    // Ajusta o comando para projetos específicos
-    if (projectName === 'mp-pas-root') {
-      command = `${npmCmd} run start`; // Comando específico para o mp-pas-root (usa webpack)
-    } else if (projectName.startsWith('mp-pas-')) {
-      // Para projetos PAS, usa npm run com o script correto (mantém o 'pas-' no nome)
-      // Não podemos usar ng.cmd diretamente com node.exe (ng.cmd é batch, não JavaScript)
-      const scriptName = projectName.replace('mp-', ''); // Remove apenas 'mp-', mantém 'pas-'
-      command = `${npmCmd} run serve:single-spa:${scriptName}`;
-    } else if (isPampProject) {
-      // Para projetos PAMP, usa npm run serve
-      command = `${npmCmd} run serve`;
-    } else {
-      command = `${npmCmd} run start`; // Comando padrão para outros projetos
     }
     
     console.log(`Executando comando: ${command} no caminho: ${projectPath}`);
@@ -4091,23 +4403,43 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
     // Determine se é um projeto PAMP pelo nome do diretório
     const projectName = path.basename(projectPath);
     
-    // 🎯 GARANTE QUE NODE.JS PORTÁTIL SEJA USADO
-    // Obtém o diretório do Node.js portátil para este projeto
-    const projectNodeConfigManager = new ProjectConfigManager();
-    const nodeVersion = projectNodeConfigManager.getProjectNodeVersion(projectName);
-    const nodePaths = getNodeExecutablePath(nodeVersion);
-    const nodeDir = nodePaths.nodeDir;
+    // 🎯 VERIFICA SE DEVE USAR SISTEMA GLOBAL OU PORTÁTIL
+    let useGlobalSystem = false;
+    try {
+      const configPath = path.join(__dirname, 'global-system-config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        useGlobalSystem = config.useGlobalSystem || false;
+      }
+    } catch (error) {
+      console.error('[ERROR] Erro ao ler configuração global:', error);
+    }
+
+    let customEnv;
     
-    // Adiciona o diretório do Node.js portátil NO INÍCIO do PATH
-    // Isso garante que npm, node e ng do portátil sejam usados ao invés do sistema
-    const customEnv = { 
-      ...process.env,
-      PATH: `${nodeDir}${path.delimiter}${process.env.PATH}`, // Node.js portátil primeiro!
-      NODE_PATH: path.join(nodeDir, 'node_modules'), // Garante que módulos globais sejam encontrados
-    };
-    
-    console.log(`🎯 PATH configurado para usar Node.js portátil: ${nodeDir}`);
-    console.log(`📦 Versão Node.js: ${nodeVersion}`);
+    if (useGlobalSystem) {
+      // USA AMBIENTE PADRÃO DO SISTEMA
+      console.log(`🌐 Usando ambiente global do sistema (PATH padrão)`);
+      customEnv = { ...process.env }; // Usa PATH do sistema
+    } else {
+      // USA NODE.JS PORTÁTIL
+      // Obtém o diretório do Node.js portátil para este projeto
+      const projectNodeConfigManager = new ProjectConfigManager();
+      const nodeVersion = projectNodeConfigManager.getProjectNodeVersion(projectName);
+      const nodePaths = getNodeExecutablePath(nodeVersion);
+      const nodeDir = nodePaths.nodeDir;
+      
+      // Adiciona o diretório do Node.js portátil NO INÍCIO do PATH
+      // Isso garante que npm, node e ng do portátil sejam usados ao invés do sistema
+      customEnv = { 
+        ...process.env,
+        PATH: `${nodeDir}${path.delimiter}${process.env.PATH}`, // Node.js portátil primeiro!
+        NODE_PATH: path.join(nodeDir, 'node_modules'), // Garante que módulos globais sejam encontrados
+      };
+      
+      console.log(`🎯 PATH configurado para usar Node.js portátil: ${nodeDir}`);
+      console.log(`📦 Versão Node.js: ${nodeVersion}`);
+    }
     
     const childProcess = exec(command, { 
       cwd: projectPath,

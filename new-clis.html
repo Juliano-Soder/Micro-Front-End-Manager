@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adicionar novas CLIs</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Fira Code', monospace;
+      margin: 0;
+      padding: 20px;
+      background-color: #f4f4f4;
+      color: #333;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    body.dark-mode {
+      background-color: #1e1e1e;
+      color: #ffffff;
+    }
+
+    .container {
+      max-width: 850px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: #2c3e50;
+      margin-bottom: 30px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #3498db;
+    }
+
+    body.dark-mode h1 {
+      color: #ffffff;
+      border-bottom-color: #4CAF50;
+    }
+
+    .warning-box {
+      background-color: #fff3cd;
+      border: 1px solid #ffeaa7;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 25px;
+      border-left: 4px solid #f39c12;
+    }
+
+    body.dark-mode .warning-box {
+      background-color: #2d2d2d;
+      border-color: #f39c12;
+      color: #ffffff;
+    }
+
+    .option-section {
+      background-color: #ffffff;
+      border-radius: 10px;
+      padding: 25px;
+      margin-bottom: 25px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      border: 1px solid #ddd;
+    }
+
+    body.dark-mode .option-section {
+      background-color: #2d2d2d;
+      border-color: #555;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+
+    .checkbox-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 15px;
+      padding: 15px;
+      background-color: #e8f4fd;
+      border-radius: 8px;
+      border: 2px solid #3498db;
+    }
+
+    body.dark-mode .checkbox-container {
+      background-color: #1a1a1a;
+      border-color: #4CAF50;
+    }
+
+    .checkbox-container input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    .checkbox-container label {
+      font-weight: 600;
+      color: #2c3e50;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    body.dark-mode .checkbox-container label {
+      color: #ffffff;
+    }
+
+    .portable-section {
+      transition: opacity 0.3s ease;
+    }
+
+    .portable-section.disabled {
+      opacity: 0.3;
+      pointer-events: none;
+    }
+
+    .references {
+      background-color: #f8f9fa;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 25px;
+      border-left: 4px solid #17a2b8;
+    }
+
+    body.dark-mode .references {
+      background-color: #1a1a1a;
+      border-left-color: #4CAF50;
+    }
+
+    .references h3 {
+      color: #495057;
+      margin-top: 0;
+    }
+
+    body.dark-mode .references h3 {
+      color: #ffffff;
+    }
+
+    .references a {
+      color: #007bff;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .references a:hover {
+      text-decoration: underline;
+    }
+
+    body.dark-mode .references a {
+      color: #4CAF50;
+    }
+
+    .input-group {
+      margin-bottom: 20px;
+    }
+
+    .input-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: #495057;
+    }
+
+    body.dark-mode .input-group label {
+      color: #ffffff;
+    }
+
+    .input-group input {
+      width: calc(100% - 24px); /* Subtrai padding para não estourar */
+      padding: 12px;
+      border: 2px solid #ced4da;
+      border-radius: 6px;
+      font-family: 'Fira Code', monospace;
+      font-size: 14px;
+      transition: border-color 0.3s ease;
+      box-sizing: border-box; /* Inclui padding e border no cálculo da largura */
+    }
+
+    body.dark-mode .input-group input {
+      background-color: #333;
+      border-color: #555;
+      color: #ffffff;
+    }
+
+    .input-group input:focus {
+      outline: none;
+      border-color: #3498db;
+    }
+
+    body.dark-mode .input-group input:focus {
+      border-color: #4CAF50;
+    }
+
+    .examples-container {
+      background-color: #e9ecef;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    body.dark-mode .examples-container {
+      background-color: #1a1a1a;
+    }
+
+    .example-item {
+      background-color: #ffffff;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      padding: 15px;
+      margin-bottom: 15px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    body.dark-mode .example-item {
+      background-color: #2d2d2d;
+      border-color: #555;
+    }
+
+    .example-item:hover {
+      background-color: #f8f9fa;
+      border-color: #3498db;
+      transform: translateY(-2px);
+    }
+
+    body.dark-mode .example-item:hover {
+      background-color: #333;
+      border-color: #4CAF50;
+    }
+
+    .example-item.selected {
+      background-color: #e3f2fd;
+      border-color: #2196f3;
+      box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+    }
+
+    body.dark-mode .example-item.selected {
+      background-color: #1a4d3a;
+      border-color: #4CAF50;
+      box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
+    }
+
+    .example-title {
+      font-weight: 600;
+      color: #2c3e50;
+      margin-bottom: 8px;
+    }
+
+    body.dark-mode .example-title {
+      color: #ffffff;
+    }
+
+    .example-details {
+      font-size: 12px;
+      color: #6c757d;
+      line-height: 1.4;
+    }
+
+    body.dark-mode .example-details {
+      color: #aaa;
+    }
+
+    .buttons-container {
+      display: flex;
+      gap: 15px;
+      margin-top: 30px;
+    }
+
+    button {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 6px;
+      font-family: 'Fira Code', monospace;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .btn-primary {
+      background-color: #3498db;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background-color: #2980b9;
+      transform: translateY(-2px);
+    }
+
+    body.dark-mode .btn-primary {
+      background-color: #4CAF50;
+    }
+
+    body.dark-mode .btn-primary:hover {
+      background-color: #45a049;
+    }
+
+    .btn-secondary {
+      background-color: #6c757d;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background-color: #5a6268;
+      transform: translateY(-2px);
+    }
+
+    .btn-danger {
+      background-color: #8b5a5a;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background-color: #7a4d4d;
+      transform: translateY(-2px);
+    }
+
+    .system-info {
+      background-color: #d1ecf1;
+      border: 1px solid #bee5eb;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+      border-left: 4px solid #17a2b8;
+    }
+
+    body.dark-mode .system-info {
+      background-color: #1a2b2f;
+      border-color: #4CAF50;
+    }
+
+    .system-info p {
+      margin: 5px 0;
+      font-size: 14px;
+    }
+
+    .custom-install {
+      background-color: #fff9e6;
+      border: 2px dashed #ffc107;
+      border-radius: 8px;
+      padding: 20px;
+      margin-top: 20px;
+      text-align: center;
+    }
+
+    body.dark-mode .custom-install {
+      background-color: #2d2a1a;
+      border-color: #ffc107;
+    }
+
+    .custom-install h4 {
+      color: #856404;
+      margin-top: 0;
+    }
+
+    body.dark-mode .custom-install h4 {
+      color: #ffc107;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📦 Adicionar novas CLIs</h1>
+
+    <div class="warning-box">
+      <strong>⚠️ Importante:</strong> Esta ferramenta permite adicionar novas versões do Node.js e Angular CLI ao sistema portátil do Micro Front-End Manager. Certifique-se de usar versões compatíveis.
+    </div>
+
+    <!-- Opção de usar sistema global -->
+    <div class="option-section">
+      <div class="checkbox-container">
+        <input type="checkbox" id="useSystemGlobal">
+        <label for="useSystemGlobal">🖥️ Usar versão instalada no computador</label>
+      </div>
+      <p><strong>Explicação:</strong> Quando marcada, o sistema usará o Node.js e Angular CLI instalados globalmente no seu computador, ignorando as versões portáteis. Isso é útil se você já tem um ambiente configurado e quer usar o PATH do sistema.</p>
+    </div>
+
+    <!-- Seção de versões portáteis -->
+    <div class="portable-section" id="portableSection">
+      <!-- Referências -->
+      <div class="references">
+        <h3>📚 Referências importantes:</h3>
+        <p><strong>Versões do Angular:</strong> <a href="https://angular.dev/reference/versions" target="_blank">https://angular.dev/reference/versions</a></p>
+        <p><strong>Downloads do Node.js:</strong> <a href="https://nodejs.org/dist" target="_blank">https://nodejs.org/dist</a></p>
+      </div>
+
+      <!-- Informações do sistema -->
+      <div class="system-info">
+        <p><strong>Sistema operacional:</strong> <span id="osInfo">Carregando...</span></p>
+        <p><strong>Arquitetura:</strong> <span id="archInfo">Carregando...</span></p>
+      </div>
+
+      <!-- Exemplos pré-configurados -->
+      <div class="examples-container">
+        <h3>⚡ Exemplos pré-configurados:</h3>
+        
+        <div class="example-item" data-node-version="22.12.0" data-angular-version="19.0.0">
+          <div class="example-title">Node.js 22.12.0 + Angular CLI 19.0.0 (Latest)</div>
+          <div class="example-details">
+            Windows: https://nodejs.org/dist/v22.12.0/node-v22.12.0-win-x64.zip<br>
+            Linux: https://nodejs.org/dist/v22.12.0/node-v22.12.0-linux-x64.tar.xz<br>
+            CLI: npm install @angular/cli@19.0.0
+          </div>
+        </div>
+
+        <div class="example-item" data-node-version="20.18.0" data-angular-version="18.2.0">
+          <div class="example-title">Node.js 20.18.0 + Angular CLI 18.2.0 (LTS)</div>
+          <div class="example-details">
+            Windows: https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip<br>
+            Linux: https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-x64.tar.xz<br>
+            CLI: npm install @angular/cli@18.2.0
+          </div>
+        </div>
+
+        <div class="example-item" data-node-version="18.20.4" data-angular-version="17.3.11">
+          <div class="example-title">Node.js 18.20.4 + Angular CLI 17.3.11 (Stable)</div>
+          <div class="example-details">
+            Windows: https://nodejs.org/dist/v18.20.4/node-v18.20.4-win-x64.zip<br>
+            Linux: https://nodejs.org/dist/v18.20.4/node-v18.20.4-linux-x64.tar.xz<br>
+            CLI: npm install @angular/cli@17.3.11
+          </div>
+        </div>
+      </div>
+
+      <!-- Instalação customizada -->
+      <div class="custom-install">
+        <h4>🛠️ Instalação personalizada</h4>
+        
+        <div class="input-group">
+          <label for="nodeVersion">Versão do Node.js:</label>
+          <input type="text" id="nodeVersion" placeholder="Ex: 22.12.0">
+        </div>
+
+        <div class="input-group">
+          <label for="nodeUrl">URL de download do Node.js:</label>
+          <input type="text" id="nodeUrl" placeholder="Ex: https://nodejs.org/dist/v22.12.0/node-v22.12.0-win-x64.zip">
+        </div>
+
+        <div class="input-group">
+          <label for="angularVersion">Comando de instalação da Angular CLI:</label>
+          <input type="text" id="angularVersion" placeholder="Ex: npm install @angular/cli@19.0.0">
+        </div>
+      </div>
+
+      <!-- Seção de progresso e logs -->
+      <div id="installationProgressSection" style="display: none; margin-bottom: 20px;">
+        <h3>📦 Status da Instalação</h3>
+        
+        <!-- Barra de progresso -->
+        <div style="margin-bottom: 15px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+            <span id="progressLabel">Iniciando...</span>
+            <span id="progressPercent">0%</span>
+          </div>
+          <div style="background-color: #e0e0e0; border-radius: 10px; height: 25px; overflow: hidden; border: 2px solid #3498db;">
+            <div id="progressBar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #3498db, #2196f3); transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">
+              <span id="progressBarText" style="opacity: 0;">0%</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Logs da instalação -->
+        <div id="installationLogs" style="background-color: #f5f5f5; border: 1px solid #ddd; border-radius: 5px; padding: 10px; max-height: 200px; overflow-y: auto; font-size: 12px; font-family: 'Courier New', monospace;">
+          <div style="color: #666;">Aguardando início da instalação...</div>
+        </div>
+      </div>
+
+      <!-- Botões de ação -->
+      <div class="buttons-container">
+        <button class="btn-primary" id="installBtn">📦 Instalar Versão</button>
+        <button class="btn-secondary" id="checkInstalledBtn">📋 Ver Instaladas</button>
+        <button class="btn-danger" id="resetBtn">🔄 Limpar Campos</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    console.log('[NEW-CLIS] 🎯 SCRIPT INICIADO - ANTES DO TRY');
+    
+    try {
+      const { ipcRenderer } = require('electron');
+      const os = require('os');
+
+      console.log('[NEW-CLIS] 🎯 SCRIPT INICIADO');
+      console.log('[NEW-CLIS] ipcRenderer:', typeof ipcRenderer);
+      
+      // Aplica tema inicial com base no sistema (fallback)
+      try {
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          document.body.classList.add('dark-mode');
+        }
+      } catch (e) {
+        // Silenciosamente ignora erros de tema
+      }
+
+      // Elementos da DOM
+      const useSystemGlobalCheckbox = document.getElementById('useSystemGlobal');
+      const portableSection = document.getElementById('portableSection');
+      const exampleItems = document.querySelectorAll('.example-item');
+      const nodeVersionInput = document.getElementById('nodeVersion');
+      const nodeUrlInput = document.getElementById('nodeUrl');
+      const angularVersionInput = document.getElementById('angularVersion');
+      const installBtn = document.getElementById('installBtn');
+      const checkInstalledBtn = document.getElementById('checkInstalledBtn');
+      const resetBtn = document.getElementById('resetBtn');
+
+      console.log('[NEW-CLIS] 🎯 Elementos DOM encontrados:', {
+        useSystemGlobalCheckbox: !!useSystemGlobalCheckbox,
+        installBtn: !!installBtn,
+        nodeVersionInput: !!nodeVersionInput
+      });
+
+      // Teste de IPC: enviar ping
+      console.log('[NEW-CLIS] 📡 Testando IPC com evento: test-ipc-ping');
+      
+      // Espera um pouco para garantir que o main.js está pronto
+      setTimeout(async () => {
+        console.log('[NEW-CLIS] 📡 Enviando ping de teste agora...');
+        try {
+          const result = await ipcRenderer.invoke('test-ipc-ping', { timestamp: Date.now() });
+          console.log('[NEW-CLIS] 📡 Pong recebido do main:', result);
+          console.log('[NEW-CLIS] ✅ IPC CONECTADO COM SUCESSO!');
+        } catch (err) {
+          console.error('[NEW-CLIS] ❌ Erro ao enviar ping:', err);
+        }
+      }, 500);
+
+      // Informações do sistema
+      if (document.getElementById('osInfo')) {
+        document.getElementById('osInfo').textContent = `${os.type()} ${os.release()}`;
+      }
+      if (document.getElementById('archInfo')) {
+        document.getElementById('archInfo').textContent = os.arch();
+      }
+
+      // Teste de IPC
+      try {
+        console.log('[NEW-CLIS] ✅ Script carregado com sucesso');
+      } catch (e) {
+        console.error('[NEW-CLIS] ❌ Erro no script:', e);
+      }
+
+      // Aplicar tema via evento do main process
+      ipcRenderer.on('apply-theme', (event, darkMode) => {
+        try {
+          if (darkMode) {
+            document.body.classList.add('dark-mode');
+          } else {
+            document.body.classList.remove('dark-mode');
+          }
+        } catch (e) {
+          // Silenciosamente ignora erros de tema
+        }
+      });
+
+    // Checkbox para usar sistema global
+    if (useSystemGlobalCheckbox) {
+      useSystemGlobalCheckbox.addEventListener('change', (e) => {
+        try {
+          if (e.target.checked) {
+            portableSection.classList.add('disabled');
+            // Salvar configuração para usar sistema global
+            ipcRenderer.send('save-global-system-config', true);
+          } else {
+            portableSection.classList.remove('disabled');
+            // Salvar configuração para usar sistema portátil
+            ipcRenderer.send('save-global-system-config', false);
+          }
+        } catch (e) {
+          // Silenciosamente ignora erros
+        }
+      });
+    }
+
+    // Carregar configuração atual
+    try {
+      ipcRenderer.send('get-global-system-config');
+      ipcRenderer.on('global-system-config', (event, useGlobal) => {
+        try {
+          useSystemGlobalCheckbox.checked = useGlobal || false;
+          if (useGlobal) {
+            portableSection.classList.add('disabled');
+          }
+        } catch (e) {
+          // Silenciosamente ignora erros
+        }
+      });
+    } catch (e) {
+      // Silenciosamente ignora erros
+    }
+
+    // Seleção de exemplos
+    exampleItems.forEach(item => {
+      try {
+        item.addEventListener('click', () => {
+          try {
+            // Remove seleção anterior
+            exampleItems.forEach(i => i.classList.remove('selected'));
+            // Adiciona seleção atual
+            item.classList.add('selected');
+            
+            // Preenche campos
+            const nodeVersion = item.dataset.nodeVersion;
+            const angularVersion = item.dataset.angularVersion;
+            
+            if (nodeVersionInput) nodeVersionInput.value = nodeVersion;
+            if (angularVersionInput) angularVersionInput.value = `npm install @angular/cli@${angularVersion}`;
+            
+            // Define URL baseada no sistema
+            const isWindows = os.platform() === 'win32';
+            const extension = isWindows ? 'zip' : 'tar.xz';
+            const platform = isWindows ? 'win-x64' : 'linux-x64';
+            
+            if (nodeUrlInput) nodeUrlInput.value = `https://nodejs.org/dist/v${nodeVersion}/node-v${nodeVersion}-${platform}.${extension}`;
+          } catch (e) {
+            // Silenciosamente ignora erros
+          }
+        });
+      } catch (e) {
+        // Silenciosamente ignora erros
+      }
+    });
+
+    // Botão instalar
+    if (installBtn) {
+      installBtn.addEventListener('click', async () => {
+        try {
+          const nodeVersion = nodeVersionInput.value.trim();
+          const nodeUrl = nodeUrlInput.value.trim();
+          const angularCmd = angularVersionInput.value.trim();
+
+          console.log('[NEW-CLIS] ✅ Botão clicado');
+          console.log('[NEW-CLIS] Node version:', nodeVersion);
+          console.log('[NEW-CLIS] Node URL:', nodeUrl);
+          console.log('[NEW-CLIS] Angular cmd:', angularCmd);
+
+          if (!nodeVersion || !nodeUrl || !angularCmd) {
+            console.log('[NEW-CLIS] ❌ Campos vazios');
+            alert('❌ Por favor, preencha todos os campos!');
+            return;
+          }
+
+          // Validações básicas
+          if (!nodeUrl.includes('nodejs.org') && !nodeUrl.includes('http')) {
+            console.log('[NEW-CLIS] ❌ URL inválida');
+            alert('❌ URL do Node.js inválida!');
+            return;
+          }
+
+          if (!angularCmd.includes('@angular/cli@')) {
+            console.log('[NEW-CLIS] ❌ Angular cmd inválido');
+            alert('❌ Comando Angular CLI inválido!');
+            return;
+          }
+
+          // Confirmar instalação
+          const confirmed = confirm(`🔧 Confirma a instalação?\n\nNode.js: ${nodeVersion}\nURL: ${nodeUrl}\nAngular CLI: ${angularCmd}`);
+          
+          if (confirmed) {
+            console.log('[NEW-CLIS] ✅ Usuário confirmou');
+            
+            // Mostrar seção de progresso
+            const progressSection = document.getElementById('installationProgressSection');
+            const progressBar = document.getElementById('progressBar');
+            const progressLabel = document.getElementById('progressLabel');
+            const progressPercent = document.getElementById('progressPercent');
+            const installationLogs = document.getElementById('installationLogs');
+            
+            progressSection.style.display = 'block';
+            progressBar.style.width = '0%';
+            progressLabel.textContent = 'Iniciando instalação...';
+            progressPercent.textContent = '0%';
+            installationLogs.innerHTML = '<div style="color: #666;">🚀 Iniciando instalação...</div>';
+            
+            installBtn.disabled = true;
+            installBtn.textContent = '⏳ Instalando...';
+            
+            console.log('[NEW-CLIS] 📤 Enviando evento install-custom-cli:', { nodeVersion, nodeUrl, angularCmd });
+            
+            // Enviar para backend usando invoke (Promise-based)
+            try {
+              const result = await ipcRenderer.invoke('install-custom-cli', {
+                nodeVersion,
+                nodeUrl,
+                angularCmd
+              });
+              console.log('[NEW-CLIS] ✅ Resposta do backend:', result);
+              
+              // Mostrar resultado
+              if (result.success) {
+                alert(`✅ ${result.message}`);
+                // Limpar campos após sucesso
+                if (resetBtn) resetBtn.click();
+              } else {
+                alert(`❌ ${result.message}`);
+              }
+            } catch (err) {
+              console.error('[NEW-CLIS] ❌ Erro ao chamar backend:', err);
+              alert(`❌ Erro: ${err.message}`);
+            } finally {
+              installBtn.disabled = false;
+              installBtn.textContent = '📦 Instalar Versão';
+            }
+          }
+        } catch (e) {
+          console.error('[NEW-CLIS] ❌ ERRO NO CLIQUE:', e);
+        }
+      });
+    }
+
+    // Listener para progresso da instalação
+    try {
+      ipcRenderer.on('custom-cli-progress', (event, { percent, status }) => {
+        try {
+          const progressBar = document.getElementById('progressBar');
+          const progressLabel = document.getElementById('progressLabel');
+          const progressPercent = document.getElementById('progressPercent');
+          const progressBarText = document.getElementById('progressBarText');
+          
+          if (progressBar) {
+            progressBar.style.width = `${percent}%`;
+            progressBar.style.opacity = percent > 0 ? '1' : '0.5';
+            
+            if (percent > 20) {
+              progressBarText.style.opacity = '1';
+              progressBarText.textContent = `${percent}%`;
+            } else {
+              progressBarText.style.opacity = '0';
+            }
+          }
+          if (progressLabel) progressLabel.textContent = status || 'Processando...';
+          if (progressPercent) progressPercent.textContent = `${percent}%`;
+        } catch (e) {
+          // Silenciosamente ignora erros
+        }
+      });
+    } catch (e) {
+      // Silenciosamente ignora erros
+    }
+
+    // Listener para logs da instalação
+    try {
+      ipcRenderer.on('custom-cli-log', (event, { message, isError }) => {
+        try {
+          const installationLogs = document.getElementById('installationLogs');
+          if (installationLogs) {
+            const logEntry = document.createElement('div');
+            logEntry.style.color = isError ? '#d32f2f' : '#388e3c';
+            logEntry.textContent = message;
+            installationLogs.appendChild(logEntry);
+            // Scroll para o final
+            installationLogs.scrollTop = installationLogs.scrollHeight;
+          }
+        } catch (e) {
+          // Silenciosamente ignora erros
+        }
+      });
+    } catch (e) {
+      // Silenciosamente ignora erros
+    }
+
+    // Resposta da instalação
+    try {
+      ipcRenderer.on('custom-cli-install-result', (event, { success, message }) => {
+        try {
+          if (installBtn) {
+            installBtn.disabled = false;
+            installBtn.textContent = '📦 Instalar Versão';
+          }
+          
+          if (success) {
+            alert(`✅ ${message}`);
+            // Limpar campos após sucesso
+            if (resetBtn) resetBtn.click();
+          } else {
+            alert(`❌ ${message}`);
+          }
+        } catch (e) {
+          // Silenciosamente ignora erros
+        }
+      });
+    } catch (e) {
+      // Silenciosamente ignora erros
+    }
+
+    // Botão ver instaladas
+    if (checkInstalledBtn) {
+      checkInstalledBtn.addEventListener('click', () => {
+        try {
+          ipcRenderer.send('open-installed-versions-folder');
+        } catch (e) {
+          // Silenciosamente ignora erros
+        }
+      });
+    }
+
+    // Botão limpar
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        try {
+          if (nodeVersionInput) nodeVersionInput.value = '';
+          if (nodeUrlInput) nodeUrlInput.value = '';
+          if (angularVersionInput) angularVersionInput.value = '';
+          exampleItems.forEach(i => i.classList.remove('selected'));
+        } catch (e) {
+          // Silenciosamente ignora erros
+        }
+      });
+    }
+    } catch (e) {
+      console.error('[NEW-CLIS] ❌ ERRO GLOBAL:', e);
+    }
+  </script>
+</body>
+</html>
