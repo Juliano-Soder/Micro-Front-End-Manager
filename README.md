@@ -6,6 +6,25 @@
 
 ## 📝 Notas de Versão
 
+### Versão 0.9.5 - Outubro 2025
+
+**🔐 Sistema de Fallback para Nexus:**
+- **Autenticação Automática**: Sistema de fallback para login no Nexus quando npm install falha
+- **Gestão de Credenciais**: Salvamento seguro de credenciais em base64 para reutilização
+- **Tratamento Especial**: Handling específico para projetos problemáticos como mp-pas-atendimento
+- **Logs Detalhados**: Feedback visual completo durante processo de autenticação e instalação
+
+**⚙️ Detecção Dinâmica de Versões Node.js:**
+- **Auto-detecção**: Leitura automática de versões instaladas do diretório de nodes portáteis
+- **Interface Simplificada**: Lista clicável de versões do Node.js em vez de grade de opções
+- **Expansão Inteligente**: Seleção de versão expande para mostrar opções de Angular CLI
+- **Compatibilidade Mantida**: Preserva todas as funcionalidades existentes de configuração
+
+**🎨 Melhorias na Interface:**
+- **Lista de Versões**: Interface em formato de lista para seleção de versões Node.js
+- **Feedback Visual**: Indicadores de status e instalação mais claros
+- **Proteção contra Undefined**: Tratamento robusto de nomes de versões e dados ausentes
+
 ### Versão 0.0.8 - Setembro 2025
 
 **🚀 Git Integration & Performance:**

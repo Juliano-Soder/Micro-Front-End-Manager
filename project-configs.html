@@ -264,6 +264,153 @@
             margin-top: 2px;
         }
 
+        /* Estilos para lista de versões */
+        .loading-versions {
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            font-style: italic;
+        }
+
+        .version-list-item {
+            padding: 10px 15px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: #f9f9f9;
+        }
+
+        .version-list-item:hover {
+            background: #e8f4f8;
+            border-color: #0066cc;
+        }
+
+        .version-list-item.disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            background: #f0f0f0;
+        }
+
+        .version-list-item.disabled:hover {
+            background: #f0f0f0;
+            border-color: #ddd;
+        }
+
+        body.dark-mode .version-list-item {
+            background: #3a3a3a;
+            border-color: #555;
+            color: #fff;
+        }
+
+        body.dark-mode .version-list-item:hover {
+            background: #464646;
+            border-color: #3399ff;
+        }
+
+        body.dark-mode .version-list-item.disabled {
+            background: #2a2a2a;
+            color: #777;
+        }
+
+        .version-item-content {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .version-icon {
+            font-size: 16px;
+            width: 20px;
+            text-align: center;
+        }
+
+        .version-name {
+            font-weight: 600;
+            color: #333;
+        }
+
+        body.dark-mode .version-name {
+            color: #fff;
+        }
+
+        .version-label {
+            color: #666;
+            font-size: 14px;
+        }
+
+        body.dark-mode .version-label {
+            color: #aaa;
+        }
+
+        .status-text {
+            color: #ff6600;
+            font-size: 12px;
+            font-style: italic;
+        }
+
+        /* Estilos para versão expandida */
+        .version-expanded {
+            padding: 15px;
+            margin: 5px 0;
+            border: 2px solid #0066cc;
+            border-radius: 8px;
+            background: #e8f4f8;
+        }
+
+        body.dark-mode .version-expanded {
+            background: #2a3f4f;
+            border-color: #3399ff;
+        }
+
+        .expanded-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+
+        .cli-selector-expanded {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .cli-label {
+            font-weight: 600;
+            color: #333;
+        }
+
+        body.dark-mode .cli-label {
+            color: #fff;
+        }
+
+        .cli-dropdown {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        body.dark-mode .cli-dropdown {
+            background: #3a3a3a;
+            border-color: #555;
+            color: #fff;
+        }
+
+        .cli-dropdown:focus {
+            outline: none;
+            border-color: #0066cc;
+        }
+
+        body.dark-mode .cli-dropdown:focus {
+            border-color: #3399ff;
+        }
+
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -461,6 +608,16 @@
                 defaultCli: '@angular/cli@15.2.10',
                 compatibleCli: ['@angular/cli@15.2.10', '@angular/cli@16.2.14', '@angular/cli@17.3.10']
             },
+            '18.20.4': {
+                nodeLabel: 'Node 18.20.4',
+                defaultCli: '@angular/cli@15.2.10',
+                compatibleCli: ['@angular/cli@15.2.10', '@angular/cli@16.2.14', '@angular/cli@17.3.10']
+            },
+            '20.18.0': {
+                nodeLabel: 'Node 20.18.0',
+                defaultCli: '@angular/cli@18.2.0',
+                compatibleCli: ['@angular/cli@17.3.10', '@angular/cli@18.2.0']
+            },
             '20.19.5': {
                 nodeLabel: 'Node 20.19.5',
                 defaultCli: '@angular/cli@18.2.0',
@@ -484,7 +641,11 @@
             // Aplica dark mode por padrão até receber o tema correto
             document.body.classList.add('dark-mode');
             
-            // Não precisa solicitar - os dados são enviados automaticamente pelo backend
+            // Solicita as versões disponíveis do Node.js
+            console.log('[DEBUG] Solicitando versões disponíveis do Node.js...');
+            ipcRenderer.send('get-available-node-versions');
+            
+            // Não precisa solicitar dados dos projetos - são enviados automaticamente pelo backend
         });
 
         // Recebe dados
@@ -573,141 +734,159 @@
 
         // Gera opções de versão para todas as versões disponíveis
         function generateVersionOptions(projectName, currentVersion) {
-            // Se não há versões carregadas ainda, usa as padrões
+            // Se não há versões carregadas ainda, mostra loading
             if (!availableNodeVersions || Object.keys(availableNodeVersions).length === 0) {
-                const defaultVersions = ['16.10.0', '18.18.2', '20.19.5'];
-                return defaultVersions.map(version => {
-                    const compatibility = ANGULAR_COMPATIBILITY[version];
-                    const nodeLabel = compatibility ? compatibility.nodeLabel : `Node ${version}`;
-                    return createVersionOption(projectName, version, nodeLabel, currentVersion);
-                }).join('');
+                return '<div class="loading-versions">🔄 Carregando versões disponíveis...</div>';
             }
 
-            // Usa versões disponíveis do sistema
+            // Cria lista simples das versões disponíveis
             return Object.keys(availableNodeVersions).map(version => {
                 const versionData = availableNodeVersions[version];
-                const compatibility = ANGULAR_COMPATIBILITY[version];
-                const nodeLabel = compatibility ? compatibility.nodeLabel : `Node ${version}`;
+                const isSelected = version === currentVersion;
                 const isInstalled = versionData && versionData.installed;
+                const folderName = versionData ? versionData.folderName : `node-v${version}`;
                 
-                return createVersionOption(projectName, version, nodeLabel, currentVersion, isInstalled);
+                return createVersionListItem(projectName, version, folderName, currentVersion, isInstalled);
             }).join('');
         }
 
-        // Cria opção de versão com CLI integrada
-        function createVersionOption(projectName, version, nodeLabel, currentVersion, isInstalled = true) {
+        // Cria item da lista de versões
+        function createVersionListItem(projectName, version, folderName, currentVersion, isInstalled = true) {
             const isSelected = version === currentVersion;
-            const compatibility = ANGULAR_COMPATIBILITY[version];
+            
+            if (isSelected) {
+                // Se selecionado, mostra o div expandido com CLI selector
+                return createExpandedVersionOption(projectName, version, folderName, currentVersion, isInstalled);
+            } else {
+                // Se não selecionado, mostra item simples da lista
+                return createSimpleVersionItem(projectName, version, folderName, isInstalled);
+            }
+        }
+
+        // Cria item simples da lista (não selecionado)
+        function createSimpleVersionItem(projectName, version, folderName, isInstalled = true) {
+            // Garantir que folderName não seja undefined
+            const displayName = folderName || `node-v${version}`;
+            const statusIcon = isInstalled ? '✅' : '⚠️';
+            const statusText = isInstalled ? '' : ' (Não Instalado)';
+            
+            return `
+                <div class="version-list-item ${!isInstalled ? 'disabled' : ''}" 
+                     data-project="${projectName}" 
+                     data-version="${version}"
+                     onclick="selectNodeVersion('${projectName}', '${version}')">
+                    <div class="version-item-content">
+                        <span class="version-icon">${statusIcon}</span>
+                        <span class="version-name">${displayName}</span>
+                        <span class="version-label">(${version})</span>
+                        <span class="status-text">${statusText}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Cria opção expandida com CLI selector (quando selecionado)
+        function createExpandedVersionOption(projectName, version, folderName, currentVersion, isInstalled = true) {
+            // Garantir que folderName não seja undefined
+            const displayName = folderName || `node-v${version}`;
+            
+            const compatibility = ANGULAR_COMPATIBILITY[version] || {
+                nodeLabel: `Node ${version}`,
+                defaultCli: '@angular/cli@15.2.10',
+                compatibleCli: ['@angular/cli@15.2.10', '@angular/cli@16.2.14']
+            };
+            
             const currentCli = angularCliConfigs[projectName + '-' + version] || compatibility.defaultCli;
             
             const cliOptions = compatibility.compatibleCli.map(cli => 
                 `<option value="${cli}" ${cli === currentCli ? 'selected' : ''}>${cli}</option>`
             ).join('');
 
-            // Apenas mostra tag "em uso" se estiver selecionado
-            const statusBadge = isSelected ? 
-                '<span class="status-badge in-use">🎯 Em Uso</span>' : 
-                (isInstalled ? '' : '<span class="status-badge not-installed">⚠️ Não Instalado</span>');
-
             return `
-                <label class="version-option ${isSelected ? 'selected' : ''} ${!isInstalled ? 'disabled' : ''}" 
-                       data-project="${projectName}" 
-                       data-version="${version}"
-                       onclick="handleNodeClick(event, '${projectName}', '${version}')">
-                    <input type="radio" 
-                           name="version-${projectName}" 
-                           value="${version}" 
-                           ${isSelected ? 'checked' : ''}
-                           ${!isInstalled ? 'disabled' : ''}>
-                    <div class="version-info">
-                        <div class="version-label">
-                            <span class="node-label">${nodeLabel}</span>
-                            ${statusBadge}
-                        </div>
-                        ${isInstalled ? `
-                        <div class="cli-selector-inline">
-                            <span class="cli-label-inline">CLI:</span>
-                            <select class="cli-dropdown-inline" 
-                                    data-project="${projectName}" 
-                                    data-node-version="${version}"
-                                    onchange="handleCliChange(event, '${projectName}', '${version}')"
-                                    onclick="event.stopPropagation()">
-                                ${cliOptions}
-                            </select>
-                        </div>
-                        ` : '<div class="install-notice">Instale esta versão primeiro</div>'}
+                <div class="version-expanded ${!isInstalled ? 'disabled' : ''}" 
+                     data-project="${projectName}" 
+                     data-version="${version}">
+                    <div class="expanded-header">
+                        <span class="version-icon">🎯</span>
+                        <span class="version-name">${displayName}</span>
+                        <span class="version-label">(${version})</span>
+                        <span class="status-badge in-use">Em Uso</span>
                     </div>
-                </label>
+                    ${isInstalled ? `
+                    <div class="cli-selector-expanded">
+                        <label class="cli-label">Escolher Angular CLI:</label>
+                        <select class="cli-dropdown" 
+                                data-project="${projectName}" 
+                                data-node-version="${version}"
+                                onchange="handleCliChange(event, '${projectName}', '${version}')">
+                            ${cliOptions}
+                        </select>
+                        <div class="cli-status" id="cli-status-${projectName}-${version}">
+                            CLI configurada: ${currentCli}
+                        </div>
+                    </div>
+                    ` : '<div class="install-notice">Instale esta versão primeiro</div>'}
+                </div>
             `;
         }
 
-        // Manipula clique no botão do Node (label)
-        function handleNodeClick(event, projectName, nodeVersion) {
-            // Se clicou no dropdown, não faz nada (deixa o dropdown abrir)
-            if (event.target.classList.contains('cli-dropdown-inline')) {
-                return;
-            }
+        // Seleciona uma versão do Node (expande o item)
+        function selectNodeVersion(projectName, nodeVersion) {
+            console.log(`Selecionando ${nodeVersion} para ${projectName}`);
             
-            // Seleciona o Node
-            const radio = document.querySelector(`input[name="version-${projectName}"][value="${nodeVersion}"]`);
-            if (radio) {
-                radio.checked = true;
-                
-                // Atualiza configuração local
-                projectConfigs[projectName] = nodeVersion;
-                
-                // Atualiza UI e tags "em uso"
-                document.querySelectorAll(`label[data-project="${projectName}"]`).forEach(label => {
-                    const versionLabelDiv = label.querySelector('.version-label');
-                    
-                    if (label.dataset.version === nodeVersion) {
-                        label.classList.add('selected');
-                        
-                        // Remove qualquer tag "em uso" existente e adiciona nova
-                        const existingInUse = versionLabelDiv.querySelector('.status-badge.in-use');
-                        if (existingInUse) existingInUse.remove();
-                        
-                        const nodeLabel = versionLabelDiv.querySelector('.node-label');
-                        nodeLabel.insertAdjacentHTML('afterend', '<span class="status-badge in-use">🎯 Em Uso</span>');
-                        
-                    } else {
-                        label.classList.remove('selected');
-                        
-                        // Remove tag "em uso" das outras versões
-                        const inUseTag = versionLabelDiv.querySelector('.status-badge.in-use');
-                        if (inUseTag) inUseTag.remove();
-                    }
-                });
-                
-                // Pega a versão da CLI selecionada neste Node
-                const dropdown = event.currentTarget.querySelector('.cli-dropdown-inline');
-                const cliVersion = dropdown ? dropdown.value : ANGULAR_COMPATIBILITY[nodeVersion].defaultCli;
-                
-                // Mostra status de "verificando/instalando"
-                showInstallationStatus(projectName, nodeVersion, 'checking');
-                
-                // Envia atualização ao processo principal (salvamento automático + instalação do Node)
-                ipcRenderer.send('update-project-version', { projectName, version: nodeVersion });
-                
-                // Instala a CLI automaticamente
-                installAngularCli(projectName, nodeVersion, cliVersion);
-                
-                console.log(`✅ Configuração salva: ${projectName} → Node ${nodeVersion}, CLI ${cliVersion}`);
+            // Atualiza configuração local
+            projectConfigs[projectName] = nodeVersion;
+            
+            // Re-renderiza apenas este projeto para mostrar a expansão
+            renderSingleProject(projectName);
+            
+            // Envia atualização ao processo principal
+            ipcRenderer.send('update-project-version', { projectName, version: nodeVersion });
+            
+            console.log(`✅ Versão selecionada: ${projectName} → Node ${nodeVersion}`);
+        }
+
+        // Re-renderiza um projeto específico
+        function renderSingleProject(projectName) {
+            const project = projects.find(p => p.name === projectName);
+            if (!project) return;
+            
+            const currentVersion = projectConfigs[project.name] || project.defaultVersion || '16.10.0';
+            const versionOptions = generateVersionOptions(project.name, currentVersion);
+            
+            const projectElement = document.querySelector(`[data-project="${projectName}"]`).closest('.project-item');
+            if (projectElement) {
+                const versionSelector = projectElement.querySelector('.version-selector');
+                versionSelector.innerHTML = versionOptions;
             }
         }
 
-        // Manipula mudança no dropdown da CLI
+        // Manipula mudança no dropdown da CLI (mantém funcionamento original)
         function handleCliChange(event, projectName, nodeVersion) {
-            event.stopPropagation(); // Impede de selecionar o Node
-            
             const cliVersion = event.target.value;
-            const configKey = projectName + '-' + nodeVersion;
-            angularCliConfigs[configKey] = cliVersion;
             
-            console.log(`🔧 CLI alterada: ${projectName} (Node ${nodeVersion}) → CLI ${cliVersion}`);
+            // Salva configuração da CLI
+            angularCliConfigs[projectName + '-' + nodeVersion] = cliVersion;
             
-            // Instala automaticamente a nova versão da CLI
+            // Atualiza status
+            const statusElement = document.getElementById(`cli-status-${projectName}-${nodeVersion}`);
+            if (statusElement) {
+                statusElement.textContent = `CLI configurada: ${cliVersion}`;
+            }
+            
+            // Mostra status de "verificando/instalando"
+            showInstallationStatus(projectName, nodeVersion, 'checking');
+            
+            // Instala a CLI automaticamente
             installAngularCli(projectName, nodeVersion, cliVersion);
+            
+            console.log(`✅ CLI atualizada: ${projectName} → Node ${nodeVersion}, CLI ${cliVersion}`);
+        }
+
+        // Função original mantida para compatibilidade (não usada mais)
+        function handleNodeClick(event, projectName, nodeVersion) {
+            // Redireciona para a nova função
+            selectNodeVersion(projectName, nodeVersion);
         }
 
         // Instala versão específica do Angular CLI no Node portátil
