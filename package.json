@@ -6,9 +6,7 @@
   "scripts": {
     "start": "electron-forge start",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "prepackage": "node create-nodes-structure.js",
     "package": "electron-forge package",
-    "premake": "node create-nodes-structure.js",
     "make": "npm run make:win:fresh",
     "make:win": "electron-forge make --platform=win32",
     "make:win:fresh": "node build-win-fresh-cert.js",

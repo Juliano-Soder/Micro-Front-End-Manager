@@ -6,18 +6,10 @@ async function buildWithFreshCert() {
     console.log('🔄 Iniciando build Windows com certificado renovado...\n');
     
     try {
-        // 1. Criar estrutura de pastas nodes
-        console.log('📁 Criando estrutura de pastas nodes...');
-        const createNodesScript = path.join(__dirname, 'create-nodes-structure.js');
+        // Removido: Criação de estrutura nodes (não empacotada mais)
+        // O usuário baixa as versões do Node.js via instalador interno do app
         
-        execSync(`node "${createNodesScript}"`, {
-            stdio: 'inherit',
-            cwd: process.cwd()
-        });
-        
-        console.log('✅ Estrutura de pastas criada!\n');
-        
-        // 2. Regenerar certificado
+        // 1. Regenerar certificado
         console.log('🔐 Regenerando certificado...');
         const certScript = path.join(__dirname, 'scripts', 'regenerate-cert.ps1');
         
