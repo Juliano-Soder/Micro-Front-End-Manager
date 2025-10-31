@@ -272,6 +272,30 @@
             font-style: italic;
         }
 
+        .no-versions-installed {
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            border: 2px dashed #ddd;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+
+        .no-versions-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        .no-versions-text {
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        body.dark-mode .no-versions-installed {
+            color: #ccc;
+            border-color: #555;
+        }
+
         .version-list-item {
             padding: 10px 15px;
             margin: 5px 0;
@@ -732,21 +756,39 @@
             });
         }
 
-        // Gera opções de versão para todas as versões disponíveis
+        // Gera opções de versão apenas para versões realmente instaladas
         function generateVersionOptions(projectName, currentVersion) {
             // Se não há versões carregadas ainda, mostra loading
             if (!availableNodeVersions || Object.keys(availableNodeVersions).length === 0) {
                 return '<div class="loading-versions">🔄 Carregando versões disponíveis...</div>';
             }
 
-            // Cria lista simples das versões disponíveis
-            return Object.keys(availableNodeVersions).map(version => {
+            // Filtra apenas versões instaladas
+            const installedVersions = Object.keys(availableNodeVersions).filter(version => {
+                const versionData = availableNodeVersions[version];
+                return versionData && versionData.installed;
+            });
+
+            // Se não há versões instaladas, mostra mensagem
+            if (installedVersions.length === 0) {
+                return `
+                    <div class="no-versions-installed">
+                        <div class="no-versions-icon">📦</div>
+                        <div class="no-versions-text">
+                            Nenhuma versão do Node.js instalada.
+                            <br>Use o menu "Instalar Dependências" para instalar.
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Cria lista apenas das versões instaladas
+            return installedVersions.map(version => {
                 const versionData = availableNodeVersions[version];
                 const isSelected = version === currentVersion;
-                const isInstalled = versionData && versionData.installed;
                 const folderName = versionData ? versionData.folderName : `node-v${version}`;
                 
-                return createVersionListItem(projectName, version, folderName, currentVersion, isInstalled);
+                return createVersionListItem(projectName, version, folderName, currentVersion, true);
             }).join('');
         }
 

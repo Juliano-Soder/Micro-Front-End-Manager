@@ -430,7 +430,7 @@ class NodeInstaller {
     this.isInstalling = true;
     
     try {
-      this.sendLog('🚀 Iniciando instalação das dependências...');
+      this.sendLog('🚀 Iniciando instalação das dependências essenciais...');
       this.sendProgress(5, 'Iniciando...');
       
       this.sendLog(`📂 Diretório base: ${this.nodesBasePath}`);
@@ -438,35 +438,29 @@ class NodeInstaller {
       
       console.log('[DEBUG] Sobre to install Node.js 16.10.0');
       
-      // Instala Node.js 16.10.0
+      // Instala Node.js 16.10.0 (versão base para projetos legados)
       this.sendLog('\n=== Node.js 16.10.0 + Angular CLI 13 ===');
-      this.sendProgress(10, 'Instalando Node.js 16.10.0...');
+      this.sendProgress(20, 'Instalando Node.js 16.10.0...');
       await this.installNodeVersion('16.10.0');
       
-      console.log('[DEBUG] Node.js 16.10.0 instalado, iniciando 18.18.2');
+      console.log('[DEBUG] Node.js 16.10.0 instalado, iniciando 20.19.5');
       
-      // Instala Node.js 18.18.2
-      this.sendLog('\n=== Node.js 18.18.2 + Angular CLI 15 ===');
-      this.sendProgress(40, 'Instalando Node.js 18.18.2...');
-      await this.installNodeVersion('18.18.2');
-      
-      console.log('[DEBUG] Node.js 18.18.2 instalado, iniciando 20.19.5');
-      
-      // Instala Node.js 20.19.5
+      // Instala Node.js 20.19.5 (versão moderna recomendada)
       this.sendLog('\n=== Node.js 20.19.5 + Angular CLI 18 ===');
-      this.sendProgress(70, 'Instalando Node.js 20.19.5...');
+      this.sendProgress(60, 'Instalando Node.js 20.19.5...');
       await this.installNodeVersion('20.19.5');
       
-      console.log('[DEBUG] Todas as versões instaladas com sucesso');
+      console.log('[DEBUG] Versões essenciais instaladas com sucesso');
       
-      this.sendLog('\n✅ Todas as dependências foram instaladas com sucesso!');
+      this.sendLog('\n✅ Versões essenciais do Node.js instaladas!');
+      this.sendLog('💡 Outras versões podem ser instaladas individualmente via menu.');
       this.sendProgress(100, 'Instalação completa');
       
       // Notifica instalação completa
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
         this.mainWindow.webContents.send('installation-complete', { 
           success: true, 
-          message: 'Todas as dependências foram instaladas com sucesso!' 
+          message: 'Versões essenciais instaladas! Outras versões disponíveis via menu.' 
         });
       }
       
