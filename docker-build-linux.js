@@ -44,7 +44,7 @@ async function buildLinux() {
         '-v', `${process.cwd()}:/project`,
         '-w', '/project',
         'electronuserland/builder:wine',
-        'sh', '-c', 'npm ci && npm run make:linux'
+        'bash', '-c', 'npm install && ./node_modules/.bin/electron-forge make --platform=linux'
       ];
 
       const docker = spawn('docker', dockerCommand, {
