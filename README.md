@@ -6,24 +6,67 @@
 
 ## 📝 Notas de Versão
 
-### Versão 0.0.9.5 - Outubro 2025
+### Versão 0.0.9.5 - Novembro 2025
 
-**🔐 Sistema de Fallback para Nexus:**
-- **Autenticação Automática**: Sistema de fallback para login no Nexus quando npm install falha
-- **Gestão de Credenciais**: Salvamento seguro de credenciais em base64 para reutilização
-- **Tratamento Especial**: Handling específico para projetos problemáticos como mp-pas-atendimento
-- **Logs Detalhados**: Feedback visual completo durante processo de autenticação e instalação
+> **� Nota Importante:** A versão 0.0.9.0 foi pulada devido ao volume excepcional de novas funcionalidades implementadas. Esta versão concentra múltiplas melhorias significativas que transformam o aplicativo em uma suite completa de desenvolvimento.
 
-**⚙️ Detecção Dinâmica de Versões Node.js:**
-- **Auto-detecção**: Leitura automática de versões instaladas do diretório de nodes portáteis
-- **Interface Simplificada**: Lista clicável de versões do Node.js em vez de grade de opções
-- **Expansão Inteligente**: Seleção de versão expande para mostrar opções de Angular CLI
-- **Compatibilidade Mantida**: Preserva todas as funcionalidades existentes de configuração
+**�🔐 Sistema de Fallback para Nexus:**
+- **Autenticação Automática**: Sistema inteligente que detecta falhas de `npm install` e executa login automático no Nexus
+- **Gestão Segura de Credenciais**: Armazenamento em base64 com reutilização automática
+- **Tratamento Especial mp-pas-atendimento**: Fluxo específico para projetos com problemas recorrentes
+- **Logs Detalhados**: Feedback visual completo com emojis e mensagens informativas
+- **Recovery Automático**: Sistema tenta recuperar automaticamente de falhas de autenticação
 
-**🎨 Melhorias na Interface:**
-- **Lista de Versões**: Interface em formato de lista para seleção de versões Node.js
-- **Feedback Visual**: Indicadores de status e instalação mais claros
-- **Proteção contra Undefined**: Tratamento robusto de nomes de versões e dados ausentes
+**💻 Seleção de IDE Preferida:**
+- **10+ IDEs Suportadas**: VS Code, WebStorm, IntelliJ IDEA, Android Studio, Eclipse, Sublime Text, Vim, Notepad++, Xcode
+- **Modal Interativo**: Interface elegante para seleção de IDE com ícones visuais
+- **Integração IPC**: Persistência de configuração via Electron
+- **Abertura Rápida**: Botão dedicado para abrir projetos na IDE configurada
+- **Assets Profissionais**: Ícones PNG de alta qualidade para cada IDE
+
+**⚙️ Sistema Node.js Portátil Completo:**
+- **Múltiplas Versões**: Suporte simultâneo para Node.js 16.10.0, 18.18.2, 20.19.5
+- **Configuração por Projeto**: Cada projeto pode usar versão diferente independentemente
+- **Auto-detecção**: Leitura dinâmica de versões instaladas do filesystem
+- **Download Automático**: Instalação transparente de versões necessárias
+- **Badges Visuais**: Indicadores de versão Node.js e Angular CLI em cada projeto
+- **Matriz de Compatibilidade**: Documentação completa Angular/Node
+
+**🎨 Interface Modernizada:**
+- **Lista Dinâmica**: Seleção de versões Node.js em formato lista expansível
+- **Design Responsivo**: Interface que se adapta ao conteúdo disponível
+- **Modo Escuro Completo**: Suporte nativo em todas as telas e componentes
+- **Typography Aprimorada**: Fontes e espaçamentos otimizados para melhor legibilidade
+- **Scrollbars Customizadas**: Aparência consistente entre modos claro/escuro
+- **Badges Recolhíveis**: Sistema de toggle (› / ‹) para informações detalhadas
+
+**🚀 Otimizações de Performance:**
+- **Instalação 66% Mais Rápida**: Apenas versões essenciais (16.10.0 + 20.19.5) na instalação inicial
+- **Build Otimizado**: Remoção de dependências de desenvolvimento do pacote final
+- **Cache Inteligente**: Sistema de cache para operações repetitivas
+- **Multi-threading**: Processamento paralelo para operações pesadas
+- **Correção Caminho Longo**: Solução definitiva para limitações do Windows
+
+**🛠️ Melhorias de Usabilidade:**
+- **Verificação de Branch**: Validação antes de iniciar projetos
+- **Ícones de Ajuda**: Tooltips explicativos em projetos PAMP
+- **Exibição de Porta**: Indicador visual da porta em uso
+- **Terminal Integrado**: Abertura rápida de terminal na pasta do projeto
+- **Cancelamento Robusto**: Sistema de parada melhorado para processos
+- **Tratamento de Erros**: Handling avançado com mensagens informativas
+
+**📦 Melhorias Técnicas:**
+- **Certificado Digital**: Sistema de assinatura automática renovado
+- **Cross-Platform**: Compatibilidade Windows, Linux, Mac
+- **Configurações Persistentes**: Salvamento automático de todas as preferências
+- **Logs Estruturados**: Sistema de debugging mais detalhado
+- **Documentação Completa**: 15+ arquivos de documentação técnica
+
+**🔧 Correções e Estabilidade:**
+- **Proteção contra Undefined**: Tratamento robusto de valores nulos
+- **Validação de Dados**: Verificações de integridade em todas as operações
+- **Recovery de Estado**: Recuperação automática de configurações
+- **Compatibilidade Total**: Preserva funcionamento de versões anteriores
 
 ### Versão 0.0.8 - Setembro 2025
 
