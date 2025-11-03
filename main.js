@@ -4581,7 +4581,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         const scriptName = projectName.replace('mp-', ''); // Remove apenas 'mp-', mantém 'pas-'
         command = `npm run serve:single-spa:${scriptName}`;
       } else if (isPampProject) {
-        command = `npm run serve`; // PAMP
+        command = `ng serve`; // PAMP - usando ng serve diretamente (README recomenda)
       } else {
         command = `npm run start`; // Padrão
       }
@@ -4632,8 +4632,8 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
           const scriptName = projectName.replace('mp-', ''); // Remove apenas 'mp-', mantém 'pas-'
           command = `${npmCmd} run serve:single-spa:${scriptName}`;
         } else if (isPampProject) {
-          // Para projetos PAMP, usa npm run serve
-          command = `${npmCmd} run serve`;
+          // Para projetos PAMP, usa ng serve diretamente (README recomenda)
+          command = `${ngCmd} serve`;
         } else {
           command = `${npmCmd} run start`; // Comando padrão para outros projetos
         }
