@@ -28,6 +28,109 @@ const {
   getNodesBasePath
 } = require('./node-version-config');
 
+// ===== UTILITÁRIOS PARA PERMISSÕES LINUX =====
+/**
+ * Obtém o caminho seguro para escrita baseado no SO
+ * Windows: Usa __dirname para arquivos de configuração local
+ * Linux: Usa userData para evitar problemas de permissão
+ */
+function getSafeWritePath(filename) {
+  const platform = os.platform();
+  
+  if (platform === 'win32') {
+    // Windows: mantém comportamento atual
+    return path.join(__dirname, filename);
+  } else {
+    // Linux/Mac: usa userData para evitar problemas de permissão
+    return path.join(app.getPath('userData'), filename);
+  }
+}
+
+/**
+ * Cria diretório com tratamento de erro de permissão
+ * Tenta criar no local preferido, fallback para userData em caso de erro
+ */
+function safeMkdirSync(dirPath, options = { recursive: true }) {
+  try {
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, options);
+    }
+    return dirPath;
+  } catch (error) {
+    if (error.code === 'EACCES' || error.code === 'EPERM') {
+      console.warn(`[PERMISSION] Sem permissão para criar ${dirPath}, usando userData...`);
+      const fallbackPath = path.join(app.getPath('userData'), path.basename(dirPath));
+      if (!fs.existsSync(fallbackPath)) {
+        fs.mkdirSync(fallbackPath, options);
+      }
+      return fallbackPath;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Escreve arquivo com tratamento de erro de permissão
+ */
+function safeWriteFileSync(filePath, data, options = 'utf8') {
+  try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      safeMkdirSync(dir);
+    }
+    fs.writeFileSync(filePath, data, options);
+    return filePath;
+  } catch (error) {
+    if (error.code === 'EACCES' || error.code === 'EPERM') {
+      console.warn(`[PERMISSION] Sem permissão para escrever ${filePath}, usando userData...`);
+      const fallbackPath = path.join(app.getPath('userData'), path.basename(filePath));
+      const fallbackDir = path.dirname(fallbackPath);
+      if (!fs.existsSync(fallbackDir)) {
+        fs.mkdirSync(fallbackDir, { recursive: true });
+      }
+      fs.writeFileSync(fallbackPath, data, options);
+      return fallbackPath;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Lê arquivo de configuração com fallback para userData
+ */
+function safeReadConfigFile(filename) {
+  const platform = os.platform();
+  
+  // Lista de caminhos para tentar (ordem: userData, __dirname para compatibilidade)
+  const paths = [];
+  
+  if (platform === 'win32') {
+    // Windows: primeiro __dirname (comportamento atual), depois userData
+    paths.push(path.join(__dirname, filename));
+    paths.push(path.join(app.getPath('userData'), filename));
+  } else {
+    // Linux/Mac: primeiro userData, depois __dirname para migração
+    paths.push(path.join(app.getPath('userData'), filename));
+    paths.push(path.join(__dirname, filename));
+  }
+  
+  for (const configPath of paths) {
+    if (fs.existsSync(configPath)) {
+      try {
+        return { 
+          content: fs.readFileSync(configPath, 'utf8'),
+          path: configPath
+        };
+      } catch (error) {
+        console.warn(`[CONFIG] Erro ao ler ${configPath}:`, error.message);
+        continue;
+      }
+    }
+  }
+  
+  return null;
+}
+
 // Instâncias globais
 let nodeInstaller = null;
 let projectConfigManager = null;
@@ -518,9 +621,9 @@ ipcMain.on('save-project-configs', (event, configs) => {
 // Salva configuração de usar sistema global
 ipcMain.on('save-global-system-config', (event, useGlobal) => {
   try {
-    const configPath = path.join(__dirname, 'global-system-config.json');
+    const configPath = getSafeWritePath('global-system-config.json');
     const config = { useGlobalSystem: useGlobal };
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    safeWriteFileSync(configPath, JSON.stringify(config, null, 2));
     console.log(`[DEBUG] Configuração global salva: usar sistema global = ${useGlobal}`);
   } catch (error) {
     console.error('[ERROR] Erro ao salvar configuração global:', error);
@@ -530,9 +633,9 @@ ipcMain.on('save-global-system-config', (event, useGlobal) => {
 // Obtém configuração de usar sistema global
 ipcMain.on('get-global-system-config', (event) => {
   try {
-    const configPath = path.join(__dirname, 'global-system-config.json');
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const configResult = safeReadConfigFile('global-system-config.json');
+    if (configResult) {
+      const config = JSON.parse(configResult.content);
       event.reply('global-system-config', config.useGlobalSystem);
     } else {
       event.reply('global-system-config', false);
@@ -3414,7 +3517,18 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
   });
 
   ipcMain.on('download-project', (event, { name, index }) => {
-    const workdir = path.join('C:/', 'projetos'); // Caminho base para os projetos
+    // Caminho base para os projetos baseado no SO
+    const platform = os.platform();
+    let workdir;
+    
+    if (platform === 'win32') {
+      // Windows: mantém comportamento atual
+      workdir = path.join('C:', 'projetos');
+    } else {
+      // Linux/Mac: usa pasta do usuário para evitar problemas de permissão
+      workdir = path.join(os.homedir(), 'projetos');
+    }
+    
     const projectPath = path.join(workdir, name);
     const repoUrl = `https://github.com/viavarejo-internal/${name}.git`;
 
@@ -3435,7 +3549,18 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
 
     if (!fs.existsSync(workdir)) {
         console.log(`Criando diretório base: ${workdir}`);
-        fs.mkdirSync(workdir, { recursive: true });
+        try {
+          safeMkdirSync(workdir);
+        } catch (error) {
+          console.error(`❌ Erro ao criar diretório ${workdir}:`, error.message);
+          const errorMsg = `Erro ao criar diretório base: ${error.message}`;
+          if (name.startsWith('mp-pamp')) {
+            event.reply('pamp-log', { path: projectPath, message: errorMsg, index, name, error: true });
+          } else {
+            event.reply('log', { path: projectPath, message: errorMsg, error: true });
+          }
+          return;
+        }
     }
 
     if (fs.existsSync(projectPath)) {
@@ -4546,9 +4671,9 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
     // 🎯 VERIFICA SE DEVE USAR SISTEMA GLOBAL OU PORTÁTIL
     let useGlobalSystem = false;
     try {
-      const configPath = path.join(__dirname, 'global-system-config.json');
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const configResult = safeReadConfigFile('global-system-config.json');
+      if (configResult) {
+        const config = JSON.parse(configResult.content);
         useGlobalSystem = config.useGlobalSystem || false;
       }
     } catch (error) {
@@ -4556,7 +4681,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
     }
 
     console.log(`[DEBUG] Usar sistema global: ${useGlobalSystem}`);
-
+    
     // 🎯 OBTÉM VERSÃO DO NODE.JS PARA ESTE PROJETO
     if (!projectConfigManager) {
       projectConfigManager = new ProjectConfigManager();
@@ -4874,9 +4999,9 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
     // 🎯 VERIFICA SE DEVE USAR SISTEMA GLOBAL OU PORTÁTIL
     let useGlobalSystem = false;
     try {
-      const configPath = path.join(__dirname, 'global-system-config.json');
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const configResult = safeReadConfigFile('global-system-config.json');
+      if (configResult) {
+        const config = JSON.parse(configResult.content);
         useGlobalSystem = config.useGlobalSystem || false;
       }
     } catch (error) {
