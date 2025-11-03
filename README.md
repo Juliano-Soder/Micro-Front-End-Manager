@@ -6,7 +6,7 @@
 
 ## 📝 Notas de Versão
 
-### Versão 0.9.5 - Outubro 2025
+### Versão 0.0.9.5 - Outubro 2025
 
 **🔐 Sistema de Fallback para Nexus:**
 - **Autenticação Automática**: Sistema de fallback para login no Nexus quando npm install falha
