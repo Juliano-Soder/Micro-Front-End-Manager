@@ -6,7 +6,7 @@
 
 ## 📝 Notas de Versão
 
-### Versão 0.0.9.5 - Novembro 2025
+### Versão 0.0.9.5/ 0.0.10 - Novembro 2025
 
 > **� Nota Importante:** A versão 0.0.9.0 foi pulada devido ao volume excepcional de novas funcionalidades implementadas. Esta versão concentra múltiplas melhorias significativas que transformam o aplicativo em uma suite completa de desenvolvimento.
 
