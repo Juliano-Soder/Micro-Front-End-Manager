@@ -176,21 +176,85 @@ ipcMain.on('start-node-installation', async () => {
     
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
     
+    // Verifica o status das dependências para enviar update para todas as janelas
+    const depsInstalled = nodeInstaller.checkDependenciesInstalled();
+    const { getNodesBasePath, getCurrentOS } = require('./node-version-config');
+    const nodesPath = path.join(getNodesBasePath(), getCurrentOS());
+    
+    const statusUpdate = depsInstalled ? {
+      installed: true, 
+      message: '✅ Dependências instaladas',
+      nodesPath: nodesPath
+    } : {
+      installed: false, 
+      message: '❗ Dependências não instaladas',
+      nodesPath: nodesPath
+    };
+    
+    // Função para enviar status para uma janela se existir
+    const sendStatusToWindow = (window, windowName) => {
+      if (window && !window.isDestroyed()) {
+        window.webContents.send('dependencies-status', statusUpdate);
+        console.log(`📡 Status das dependências enviado para ${windowName}`);
+      }
+    };
+    
+    // Envia status atualizado para todas as janelas relevantes
+    sendStatusToWindow(mainWindow, 'mainWindow');
+    sendStatusToWindow(configWindow, 'configWindow');
+    sendStatusToWindow(projectConfigsWindow, 'projectConfigsWindow');
+    sendStatusToWindow(newCLIsWindow, 'newCLIsWindow');
+    
     if (installerWindow && !installerWindow.isDestroyed()) {
       installerWindow.webContents.send('installation-complete', {
         success: true,
         message: 'Todas as dependências foram instaladas com sucesso!'
       });
+      
+      // Também envia o status atualizado para a janela do installer
+      sendStatusToWindow(installerWindow, 'installerWindow');
     }
     
   } catch (error) {
     console.error('[DEBUG] Erro na instalação:', error);
+    
+    // Mesmo em caso de erro, verifica o status das dependências
+    const depsInstalled = nodeInstaller ? nodeInstaller.checkDependenciesInstalled() : false;
+    const { getNodesBasePath, getCurrentOS } = require('./node-version-config');
+    const nodesPath = path.join(getNodesBasePath(), getCurrentOS());
+    
+    const statusUpdate = depsInstalled ? {
+      installed: true, 
+      message: '✅ Dependências instaladas',
+      nodesPath: nodesPath
+    } : {
+      installed: false, 
+      message: '❗ Dependências não instaladas',
+      nodesPath: nodesPath
+    };
+    
+    // Função para enviar status para uma janela se existir
+    const sendStatusToWindow = (window, windowName) => {
+      if (window && !window.isDestroyed()) {
+        window.webContents.send('dependencies-status', statusUpdate);
+        console.log(`📡 Status das dependências enviado para ${windowName} (após erro)`);
+      }
+    };
+    
+    // Envia status atualizado para todas as janelas relevantes mesmo após erro
+    sendStatusToWindow(mainWindow, 'mainWindow');
+    sendStatusToWindow(configWindow, 'configWindow');
+    sendStatusToWindow(projectConfigsWindow, 'projectConfigsWindow');
+    sendStatusToWindow(newCLIsWindow, 'newCLIsWindow');
     
     if (installerWindow && !installerWindow.isDestroyed()) {
       installerWindow.webContents.send('installation-complete', {
         success: false,
         message: `Erro na instalação: ${error.message}`
       });
+      
+      // Também envia o status atualizado para a janela do installer
+      sendStatusToWindow(installerWindow, 'installerWindow');
     }
   }
 });
