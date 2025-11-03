@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configurações de Projetos</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #fff;
+            color: #333;
+            padding: 20px;
+            min-height: 100vh;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        body.dark-mode {
+            background: #1e1e1e;
+            color: #fff;
+        }
+
+        .container {
+            max-width: none;
+            margin: 0 auto;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s, border-color 0.3s;
+            min-height: calc(100vh - 40px);
+        }
+
+        body.dark-mode .container {
+            background: #2d2d2d;
+            border-color: #444;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            text-align: center;
+            opacity: 0.9;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .project-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .project-item {
+            background: #f9f9f9;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            gap: 30px;
+            margin-bottom: 15px;
+            transition: all 0.2s ease;
+        }
+
+        body.dark-mode .project-item {
+            background: #3a3a3a;
+            border-color: #555;
+        }
+
+        .project-item:hover {
+            background: #f0f0f0;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        body.dark-mode .project-item:hover {
+            background: #444;
+        }
+
+        .project-info {
+            min-width: 280px;
+            max-width: 320px;
+            flex: 0 0 auto;
+        }
+
+        .project-name {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        body.dark-mode .project-name {
+            color: #e0e0e0;
+        }
+
+        .project-path {
+            font-size: 11px;
+            color: #666;
+            font-family: 'Courier New', monospace;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
+
+        body.dark-mode .project-path {
+            color: #aaa;
+        }
+
+        .version-selector {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: flex-start;
+            flex: 1;
+            justify-content: flex-start;
+            min-width: 0;
+        }
+
+        .version-option {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 10px 15px;
+            background: #fff;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 140px;
+            height: 80px;
+            flex-shrink: 0;
+        }
+
+        body.dark-mode .version-option {
+            background: #2d2d2d;
+            border-color: #555;
+        }
+
+        .version-option:hover {
+            border-color: #999;
+            background: #f9f9f9;
+        }
+
+        body.dark-mode .version-option:hover {
+            border-color: #777;
+            background: #3a3a3a;
+        }
+
+        .version-option.selected {
+            background: #333;
+            color: #fff;
+            border-color: #333;
+        }
+
+        body.dark-mode .version-option.selected {
+            background: #555;
+            border-color: #777;
+        }
+
+        .version-option input[type="radio"] {
+            display: none;
+        }
+
+        .version-label {
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .cli-selector-inline {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            width: 100%;
+            padding: 4px 0;
+        }
+
+        .cli-label-inline {
+            font-size: 11px;
+            font-weight: normal;
+            opacity: 0.8;
+            white-space: nowrap;
+        }
+
+        .cli-dropdown-inline {
+            flex: 1;
+            padding: 2px 6px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+            font-size: 11px;
+            cursor: pointer;
+            min-width: 60px;
+        }
+
+        body.dark-mode .cli-dropdown-inline {
+            background: #2d2d2d;
+            border-color: #666;
+            color: #fff;
+        }
+
+        body.dark-mode .cli-dropdown-inline option {
+            background: #2d2d2d;
+            color: #fff;
+        }
+
+        .version-option.selected .cli-dropdown-inline {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.3);
+            color: #fff;
+        }
+
+        body.dark-mode .version-option.selected .cli-dropdown-inline {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.3);
+            color: #fff;
+        }
+
+        body.dark-mode .version-option.selected .cli-dropdown-inline option {
+            background: #3a3a3a;
+            color: #fff;
+        }
+
+        .cli-dropdown-inline:hover {
+            background: rgba(255, 255, 255, 1);
+            border-color: #0066cc;
+        }
+
+        body.dark-mode .cli-dropdown-inline:hover {
+            background: #3a3a3a;
+            border-color: #3399ff;
+        }
+
+        .cli-dropdown-inline:focus {
+            outline: none;
+            border-color: #0066cc;
+        }
+
+        body.dark-mode .cli-dropdown-inline:focus {
+            border-color: #3399ff;
+        }
+
+        .cli-status {
+            font-size: 10px;
+            opacity: 0.7;
+            margin-top: 2px;
+        }
+
+        /* Estilos para lista de versões */
+        .loading-versions {
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            font-style: italic;
+        }
+
+        .no-versions-installed {
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            border: 2px dashed #ddd;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+
+        .no-versions-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        .no-versions-text {
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        body.dark-mode .no-versions-installed {
+            color: #ccc;
+            border-color: #555;
+        }
+
+        .version-list-item {
+            padding: 10px 15px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: #f9f9f9;
+        }
+
+        .version-list-item:hover {
+            background: #e8f4f8;
+            border-color: #0066cc;
+        }
+
+        .version-list-item.disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            background: #f0f0f0;
+        }
+
+        .version-list-item.disabled:hover {
+            background: #f0f0f0;
+            border-color: #ddd;
+        }
+
+        body.dark-mode .version-list-item {
+            background: #3a3a3a;
+            border-color: #555;
+            color: #fff;
+        }
+
+        body.dark-mode .version-list-item:hover {
+            background: #464646;
+            border-color: #3399ff;
+        }
+
+        body.dark-mode .version-list-item.disabled {
+            background: #2a2a2a;
+            color: #777;
+        }
+
+        .version-item-content {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .version-icon {
+            font-size: 16px;
+            width: 20px;
+            text-align: center;
+        }
+
+        .version-name {
+            font-weight: 600;
+            color: #333;
+        }
+
+        body.dark-mode .version-name {
+            color: #fff;
+        }
+
+        .version-label {
+            color: #666;
+            font-size: 14px;
+        }
+
+        body.dark-mode .version-label {
+            color: #aaa;
+        }
+
+        .status-text {
+            color: #ff6600;
+            font-size: 12px;
+            font-style: italic;
+        }
+
+        /* Estilos para versão expandida */
+        .version-expanded {
+            padding: 15px;
+            margin: 5px 0;
+            border: 2px solid #0066cc;
+            border-radius: 8px;
+            background: #e8f4f8;
+        }
+
+        body.dark-mode .version-expanded {
+            background: #2a3f4f;
+            border-color: #3399ff;
+        }
+
+        .expanded-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+
+        .cli-selector-expanded {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .cli-label {
+            font-weight: 600;
+            color: #333;
+        }
+
+        body.dark-mode .cli-label {
+            color: #fff;
+        }
+
+        .cli-dropdown {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        body.dark-mode .cli-dropdown {
+            background: #3a3a3a;
+            border-color: #555;
+            color: #fff;
+        }
+
+        .cli-dropdown:focus {
+            outline: none;
+            border-color: #0066cc;
+        }
+
+        body.dark-mode .cli-dropdown:focus {
+            border-color: #3399ff;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .empty-state-text {
+            font-size: 18px;
+        }
+
+        .info-box {
+            background: #f9f9f9;
+            border-left: 4px solid #333;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-left-width: 4px;
+            border-radius: 3px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        body.dark-mode .info-box {
+            background: #3a3a3a;
+            border-color: #555;
+            border-left-color: #777;
+            color: #fff;
+        }
+
+        .info-box strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        /* Status badges */
+        .status-badge {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-left: 8px;
+            white-space: nowrap;
+            display: inline-block;
+        }
+
+        .version-label {
+            display: flex;
+            align-items: center;
+            flex-wrap: nowrap;
+            gap: 8px;
+            min-width: 0; /* Permite shrinking */
+        }
+
+        .node-label {
+            font-weight: 500;
+            flex-shrink: 0; /* Não permite que o nome do Node shrink */
+        }
+
+        .version-option {
+            min-width: 200px;
+            margin-bottom: 10px;
+        }
+
+        .project-item {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+
+        body.dark-mode .project-item {
+            background: #2a2a2a;
+            border-color: #444;
+        }
+
+        .status-badge.not-installed {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        body.dark-mode .status-badge.not-installed {
+            background: #5d2b2b;
+            color: #f1b2b5;
+            border-color: #7a4142;
+        }
+
+        .status-badge.in-use {
+            background: #1e3a8a;
+            color: #dbeafe;
+            border-color: #3b82f6;
+        }
+
+        body.dark-mode .status-badge.in-use {
+            background: #1e40af;
+            color: #bfdbfe;
+            border-color: #60a5fa;
+        }
+
+        .version-option.disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .install-notice {
+            font-size: 11px;
+            color: #888;
+            font-style: italic;
+            margin-top: 4px;
+        }
+
+        body.dark-mode .install-notice {
+            color: #aaa;
+        }
+
+        /* Media Queries para Layout Responsivo */
+        @media (max-width: 800px) {
+            .project-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+            
+            .project-info {
+                min-width: 100%;
+                max-width: 100%;
+            }
+            
+            .version-selector {
+                width: 100%;
+                justify-content: flex-start;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .version-selector {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .version-option {
+                width: 100%;
+                height: 70px;
+            }
+        }
+
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚙️ Configurações de Projetos</h1>
+        <p class="subtitle">Selecione a versão do Node.js para cada projeto</p>
+
+        <div class="info-box">
+            <strong>ℹ️ Informação:</strong>
+            Cada projeto pode usar uma versão diferente do Node.js e Angular CLI.
+            As alterações são salvas automaticamente.
+            <br><br>
+            📚 <strong>Referência de Compatibilidade:</strong>
+            <a href="#" onclick="require('electron').shell.openExternal('https://angular.dev/reference/versions'); return false;" 
+               style="color: #4CAF50; text-decoration: none;">
+                Angular Version Compatibility Guide
+            </a>
+        </div>
+
+        <div class="project-list" id="projectList">
+            <!-- Projetos serão inseridos aqui via JavaScript -->
+        </div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        
+        let projects = [];
+        let projectConfigs = {};
+        let angularCliConfigs = {}; // Armazena versões do Angular CLI escolhidas
+        let availableNodeVersions = {}; // Versões disponíveis carregadas dinamicamente
+
+        // Matriz de compatibilidade Node.js x Angular CLI (padrões corretos)
+        const ANGULAR_COMPATIBILITY = {
+            '16.10.0': {
+                nodeLabel: 'Node 16.10.0',
+                defaultCli: '@angular/cli@13.3.11',
+                compatibleCli: ['@angular/cli@13.3.11', '@angular/cli@14.2.12']
+            },
+            '18.18.2': {
+                nodeLabel: 'Node 18.18.2',
+                defaultCli: '@angular/cli@15.2.10',
+                compatibleCli: ['@angular/cli@15.2.10', '@angular/cli@16.2.14', '@angular/cli@17.3.10']
+            },
+            '18.20.4': {
+                nodeLabel: 'Node 18.20.4',
+                defaultCli: '@angular/cli@15.2.10',
+                compatibleCli: ['@angular/cli@15.2.10', '@angular/cli@16.2.14', '@angular/cli@17.3.10']
+            },
+            '20.18.0': {
+                nodeLabel: 'Node 20.18.0',
+                defaultCli: '@angular/cli@18.2.0',
+                compatibleCli: ['@angular/cli@17.3.10', '@angular/cli@18.2.0']
+            },
+            '20.19.5': {
+                nodeLabel: 'Node 20.19.5',
+                defaultCli: '@angular/cli@18.2.0',
+                compatibleCli: ['@angular/cli@17.3.10', '@angular/cli@18.2.0']
+            }
+        };
+
+        // Recebe tema via IPC
+        ipcRenderer.on('apply-theme', (event, isDarkMode) => {
+            if (isDarkMode) {
+                document.body.classList.add('dark-mode');
+            } else {
+                document.body.classList.remove('dark-mode');
+            }
+            console.log('Tema aplicado:', isDarkMode ? 'escuro' : 'claro');
+        });
+
+        // Aplica tema inicial e aguarda dados automáticos
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log('[DEBUG] DOM carregado, aguardando dados automáticos...');
+            // Aplica dark mode por padrão até receber o tema correto
+            document.body.classList.add('dark-mode');
+            
+            // Solicita as versões disponíveis do Node.js
+            console.log('[DEBUG] Solicitando versões disponíveis do Node.js...');
+            ipcRenderer.send('get-available-node-versions');
+            
+            // Não precisa solicitar dados dos projetos - são enviados automaticamente pelo backend
+        });
+
+        // Recebe dados
+        ipcRenderer.on('project-configs-data', (event, data) => {
+            console.log('[DEBUG] Dados recebidos:', data);
+            projects = data.projects;
+            projectConfigs = data.configs;
+            console.log('[DEBUG] Total de projetos:', projects.length);
+            // Só renderiza se já tiver as versões disponíveis ou se não há projetos
+            if (Object.keys(availableNodeVersions).length > 0 || projects.length === 0) {
+                renderProjects();
+            }
+        });
+
+        // Recebe versões disponíveis do Node.js
+        ipcRenderer.on('available-node-versions', (event, versions) => {
+            console.log('[DEBUG] Versões disponíveis:', versions);
+            availableNodeVersions = versions;
+            // Atualiza compatibilidade com versões dinâmicas
+            Object.keys(versions).forEach(version => {
+                if (!ANGULAR_COMPATIBILITY[version]) {
+                    // Adiciona versões não configuradas com padrões sensatos
+                    ANGULAR_COMPATIBILITY[version] = {
+                        nodeLabel: `Node ${version}`,
+                        defaultCli: '@angular/cli@latest',
+                        compatibleCli: ['@angular/cli@latest']
+                    };
+                }
+            });
+            // Renderiza após receber versões disponíveis
+            if (projects.length > 0) {
+                renderProjects();
+            }
+        });
+
+        // Renderiza lista de projetos
+        function renderProjects() {
+            console.log('[DEBUG] Renderizando projetos...');
+            const projectList = document.getElementById('projectList');
+            
+            if (projects.length === 0) {
+                console.log('[DEBUG] Nenhum projeto encontrado');
+                projectList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📁</div>
+                        <div class="empty-state-text">Nenhum projeto encontrado. Adicione projetos na tela principal primeiro.</div>
+                    </div>
+                `;
+                return;
+            }
+            
+            console.log('[DEBUG] Renderizando', projects.length, 'projetos');
+
+            projectList.innerHTML = projects.map(project => {
+                // Usa versão configurada OU versão padrão do projeto
+                // Prioridade: 1) Configuração manual salva, 2) Default do projeto, 3) Fallback 16.10.0
+                const currentVersion = projectConfigs[project.name] || project.defaultVersion || '16.10.0';
+                
+                console.log(`[DEBUG] ${project.name}: savedConfig=${projectConfigs[project.name]}, default=${project.defaultVersion}, final=${currentVersion}`);
+                
+                // Gera opções para todas as versões disponíveis
+                const versionOptions = generateVersionOptions(project.name, currentVersion);
+                
+                return `
+                    <div class="project-item" data-project="${escapeHtml(project.name)}">
+                        <div class="project-info">
+                            <div class="project-name">📦 ${escapeHtml(project.name)}</div>
+                            <div class="project-path">${escapeHtml(project.path)}</div>
+                        </div>
+                        <div class="version-selector">
+                            ${versionOptions}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Adiciona listeners aos radio buttons
+            document.querySelectorAll('input[type="radio"]').forEach(radio => {
+                radio.addEventListener('change', (event) => {
+                    const projectName = event.target.name.replace('version-', '');
+                    const version = event.target.value;
+                    handleNodeClick(event, projectName, version);
+                });
+            });
+        }
+
+        // Gera opções de versão apenas para versões realmente instaladas
+        function generateVersionOptions(projectName, currentVersion) {
+            // Se não há versões carregadas ainda, mostra loading
+            if (!availableNodeVersions || Object.keys(availableNodeVersions).length === 0) {
+                return '<div class="loading-versions">🔄 Carregando versões disponíveis...</div>';
+            }
+
+            // Filtra apenas versões instaladas
+            const installedVersions = Object.keys(availableNodeVersions).filter(version => {
+                const versionData = availableNodeVersions[version];
+                return versionData && versionData.installed;
+            });
+
+            // Se não há versões instaladas, mostra mensagem
+            if (installedVersions.length === 0) {
+                return `
+                    <div class="no-versions-installed">
+                        <div class="no-versions-icon">📦</div>
+                        <div class="no-versions-text">
+                            Nenhuma versão do Node.js instalada.
+                            <br>Use o menu "Instalar Dependências" para instalar.
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Cria lista apenas das versões instaladas
+            return installedVersions.map(version => {
+                const versionData = availableNodeVersions[version];
+                const isSelected = version === currentVersion;
+                const folderName = versionData ? versionData.folderName : `node-v${version}`;
+                
+                return createVersionListItem(projectName, version, folderName, currentVersion, true);
+            }).join('');
+        }
+
+        // Cria item da lista de versões
+        function createVersionListItem(projectName, version, folderName, currentVersion, isInstalled = true) {
+            const isSelected = version === currentVersion;
+            
+            if (isSelected) {
+                // Se selecionado, mostra o div expandido com CLI selector
+                return createExpandedVersionOption(projectName, version, folderName, currentVersion, isInstalled);
+            } else {
+                // Se não selecionado, mostra item simples da lista
+                return createSimpleVersionItem(projectName, version, folderName, isInstalled);
+            }
+        }
+
+        // Cria item simples da lista (não selecionado)
+        function createSimpleVersionItem(projectName, version, folderName, isInstalled = true) {
+            // Garantir que folderName não seja undefined
+            const displayName = folderName || `node-v${version}`;
+            const statusIcon = isInstalled ? '✅' : '⚠️';
+            const statusText = isInstalled ? '' : ' (Não Instalado)';
+            
+            return `
+                <div class="version-list-item ${!isInstalled ? 'disabled' : ''}" 
+                     data-project="${projectName}" 
+                     data-version="${version}"
+                     onclick="selectNodeVersion('${projectName}', '${version}')">
+                    <div class="version-item-content">
+                        <span class="version-icon">${statusIcon}</span>
+                        <span class="version-name">${displayName}</span>
+                        <span class="version-label">(${version})</span>
+                        <span class="status-text">${statusText}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Cria opção expandida com CLI selector (quando selecionado)
+        function createExpandedVersionOption(projectName, version, folderName, currentVersion, isInstalled = true) {
+            // Garantir que folderName não seja undefined
+            const displayName = folderName || `node-v${version}`;
+            
+            const compatibility = ANGULAR_COMPATIBILITY[version] || {
+                nodeLabel: `Node ${version}`,
+                defaultCli: '@angular/cli@15.2.10',
+                compatibleCli: ['@angular/cli@15.2.10', '@angular/cli@16.2.14']
+            };
+            
+            const currentCli = angularCliConfigs[projectName + '-' + version] || compatibility.defaultCli;
+            
+            const cliOptions = compatibility.compatibleCli.map(cli => 
+                `<option value="${cli}" ${cli === currentCli ? 'selected' : ''}>${cli}</option>`
+            ).join('');
+
+            return `
+                <div class="version-expanded ${!isInstalled ? 'disabled' : ''}" 
+                     data-project="${projectName}" 
+                     data-version="${version}">
+                    <div class="expanded-header">
+                        <span class="version-icon">🎯</span>
+                        <span class="version-name">${displayName}</span>
+                        <span class="version-label">(${version})</span>
+                        <span class="status-badge in-use">Em Uso</span>
+                    </div>
+                    ${isInstalled ? `
+                    <div class="cli-selector-expanded">
+                        <label class="cli-label">Escolher Angular CLI:</label>
+                        <select class="cli-dropdown" 
+                                data-project="${projectName}" 
+                                data-node-version="${version}"
+                                onchange="handleCliChange(event, '${projectName}', '${version}')">
+                            ${cliOptions}
+                        </select>
+                        <div class="cli-status" id="cli-status-${projectName}-${version}">
+                            CLI configurada: ${currentCli}
+                        </div>
+                    </div>
+                    ` : '<div class="install-notice">Instale esta versão primeiro</div>'}
+                </div>
+            `;
+        }
+
+        // Seleciona uma versão do Node (expande o item)
+        function selectNodeVersion(projectName, nodeVersion) {
+            console.log(`Selecionando ${nodeVersion} para ${projectName}`);
+            
+            // Atualiza configuração local
+            projectConfigs[projectName] = nodeVersion;
+            
+            // Re-renderiza apenas este projeto para mostrar a expansão
+            renderSingleProject(projectName);
+            
+            // Envia atualização ao processo principal
+            ipcRenderer.send('update-project-version', { projectName, version: nodeVersion });
+            
+            console.log(`✅ Versão selecionada: ${projectName} → Node ${nodeVersion}`);
+        }
+
+        // Re-renderiza um projeto específico
+        function renderSingleProject(projectName) {
+            const project = projects.find(p => p.name === projectName);
+            if (!project) return;
+            
+            const currentVersion = projectConfigs[project.name] || project.defaultVersion || '16.10.0';
+            const versionOptions = generateVersionOptions(project.name, currentVersion);
+            
+            const projectElement = document.querySelector(`[data-project="${projectName}"]`).closest('.project-item');
+            if (projectElement) {
+                const versionSelector = projectElement.querySelector('.version-selector');
+                versionSelector.innerHTML = versionOptions;
+            }
+        }
+
+        // Manipula mudança no dropdown da CLI (mantém funcionamento original)
+        function handleCliChange(event, projectName, nodeVersion) {
+            const cliVersion = event.target.value;
+            
+            // Salva configuração da CLI
+            angularCliConfigs[projectName + '-' + nodeVersion] = cliVersion;
+            
+            // Atualiza status
+            const statusElement = document.getElementById(`cli-status-${projectName}-${nodeVersion}`);
+            if (statusElement) {
+                statusElement.textContent = `CLI configurada: ${cliVersion}`;
+            }
+            
+            // Mostra status de "verificando/instalando"
+            showInstallationStatus(projectName, nodeVersion, 'checking');
+            
+            // Instala a CLI automaticamente
+            installAngularCli(projectName, nodeVersion, cliVersion);
+            
+            console.log(`✅ CLI atualizada: ${projectName} → Node ${nodeVersion}, CLI ${cliVersion}`);
+        }
+
+        // Função original mantida para compatibilidade (não usada mais)
+        function handleNodeClick(event, projectName, nodeVersion) {
+            // Redireciona para a nova função
+            selectNodeVersion(projectName, nodeVersion);
+        }
+
+        // Instala versão específica do Angular CLI no Node portátil
+        function installAngularCli(projectName, nodeVersion, cliVersion) {
+            console.log(`🔧 Instalando Angular CLI ${cliVersion} no Node ${nodeVersion} (${projectName})...`);
+            
+            // Mostra feedback visual temporário
+            const projectItem = document.querySelector(`.project-item[data-project="${projectName}"]`);
+            const label = projectItem.querySelector(`label[data-version="${nodeVersion}"]`);
+            const dropdown = label.querySelector('.cli-dropdown-inline');
+            
+            const originalBg = dropdown.style.background;
+            dropdown.style.background = '#fff3cd';
+            dropdown.disabled = true;
+            
+            // Envia para o backend instalar a CLI no Node portátil específico
+            ipcRenderer.send('install-angular-cli-portable', { 
+                projectName, 
+                nodeVersion, 
+                cliVersion 
+            });
+            
+            // Simula feedback por enquanto
+            setTimeout(() => {
+                dropdown.style.background = '#d4edda';
+                setTimeout(() => {
+                    dropdown.style.background = originalBg;
+                    dropdown.disabled = false;
+                }, 1000);
+            }, 1500);
+        }
+
+        // Mostra status da instalação
+        function showInstallationStatus(projectName, version, status) {
+            // Encontra o item do projeto
+            const projectItems = document.querySelectorAll('.project-item');
+            const projectItem = Array.from(projectItems).find(item => {
+                const nameEl = item.querySelector('.project-name');
+                return nameEl && nameEl.textContent.includes(projectName);
+            });
+            
+            if (!projectItem) return;
+            
+            // Remove status anterior
+            const oldStatus = projectItem.querySelector('.installation-status');
+            if (oldStatus) oldStatus.remove();
+            
+            // Adiciona novo status
+            const statusEl = document.createElement('div');
+            statusEl.className = 'installation-status';
+            
+            if (status === 'checking') {
+                statusEl.innerHTML = '🔍 Verificando...';
+                statusEl.style.color = '#666';
+            } else if (status === 'installing') {
+                statusEl.innerHTML = '⏳ Instalando Node.js ' + version + '...';
+                statusEl.style.color = '#007bff';
+            } else if (status === 'success') {
+                statusEl.innerHTML = '✅ Node.js ' + version + ' instalado!';
+                statusEl.style.color = '#28a745';
+                setTimeout(() => statusEl.remove(), 3000);
+            } else if (status === 'already-installed') {
+                statusEl.innerHTML = '✅ Node.js ' + version + ' já instalado';
+                statusEl.style.color = '#28a745';
+                setTimeout(() => statusEl.remove(), 2000);
+            } else if (status === 'error') {
+                statusEl.innerHTML = '❌ Erro na instalação';
+                statusEl.style.color = '#dc3545';
+                setTimeout(() => statusEl.remove(), 5000);
+            }
+            
+            statusEl.style.fontSize = '12px';
+            statusEl.style.marginTop = '8px';
+            statusEl.style.fontWeight = 'bold';
+            
+            projectItem.querySelector('.project-info').appendChild(statusEl);
+        }
+
+        // Listener para status de instalação do Node
+        ipcRenderer.on('installation-status', (event, { projectName, version, status, message }) => {
+            console.log(`[INSTALLATION] ${projectName} → ${version}: ${status} - ${message}`);
+            showInstallationStatus(projectName, version, status);
+        });
+
+        // Listener para status de instalação da CLI
+        ipcRenderer.on('cli-installation-status', (event, { projectName, nodeVersion, cliVersion, status, message }) => {
+            console.log(`[CLI INSTALLATION] ${projectName} (Node ${nodeVersion}) → CLI ${cliVersion}: ${status} - ${message}`);
+            
+            const projectItem = document.querySelector(`.project-item[data-project="${projectName}"]`);
+            if (!projectItem) return;
+            
+            const label = projectItem.querySelector(`label[data-version="${nodeVersion}"]`);
+            if (!label) return;
+            
+            const dropdown = label.querySelector('.cli-dropdown-inline');
+            if (!dropdown) return;
+            
+            if (status === 'success') {
+                dropdown.style.background = '#d4edda';
+                dropdown.disabled = false;
+                setTimeout(() => {
+                    dropdown.style.background = '';
+                }, 2000);
+            } else if (status === 'error') {
+                dropdown.style.background = '#f8d7da';
+                dropdown.disabled = false;
+                alert(`Erro ao instalar CLI ${cliVersion}: ${message}`);
+                setTimeout(() => {
+                    dropdown.style.background = '';
+                }, 3000);
+            }
+        });
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

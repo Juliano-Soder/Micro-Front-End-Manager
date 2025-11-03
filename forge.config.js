@@ -5,14 +5,20 @@ module.exports = {
   packagerConfig: {
     asar: true,
     icon: './OIP',
+    // Output para caminho mais curto para evitar erro de path
+    out: 'C:\\temp\\mfe-build',
+    // Removido: pasta nodes não deve ser empacotada - usuário baixa via app
+    // extraResource: [
+    //   './nodes'
+    // ],
     win32metadata: {
       CompanyName: "Grupo Casas Bahia",
       FileDescription: "Gerenciador de Micro Front-Ends",
       ProductName: "Micro Front-End Manager",
       OriginalFilename: "micro-front-end-manager.exe",
       InternalName: "micro-front-end-manager",
-      FileVersion: "0.0.3",
-      ProductVersion: "0.0.3",
+      FileVersion: "0.0.9.5",
+      ProductVersion: "0.0.9.5",
       CompanyName: "Grupo Casas Bahia",
       LegalCopyright: "Copyright © 2025 Juliano Soder",
     },
@@ -27,28 +33,24 @@ module.exports = {
     {
       name: '@electron-forge/maker-squirrel',
       config: {
-        name: 'micro_front_end_manager',
+        name: 'mfe_manager', // Nome mais curto para reduzir caminho
         authors: 'Juliano Soder',
         exe: 'micro-front-end-manager.exe',
-        setupExe: 'MicroFrontEndManagerSetup.exe', // Nome do instalador
-        setupIcon: './OIP.ico', // Ícone do instalador
-        shortcutName: 'Micro Front-End Manager', // Nome do atalho
-        createDesktopShortcut: true, // Garante que o atalho na área de trabalho seja criado
+        setupExe: 'MFESetup.exe', // Nome mais curto
+        setupIcon: './OIP.ico',
+        shortcutName: 'Micro Front-End Manager',
+        createDesktopShortcut: true,
         createStartMenuShortcut: true,
-        // Configurações adicionais para evitar falsos positivos
-        noMsi: true, // Não criar MSI
-        remoteReleases: false, // Não buscar releases remotos
-        // Certificado para o instalador também
+        noMsi: true,
+        remoteReleases: false,
+        // Forçar diretório de trabalho temporário mais curto
+        outputDirectory: 'C:\\temp\\mfe-out',
+        // Certificado
         certificateFile: './certs/micro-front-end-manager-new.pfx',
         certificatePassword: 'MicroFE2025!',
-        // Metadados do instalador
         copyright: 'Copyright © 2025 Juliano Soder',
-        description: 'Instalador do Micro Front-End Manager',
+        description: 'Instalador do MFE Manager',
       },
-    },
-    {
-      name: '@electron-forge/maker-zip',
-      platforms: ['darwin'],
     },
     {
       name: '@electron-forge/maker-deb',

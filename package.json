@@ -1,6 +1,6 @@
 {
   "name": "micro-front-end-manager",
-  "version": "0.0.8",
+  "version": "0.0.9.5",
   "description": "Gerenciador de Micro Front-Ends para projetos internos do Grupo Casas Bahia.",
   "main": "main.js",
   "scripts": {
@@ -16,7 +16,8 @@
     "make:linux-appimage": "electron-forge make --platform=linux --targets=@electron-forge/maker-appimage",
     "build:docker-linux": "node docker-build-linux.js",
     "build:all": "npm run make:win:fresh && npm run build:docker-linux",
-    "cert:regen": "powershell -ExecutionPolicy Bypass -File ./scripts/regenerate-cert.ps1"
+    "cert:regen": "powershell -ExecutionPolicy Bypass -File ./scripts/regenerate-cert.ps1",
+    "setup:nodes": "node create-nodes-structure.js"
   },
   "keywords": [
     "electron",
@@ -26,7 +27,9 @@
   "author": "Juliano Soder",
   "license": "ISC",
   "dependencies": {
-    "electron-squirrel-startup": "^1.0.1"
+    "adm-zip": "^0.5.10",
+    "electron-squirrel-startup": "^1.0.1",
+    "tar": "^7.5.1"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.8.0",

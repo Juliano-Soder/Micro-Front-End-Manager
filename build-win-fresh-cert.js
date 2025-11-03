@@ -6,6 +6,9 @@ async function buildWithFreshCert() {
     console.log('🔄 Iniciando build Windows com certificado renovado...\n');
     
     try {
+        // Removido: Criação de estrutura nodes (não empacotada mais)
+        // O usuário baixa as versões do Node.js via instalador interno do app
+        
         // 1. Regenerar certificado
         console.log('🔐 Regenerando certificado...');
         const certScript = path.join(__dirname, 'scripts', 'regenerate-cert.ps1');
@@ -17,13 +20,13 @@ async function buildWithFreshCert() {
         
         console.log('✅ Certificado regenerado!\n');
         
-        // 2. Verificar se o certificado foi criado
+        // 3. Verificar se o certificado foi criado
         const certPath = './certs/micro-front-end-manager-new.pfx';
         if (!fs.existsSync(certPath)) {
             throw new Error('Certificado não foi criado');
         }
         
-        // 3. Fazer build
+        // 4. Fazer build
         console.log('🔨 Iniciando build para Windows...');
         const buildProcess = spawn('npm', ['run', 'make:win'], {
             stdio: 'inherit',

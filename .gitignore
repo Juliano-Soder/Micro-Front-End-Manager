@@ -5,6 +5,22 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Node.js Portátil - NÃO commitar binários, mas manter estrutura de pastas
+nodes/*
+!nodes/README.md
+!nodes/windows/
+!nodes/linux/
+!nodes/mac/
+nodes/windows/*
+nodes/linux/*
+nodes/mac/*
+!nodes/windows/.gitkeep
+!nodes/linux/.gitkeep
+!nodes/mac/.gitkeep
+
+.node-portable/
+.npm-cache/
+
 # Electron
 electron-builder.yaml
 dist/

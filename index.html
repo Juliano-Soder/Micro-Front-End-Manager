@@ -39,6 +39,19 @@
       border-bottom-color: #555;
     }
 
+    .main-title {
+      font-size: 16px;
+      font-weight: 400;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #ddd;
+      transition: border-color 0.3s ease;
+    }
+
+    body.dark-mode .main-title {
+      border-bottom-color: #555;
+    }
+
     input, button {
       font-family: 'Fira Code', monospace;
     }
@@ -102,15 +115,15 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 6px 12px;
-      font-size: 12px;
-      font-weight: 500;
-      border-radius: 16px;
+      padding: 4px 8px;
+      font-size: 10px;
+      font-weight: 400;
+      border-radius: 12px;
       cursor: pointer;
       transition: all 0.2s ease;
       border: 1px solid transparent;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      text-transform: none;
+      letter-spacing: 0px;
     }
 
     .status-badge.logged-in {
@@ -149,88 +162,184 @@
       50% { opacity: 0.5; }
     }
 
+    /* Badges de Versão (Node.js e Angular) */
+    .version-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: bold;
+      border-radius: 12px;
+      transition: all 0.2s ease;
+      cursor: help;
+    }
+
+    .version-badge.node {
+      background: #68a063;
+      color: white;
+    }
+
+    .version-badge.angular {
+      background: #dd0031;
+      color: white;
+    }
+
+    .version-badge:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      opacity: 0.9;
+    }
+
+    .version-badge img {
+      width: 12px;
+      height: 12px;
+      object-fit: contain;
+    }
+
+    .version-badge .version-text {
+      font-weight: bold;
+    }
+
+    /* Botão de toggle para mostrar/esconder badges */
+    .toggle-versions-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 4px;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+
+    .toggle-versions-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+      border-color: rgba(255, 255, 255, 0.5);
+      transform: scale(1.1);
+    }
+
+    .toggle-versions-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* Badges escondidos por padrão */
+    .version-badges-container {
+      display: none;
+      gap: 8px;
+    }
+
+    .version-badges-container.visible {
+      display: inline-flex;
+    }
+
     /* Remover estilos antigos */
     #pinter-status, #status {
       display: none !important;
     }
 
-    /* ===== BOTÕES TOGGLE MODERNOS ===== */
+    /* ===== SISTEMA DE ABAS (TABS) ===== */
     .toggle-buttons-container {
       display: flex;
-      gap: 12px;
-      margin-bottom: 20px;
-      flex-wrap: wrap;
+      gap: 0;
+      margin-bottom: 0;
+      border-bottom: 2px solid #ddd;
+    }
+
+    body.dark-mode .toggle-buttons-container {
+      border-bottom-color: #444;
     }
 
     .toggle-btn {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 16px;
+      padding: 12px 24px;
+      background: none;
       border: none;
-      border-radius: 8px;
-      font-size: 13px;
+      border-bottom: 3px solid transparent;
+      border-radius: 0;
+      font-size: 14px;
       font-weight: 500;
       cursor: pointer;
-      transition: all 0.3s ease;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    }
-
-    .toggle-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-    }
-
-    .toggle-btn:active {
-      transform: translateY(0);
-    }
-
-    .toggle-btn.pas-btn {
-      background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-    }
-
-    .toggle-btn.pamp-btn {
-      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    }
-
-    .toggle-btn.expanded {
-      background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-    }
-
-    .toggle-btn .toggle-icon {
-      font-size: 12px;
-      transition: transform 0.3s ease;
-    }
-
-    .toggle-btn.expanded .toggle-icon {
-      transform: rotate(90deg);
+      transition: all 0.2s ease;
+      position: relative;
     }
 
     .toggle-btn .toggle-text {
-      font-weight: 600;
+      font-weight: 500;
     }
 
     .toggle-btn .toggle-count {
-      background: rgba(255, 255, 255, 0.2);
-      padding: 2px 6px;
+      padding: 2px 8px;
       border-radius: 10px;
       font-size: 11px;
-      font-weight: bold;
+      font-weight: 600;
+      margin-left: 4px;
     }
 
-    /* Suporte ao modo dark */
+    /* ==== TEMA CLARO (Light Mode) ==== */
+    body:not(.dark-mode) .toggle-btn {
+      color: #666;
+    }
+
+    body:not(.dark-mode) .toggle-btn:hover {
+      color: #000;
+      background-color: rgba(0, 0, 0, 0.02);
+    }
+
+    body:not(.dark-mode) .toggle-btn.expanded {
+      color: #000;
+      border-bottom-color: #000;
+      font-weight: 600;
+    }
+
+    body:not(.dark-mode) .toggle-btn .toggle-count {
+      background: #e0e0e0;
+      color: #666;
+    }
+
+    body:not(.dark-mode) .toggle-btn.expanded .toggle-count {
+      background: #000;
+      color: #fff;
+    }
+
+    /* ==== TEMA ESCURO (Dark Mode) ==== */
     body.dark-mode .toggle-btn {
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+      color: #999;
     }
 
     body.dark-mode .toggle-btn:hover {
-      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+      color: #fff;
+      background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    body.dark-mode .toggle-btn.expanded {
+      color: #fff;
+      border-bottom-color: #fff;
+      font-weight: 600;
     }
 
     body.dark-mode .toggle-btn .toggle-count {
-      background: rgba(0, 0, 0, 0.2);
+      background: #444;
+      color: #999;
+    }
+
+    body.dark-mode .toggle-btn.expanded .toggle-count {
+      background: #fff;
+      color: #000;
+    }
+
+    /* Conteúdo das abas */
+    #pamp-mfes, #projects {
+      padding: 20px 0;
+      min-height: 200px;
     }
 
     /* Version info */
@@ -301,21 +410,197 @@
       background: #000 !important;
       color: #0f0 !important;
     }
+
+    /* Estilos para exibição de porta */
+    span[id*="port-"], span[id*="pamp-port-"] {
+      display: inline-block;
+      padding: 8px 12px; /* Mesmo padding dos botões */
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      white-space: nowrap;
+      transition: all 0.3s ease;
+      user-select: none;
+      height: auto; /* Altura automática para coincidir com botões */
+      line-height: 1.2; /* Line height consistente */
+      vertical-align: middle; /* Alinhamento vertical */
+      box-sizing: border-box; /* Include padding in height calculation */
+      min-height: 32px; /* Altura mínima igual aos botões */
+      display: inline-flex; /* Flexbox para melhor alinhamento */
+      align-items: center; /* Centralizar verticalmente o texto */
+      justify-content: center; /* Centralizar horizontalmente o texto */
+    }
+
+    /* Port status colors */
+    .port-starting {
+      background-color: #ff8c00 !important;
+      color: white !important;
+      cursor: default !important;
+    }
+
+    .port-in-use {
+      background-color: #dc3545 !important;
+      color: white !important;
+      cursor: default !important;
+    }
+
+    .port-running {
+      background-color: #28a745 !important;
+      color: white !important;
+      cursor: pointer !important;
+    }
+
+    .port-running:hover {
+      background-color: #218838 !important;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    /* Help icon styles */
+    .help-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background-color: #007acc;
+      color: white;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      margin-left: 5px;
+      transition: all 0.3s ease;
+      position: relative;
+      vertical-align: middle;
+    }
+
+    .help-icon:hover {
+      background-color: #005a9e;
+      transform: scale(1.1);
+    }
+
+    /* Editor icon styles */
+    .editor-icon {
+      width: 24px;
+      height: 24px;
+      cursor: pointer;
+      opacity: 0.8;
+      transition: all 0.3s ease;
+      margin-right: 5px;
+    }
+
+    .editor-icon:hover {
+      opacity: 1;
+      transform: scale(1.05);
+    }
+
+    .editor-icon.disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    body.dark-mode .help-icon {
+      background-color: #4CAF50;
+    }
+
+    body.dark-mode .help-icon:hover {
+      background-color: #45a049;
+    }
+
+    /* Tooltip styles */
+    .tooltip {
+      position: relative;
+      display: inline-block;
+    }
+
+    .tooltip .tooltiptext {
+      visibility: hidden;
+      width: 380px;
+      background-color: #2c2c2c;
+      color: #fff;
+      text-align: left;
+      border-radius: 8px;
+      padding: 16px;
+      position: fixed;
+      z-index: 9999;
+      opacity: 0;
+      transition: opacity 0.3s ease-in-out;
+      font-size: 13px;
+      line-height: 1.5;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+      border: 1px solid #555;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    /* Tooltip fica visível quando hover no container pai OU no próprio tooltip */
+    .tooltip:hover .tooltiptext,
+    .tooltiptext:hover {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    /* Estilo especial para manter tooltip visível */
+    .tooltip .tooltiptext.show {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    /* Remove a seta por enquanto para simplificar */
+    .tooltip .tooltiptext::after {
+      display: none;
+    }
+
+    .tooltip:hover .tooltiptext {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    body.dark-mode .tooltip .tooltiptext {
+      background-color: #333;
+      border: 1px solid #555;
+    }
+
+    body.dark-mode .tooltip .tooltiptext::after {
+      border-color: #333 transparent transparent transparent;
+    }
+
+    .tooltip-link {
+      color: #4CAF50;
+      text-decoration: underline;
+      cursor: pointer;
+      font-weight: bold;
+      transition: all 0.3s ease;
+    }
+
+    .tooltip-link:hover {
+      color: #45a049;
+    }
+
+    .tooltip-link.disabled {
+      color: #888;
+      cursor: not-allowed;
+      opacity: 0.5;
+      pointer-events: none;
+    }
+
+    /* Dark mode compatibility for port display */
+    body.dark-mode .port-starting,
+    body.dark-mode .port-in-use,
+    body.dark-mode .port-running {
+      box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    }
   </style>
 </head>
 <body>
-  <h1>
+  <div class="main-title">
     Micro Front-Ends 
-    <span id="node-version" style="font-size: 12px; margin-left: 10px; color: green;"></span>
-    <span id="angular-version" style="font-size: 12px; margin-left: 10px; color: green;"></span>
+    <span id="dependencies-status" style="font-size: 12px; margin-left: 10px;"></span>
     <span style="font-size: 10px; margin-left: 20px; color: #666; font-style: italic;" title="Atalhos para reiniciar">
       💡 Ctrl+R ou F5 = Reiniciar
     </span>
-  </h1>
-  
-  <div class="version-info">
-    <div id="node-warning" style="font-size: 12px; color: orange;"></div>
-    <div id="angular-warning" style="font-size: 12px; color: orange;"></div>
   </div>
 
   <!-- Nova seção de status com layout melhorado -->
@@ -334,13 +619,11 @@
     <!-- Botões Toggle Modernos para MFEs -->
     <div class="toggle-buttons-container">
       <button id="toggle-mfes" class="toggle-btn pas-btn">
-        <span class="toggle-icon">▶</span>
-        <span class="toggle-text">PAS Site</span>
+        <span class="toggle-text">PAS</span>
         <span class="toggle-count" id="pas-count">0</span>
       </button>
       <button id="toggle-pamp-mfes" class="toggle-btn pamp-btn">
-        <span class="toggle-icon">▶</span>
-        <span class="toggle-text">PAMP Admin</span>
+        <span class="toggle-text">PAMP</span>
         <span class="toggle-count" id="pamp-count">0</span>
       </button>
     </div>
@@ -351,9 +634,28 @@
   
   <script>
   const { ipcRenderer } = require('electron');
+  const path = require('path');
   
   // Store projects globally for reference
   let currentProjects = [];
+  let currentIDE = { id: 'vscode', name: 'Visual Studio Code', icon: 'vscode.png' };
+
+  // ===== FUNÇÃO PARA OBTER ÍCONE DA IDE ATUAL =====
+  function getCurrentIDEIcon() {
+    return `assets/${currentIDE.icon}`;
+  }
+
+  // ===== FUNÇÃO PARA ATUALIZAR ÍCONES DE IDE =====
+  function updateIDEIcons() {
+    const ideIcon = getCurrentIDEIcon();
+    
+    // Atualiza todos os ícones de IDE
+    const ideImages = document.querySelectorAll('img[id*="btn-editor"], img[id*="pamp-btn-editor"]');
+    ideImages.forEach(img => {
+      img.src = ideIcon;
+      img.title = `Abrir projeto no ${currentIDE.name}`;
+    });
+  }
 
   // Função para aplicar tema
   function applyTheme() {
@@ -378,6 +680,212 @@
         img.src = terminalIcon;
       }
     });
+  }
+
+  // ===== FUNÇÃO PARA ABRIR PROJETO NO EDITOR =====
+  function openProjectInEditor(projectIndex, isPamp) {
+    // Verifica se já está processando para evitar múltiplos cliques
+    const editorButtonId = isPamp ? `pamp-btn-editor-${projectIndex}` : `btn-editor-${projectIndex}`;
+    const editorButton = document.getElementById(editorButtonId);
+    
+    if (!editorButton || editorButton.classList.contains('disabled')) {
+      console.log('Editor já está sendo aberto, aguarde...');
+      return;
+    }
+    
+    // Pega o caminho do projeto
+    const inputId = isPamp ? `pamp-input-${projectIndex}` : `input-${projectIndex}`;
+    const inputElement = document.getElementById(inputId);
+    
+    if (!inputElement || !inputElement.value.trim()) {
+      alert('Caminho do projeto não está configurado.\nConfigure o caminho do projeto primeiro.');
+      return;
+    }
+    
+    const projectPath = inputElement.value.trim();
+    
+    // Desabilita o botão por 5 segundos
+    editorButton.classList.add('disabled');
+    editorButton.title = 'Abrindo editor...';
+    
+    console.log(`[DEBUG] Abrindo editor para projeto: ${projectPath}`);
+    
+    // Envia comando para abrir o projeto no editor
+    ipcRenderer.send('open-project-in-editor', { 
+      projectPath: projectPath,
+      projectIndex: projectIndex,
+      isPamp: isPamp
+    });
+    
+    // Reabilita o botão após 5 segundos
+    setTimeout(() => {
+      editorButton.classList.remove('disabled');
+      editorButton.title = 'Abrir projeto no editor de código';
+    }, 5000);
+  }
+
+  // ===== FUNÇÕES PARA CONTROLE INTELIGENTE DO TOOLTIP =====
+  let tooltipTimeouts = {};
+
+  function showTooltip(event, projectIndex) {
+    // Cancela qualquer timeout de hide pendente
+    if (tooltipTimeouts[projectIndex]) {
+      clearTimeout(tooltipTimeouts[projectIndex]);
+      delete tooltipTimeouts[projectIndex];
+    }
+
+    const tooltip = document.getElementById(`tooltip-${projectIndex}`);
+    if (!tooltip) return;
+
+    // Calcula posição inteligente
+    const rect = event.target.getBoundingClientRect();
+    const tooltipWidth = 380;
+    const tooltipHeight = 400; // altura máxima aproximada
+    
+    // Posição horizontal - sempre à esquerda do ícone para não sair da tela
+    let left = rect.left - tooltipWidth - 10;
+    if (left < 10) {
+      // Se sair pela esquerda, posiciona à direita
+      left = rect.right + 10;
+      // Se ainda sair pela direita, centraliza
+      if (left + tooltipWidth > window.innerWidth - 10) {
+        left = (window.innerWidth - tooltipWidth) / 2;
+      }
+    }
+    
+    // Posição vertical - preferencialmente acima
+    let top = rect.top - tooltipHeight - 10;
+    if (top < 10) {
+      // Se sair por cima, posiciona embaixo
+      top = rect.bottom + 10;
+      // Se ainda sair por baixo, centraliza verticalmente
+      if (top + tooltipHeight > window.innerHeight - 10) {
+        top = (window.innerHeight - tooltipHeight) / 2;
+      }
+    }
+
+    // Aplica posicionamento
+    tooltip.style.left = Math.max(10, left) + 'px';
+    tooltip.style.top = Math.max(10, top) + 'px';
+    
+    // Mostra tooltip
+    tooltip.classList.add('show');
+  }
+
+  function hideTooltip(projectIndex) {
+    // Delay para permitir mover o mouse para o tooltip
+    tooltipTimeouts[projectIndex] = setTimeout(() => {
+      const tooltip = document.getElementById(`tooltip-${projectIndex}`);
+      if (tooltip) {
+        tooltip.classList.remove('show');
+      }
+      delete tooltipTimeouts[projectIndex];
+    }, 200);
+  }
+
+  function keepTooltipVisible(projectIndex) {
+    // Cancela o hide quando mouse entra no tooltip
+    if (tooltipTimeouts[projectIndex]) {
+      clearTimeout(tooltipTimeouts[projectIndex]);
+      delete tooltipTimeouts[projectIndex];
+    }
+  }
+
+  function hideTooltipDelayed(projectIndex) {
+    // Hide com delay quando mouse sai do tooltip
+    tooltipTimeouts[projectIndex] = setTimeout(() => {
+      const tooltip = document.getElementById(`tooltip-${projectIndex}`);
+      if (tooltip) {
+        tooltip.classList.remove('show');
+      }
+      delete tooltipTimeouts[projectIndex];
+    }, 300);
+  }
+
+  // ===== FUNÇÃO PARA ATUALIZAR TOOLTIP COM PORTA =====
+  function updateTooltipWithPort(projectIndex, port, isPamp) {
+    if (!isPamp) return; // Só atualiza para projetos PAMP
+    
+    const tooltipElement = document.getElementById(`tooltip-${projectIndex}`);
+    if (tooltipElement) {
+      const inputElement = document.getElementById(`pamp-input-${projectIndex}`);
+      const currentPath = inputElement ? inputElement.value : '';
+      
+      const tooltipContent = `
+        <strong>🔧 Configuração para desenvolvimento local:</strong><br><br>
+        Para usar este micro front-end localmente, você precisa alterar o arquivo <code>environment.ts</code> do projeto <strong>mp-pamp</strong>.<br><br>
+        <strong>📍 Caminho:</strong> <code>mp-pamp/src/environments/environment.ts</code><br><br>
+        <strong>📝 Como alterar:</strong><br>
+        1. Encontre a seção <code>mfe: { ... }</code><br>
+        2. Procure pela propriedade que corresponde a este MFE<br>
+        3. Substitua a URL atual pela URL local: <code>http://localhost:${port}/remoteEntry.js</code><br>
+        4. Salve o arquivo e recompile o projeto mp-pamp<br><br>
+        <span class="tooltip-link" onclick="openEnvironmentFile('${currentPath}')">🔗 Abrir arquivo environment.ts</span>
+      `;
+      tooltipElement.innerHTML = tooltipContent;
+    }
+  }
+
+  // ===== FUNÇÃO PARA ABRIR ARQUIVO ENVIRONMENT.TS =====
+  function openEnvironmentFile(currentProjectPath) {
+    // Verifica se já está processando para evitar múltiplos cliques
+    if (window.openingEnvironmentFile) {
+      console.log('Já está abrindo arquivo environment.ts, aguarde...');
+      return;
+    }
+    
+    // Busca o projeto mp-pamp na lista de projetos carregados
+    const mpPampProject = currentProjects.find(p => p.name === 'mp-pamp');
+    
+    if (!mpPampProject || !mpPampProject.path) {
+      alert('Projeto mp-pamp não encontrado ou não configurado.\nVerifique se o mp-pamp está na lista de projetos e tem um caminho válido.');
+      return;
+    }
+    
+    // Marca como processando
+    window.openingEnvironmentFile = true;
+    
+    // Desabilita todos os links do tooltip
+    const allTooltipLinks = document.querySelectorAll('.tooltip-link');
+    allTooltipLinks.forEach(link => {
+      link.style.opacity = '0.5';
+      link.style.cursor = 'not-allowed';
+      link.style.pointerEvents = 'none';
+      link.innerHTML = '⏳ Abrindo arquivo...';
+    });
+    
+    // Usa o caminho do mp-pamp e adiciona o sufixo do arquivo
+    const mpPampPath = mpPampProject.path;
+    let environmentPath;
+    
+    // Detecta o sistema operacional pelos separadores no caminho
+    if (mpPampPath.includes('\\')) {
+      // Windows
+      environmentPath = mpPampPath + '\\src\\environments\\environment.ts';
+    } else {
+      // Linux/macOS
+      environmentPath = mpPampPath + '/src/environments/environment.ts';
+    }
+    
+    console.log(`[DEBUG] Projeto mp-pamp encontrado: ${mpPampPath}`);
+    console.log(`[DEBUG] Caminho final do environment.ts: ${environmentPath}`);
+    
+    // Envia comando para abrir o arquivo
+    ipcRenderer.send('open-environment-file', { 
+      filePath: environmentPath,
+      mpPampPath: mpPampPath
+    });
+    
+    // Reabilita os links após 3 segundos (tempo suficiente para o arquivo abrir)
+    setTimeout(() => {
+      window.openingEnvironmentFile = false;
+      allTooltipLinks.forEach(link => {
+        link.style.opacity = '1';
+        link.style.cursor = 'pointer';
+        link.style.pointerEvents = 'auto';
+        link.innerHTML = '🔗 Abrir arquivo environment.ts';
+      });
+    }, 3000);
   }
 
   // ===== FUNÇÃO PARA ATUALIZAR BRANCH (GIT PULL) =====
@@ -443,16 +951,13 @@
 
   // ===== FUNÇÕES PARA BOTÕES TOGGLE MODERNOS =====
   function updateToggleButton(button, isExpanded, count = 0) {
-    const icon = button.querySelector('.toggle-icon');
     const countElement = button.querySelector('.toggle-count');
     
-    // Atualiza ícone com rotação suave
+    // Atualiza estado de expandido
     if (isExpanded) {
       button.classList.add('expanded');
-      icon.textContent = '▼';
     } else {
       button.classList.remove('expanded');
-      icon.textContent = '▶';
     }
     
     // Atualiza contador
@@ -580,6 +1085,49 @@
     updateTerminalIcons();
   });
 
+  // ===== LISTENERS PARA ABERTURA DO ENVIRONMENT.TS =====
+  // Escuta quando o arquivo foi aberto com sucesso
+  ipcRenderer.on('environment-file-opened', (event, { success, filePath }) => {
+    console.log(`✅ Arquivo environment.ts aberto com sucesso: ${filePath}`);
+    reEnableTooltipLinks();
+  });
+
+  // Escuta quando houve erro ao abrir o arquivo
+  ipcRenderer.on('environment-file-error', (event, { error, message }) => {
+    console.error(`❌ Erro ao abrir environment.ts: ${error}`);
+    reEnableTooltipLinks();
+  });
+
+  // Função para reabilitar os links do tooltip
+  function reEnableTooltipLinks() {
+    window.openingEnvironmentFile = false;
+    const allTooltipLinks = document.querySelectorAll('.tooltip-link');
+    allTooltipLinks.forEach(link => {
+      link.style.opacity = '1';
+      link.style.cursor = 'pointer';
+      link.style.pointerEvents = 'auto';
+      link.innerHTML = '🔗 Abrir arquivo environment.ts';
+    });
+  }
+
+  // ===== LISTENERS PARA CONFIGURAÇÃO DE IDE =====
+  // Escuta quando a IDE é alterada
+  ipcRenderer.on('ide-changed', (event, { id, name, icon }) => {
+    console.log(`🔧 IDE alterada para: ${name}`);
+    currentIDE = { id, name, icon };
+    updateIDEIcons();
+  });
+
+  // Carrega a IDE atual na inicialização
+  ipcRenderer.send('get-current-ide');
+
+  // Escuta resposta da IDE atual
+  ipcRenderer.on('current-ide', (event, ide) => {
+    console.log(`🔧 IDE atual carregada: ${ide.name}`);
+    currentIDE = ide;
+    updateIDEIcons();
+  });
+
   ipcRenderer.on('projects-loaded', (event, projects) => {
     // Store projects globally
     currentProjects = projects;
@@ -605,10 +1153,34 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <p style="margin: 0;"><strong>${project.name}</strong></p>
-            ${project.gitBranch ? `<span id="pamp-branch-${realIndex}" style="background: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
-            ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pamp-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, true)">↓ ${project.pendingCommits}</span>` : ''}
+            <span class="toggle-versions-btn" onclick="toggleVersionBadges(${realIndex}, true)" title="Mostrar/Esconder badges">›</span>
+            <div class="version-badges-container" id="pamp-version-badges-${realIndex}">
+              <span id="pamp-node-version-${realIndex}" class="version-badge node"><img src="assets/node.png" alt="Node.js" /><span class="version-text">...</span></span>
+              <span id="pamp-angular-version-${realIndex}" class="version-badge angular"><img src="assets/angular.png" alt="Angular" /><span class="version-text">...</span></span>
+              ${project.gitBranch ? `<span id="pamp-branch-${realIndex}" style="background: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
+              ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pamp-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, true)">↓ ${project.pendingCommits}</span>` : ''}
+            </div>
           </div>
-          <img id="pamp-btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+          <div style="display: flex; align-items: center; gap: 5px;">
+            <img id="pamp-btn-editor-${realIndex}" src="${getCurrentIDEIcon()}" class="editor-icon" style="${!project.path ? 'display: none' : ''}" title="Abrir projeto no ${currentIDE.name}" alt="Editor" onclick="openProjectInEditor('${realIndex}', true)" />
+            <img id="pamp-btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+            ${project.name !== 'mp-pamp' ? `
+            <div class="tooltip" onmouseenter="showTooltip(event, ${realIndex})" onmouseleave="hideTooltip(${realIndex})">
+              <span class="help-icon" title="Clique para ajuda sobre configuração MFE">ⓘ</span>
+              <span class="tooltiptext" id="tooltip-${realIndex}" onmouseenter="keepTooltipVisible(${realIndex})" onmouseleave="hideTooltipDelayed(${realIndex})">
+                <strong>🔧 Configuração para desenvolvimento local:</strong><br><br>
+                Para usar este micro front-end localmente, você precisa alterar o arquivo <code>environment.ts</code> do projeto <strong>mp-pamp</strong>.<br><br>
+                <strong>📍 Caminho:</strong> <code>mp-pamp/src/environments/environment.ts</code><br><br>
+                <strong>📝 Como alterar:</strong><br>
+                1. Encontre a seção <code>mfe: { ... }</code><br>
+                2. Procure pela propriedade que corresponde a este MFE<br>
+                3. Substitua a URL atual pela URL local: <code>http://localhost:[PORTA]/remoteEntry.js</code><br>
+                4. Use a porta mostrada ao lado do botão "Iniciar" quando o projeto estiver rodando<br><br>
+                <span class="tooltip-link" onclick="openEnvironmentFile('${project.path}')">🔗 Abrir arquivo environment.ts</span>
+              </span>
+            </div>
+            ` : ''}
+          </div>
         </div>
         <div class="input-with-folder" style="margin-bottom: 10px;">
           <input id="pamp-input-${realIndex}" data-path="${project.path}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
@@ -616,10 +1188,11 @@
         </div>
         <button id="pamp-btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
         <button id="pamp-btn-start-${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
+        <span id="pamp-port-${realIndex}" style="display: none; margin-right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: default;"></span>
         <button id="pamp-btn-cancel-${realIndex}" style="display: none; margin-right: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
         <button id="pamp-btn-stop-${realIndex}" style="display: none;">Parar</button>
-        <button id="pamp-btn-move-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #007acc; color: white;">Mover para...</button>
-        <button id="pamp-btn-delete-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
+        <button id="pamp-btn-move-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #5a6c7d; color: white;">Mover para...</button>
+        <button id="pamp-btn-delete-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #8b5a5a; color: white;">Deletar</button>
         <div id="pamp-log-${realIndex}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
       </div>
     `;
@@ -635,6 +1208,7 @@
     const pampMoveButton = document.getElementById(`pamp-btn-move-${realIndex}`);
     const pampDeleteButton = document.getElementById(`pamp-btn-delete-${realIndex}`);
     const pampLogDiv = document.getElementById(`pamp-log-${realIndex}`);
+    const pampEditorButton = document.getElementById(`pamp-btn-editor-${realIndex}`);
 
     // Event listeners para projetos PAMP
     pampInput.addEventListener('blur', () => {
@@ -644,11 +1218,15 @@
           pampStartButton.disabled = false;
           pampMoveButton.style.display = 'inline-block';
           pampDeleteButton.style.display = 'inline-block';
+          pampEditorButton.style.display = 'inline-block';
+          pampTerminalButton.style.display = 'inline-block';
       }else {
           pampDeleteButton.style.display = 'none';
           pampMoveButton.style.display = 'none';
           pampDownloadButton.style.display = 'inline-block';
           pampStartButton.disabled = true;
+          pampEditorButton.style.display = 'none';
+          pampTerminalButton.style.display = 'none';
       }
     });
 
@@ -689,6 +1267,13 @@
     });
 
     pampStartButton.addEventListener('click', (event) => {
+      // Limpa o console antes de iniciar
+      const pampLogDiv = document.getElementById(`pamp-log-${realIndex}`);
+      if (pampLogDiv) {
+        pampLogDiv.innerText = ''; // Zera os logs antigos
+        pampLogDiv.style.display = 'none'; // Esconde até aparecer novos logs
+      }
+      
       pampStartButton.disabled = true;
       pampStartButton.innerText = 'Executando...';
       pampCancelButton.style.display = 'inline-block';
@@ -744,10 +1329,18 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <p style="margin: 0;"><strong>${project.name}</strong></p>
-            ${project.gitBranch ? `<span id="pas-branch-${realIndex}" style="background: #007bff; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
-            ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pas-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, false)">↓ ${project.pendingCommits}</span>` : ''}
+            <span class="toggle-versions-btn" onclick="toggleVersionBadges(${realIndex}, false)" title="Mostrar/Esconder badges">›</span>
+            <div class="version-badges-container" id="pas-version-badges-${realIndex}">
+              <span id="pas-node-version-${realIndex}" class="version-badge node"><img src="assets/node.png" alt="Node.js" /><span class="version-text">...</span></span>
+              <span id="pas-angular-version-${realIndex}" class="version-badge angular"><img src="assets/angular.png" alt="Angular" /><span class="version-text">...</span></span>
+              ${project.gitBranch ? `<span id="pas-branch-${realIndex}" style="background: #007bff; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;"><img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${project.gitBranch}</span>` : ''}
+              ${project.pendingCommits && project.pendingCommits > 0 ? `<span id="pas-commits-${realIndex}" style="background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Clique para atualizar branch" onclick="handleUpdateBranch(${realIndex}, '${project.name}', \`${project.path.replace(/\\/g, '\\\\')}\`, false)">↓ ${project.pendingCommits}</span>` : ''}
+            </div>
           </div>
-          <img id="btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+          <div style="display: flex; align-items: center; gap: 5px;">
+            <img id="btn-editor-${realIndex}" src="${getCurrentIDEIcon()}" class="editor-icon" style="${!project.path ? 'display: none' : ''}" title="Abrir projeto no ${currentIDE.name}" alt="Editor" onclick="openProjectInEditor('${realIndex}', false)" />
+            <img id="btn-terminal-${realIndex}" src="${getTerminalIcon()}" style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" title="Abrir terminal na pasta do projeto" alt="Terminal" />
+          </div>
         </div>
         <div class="input-with-folder" style="margin-bottom: 10px;">
           <input id="input-${realIndex}" type="text" value="${project.path}" placeholder="Insira o caminho do projeto" />
@@ -755,10 +1348,11 @@
         </div>
         <button id="btn-download-${realIndex}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
         <button id="btn-start-${realIndex}" data-index="${realIndex}" style="margin-right: 10px;" ${!project.path ? 'disabled' : ''}>Iniciar</button>
+        <span id="port-${realIndex}" style="display: none; margin-right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: default;"></span>
         <button id="btn-cancel-${realIndex}" style="display: none; margin-right: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
         <button id="btn-stop-${realIndex}" style="display: none;">Parar</button>
-        <button id="btn-move-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #007acc; color: white;">Mover para...</button>
-        <button id="btn-delete-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: red; color: white;">Deletar</button>
+        <button id="btn-move-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #5a6c7d; color: white;">Mover para...</button>
+        <button id="btn-delete-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #8b5a5a; color: white;">Deletar</button>
         <div id="log-${realIndex}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
       </div>
     `;
@@ -771,6 +1365,7 @@
     const cancelButton = document.getElementById(`btn-cancel-${realIndex}`);
     const stopButton = document.getElementById(`btn-stop-${realIndex}`);
     const terminalButton = document.getElementById(`btn-terminal-${realIndex}`);
+    const editorButton = document.getElementById(`btn-editor-${realIndex}`);
     const moveButton = document.getElementById(`btn-move-${realIndex}`);
     const deleteButton = document.getElementById(`btn-delete-${realIndex}`);
     const logDiv = document.getElementById(`log-${realIndex}`);
@@ -783,10 +1378,14 @@
           startButton.disabled = false;
           moveButton.style.display = 'inline-block';
           deleteButton.style.display = 'inline-block';
+          editorButton.style.display = 'inline-block';
+          terminalButton.style.display = 'inline-block';
       }else {
         deleteButton.style.display = 'none';
         moveButton.style.display = 'none';
         downloadButton.style.display = 'inline-block';
+        editorButton.style.display = 'none';
+        terminalButton.style.display = 'none';
       }
     });
   
@@ -799,6 +1398,13 @@
     });
   
     startButton.addEventListener('click', (event) => {
+      // Limpa o console antes de iniciar
+      const logDiv = document.getElementById(`log-${realIndex}`);
+      if (logDiv) {
+        logDiv.innerText = ''; // Zera os logs antigos
+        logDiv.style.display = 'none'; // Esconde até aparecer novos logs
+      }
+      
       startButton.disabled = true;
       startButton.innerText = 'Executando...';
       cancelButton.style.display = 'inline-block';
@@ -892,6 +1498,10 @@
       // ⚡ DISPARA VERIFICAÇÃO GIT EM SEGUNDO PLANO ⚡
       console.log('[GIT-BG] 🚀 Disparando verificação Git em segundo plano...');
       ipcRenderer.send('start-background-git-check');
+      
+      // ⚡ ATUALIZA BADGES DE VERSÃO (Node.js e Angular CLI) ⚡
+      console.log('[VERSION-BADGES] 🔄 Atualizando badges de versão dos projetos...');
+      updateAllProjectVersionBadges();
     }, 200);
   });
 
@@ -924,12 +1534,30 @@
     
     // Atualiza a interface da branch - CORRIGIDO OS IDs
     const branchElementId = isPamp ? `pamp-branch-${projectIndex}` : `pas-branch-${projectIndex}`;
-    const branchElement = document.getElementById(branchElementId);
-    if (branchElement && gitStatus.branch) {
-      branchElement.innerHTML = `<img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${gitStatus.branch}`;
-      console.log(`[GIT-BG] ✅ Branch atualizada para ${project.name}: ${gitStatus.branch}`);
-    } else {
-      console.log(`[GIT-BG] ⚠️ Elemento branch não encontrado: ${branchElementId}`);
+    let branchElement = document.getElementById(branchElementId);
+    
+    if (gitStatus.branch) {
+      // Se o elemento de branch não existe, cria dentro do container
+      if (!branchElement) {
+        const badgesContainerId = isPamp ? `pamp-version-badges-${projectIndex}` : `pas-version-badges-${projectIndex}`;
+        const badgesContainer = document.getElementById(badgesContainerId);
+        if (badgesContainer) {
+          const branchSpan = document.createElement('span');
+          branchSpan.id = branchElementId;
+          const branchColor = isPamp ? '#28a745' : '#007bff';
+          branchSpan.style.cssText = `background: ${branchColor}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;`;
+          badgesContainer.appendChild(branchSpan);
+          branchElement = branchSpan;
+          console.log(`[GIT-BG] 🆕 Badge de branch criado para ${project.name}`);
+        }
+      }
+      
+      if (branchElement) {
+        branchElement.innerHTML = `<img src="branch.png" style="width: 12px; height: 12px;" alt="Branch" />${gitStatus.branch}`;
+        console.log(`[GIT-BG] ✅ Branch atualizada para ${project.name}: ${gitStatus.branch}`);
+      } else {
+        console.log(`[GIT-BG] ⚠️ Elemento branch não encontrado: ${branchElementId}`);
+      }
     }
     
     // Atualiza o badge de commits pendentes - CORRIGIDO OS IDs
@@ -939,20 +1567,21 @@
     
     if (gitStatus.pendingCommits > 0) {
       console.log(`[GIT-BG] 📊 ${gitStatus.pendingCommits} commits pendentes - criando/atualizando badge`);
-      // Se não existe o elemento, cria
+      // Se não existe o elemento, cria dentro do container de badges
       if (!commitsElement) {
-        const branchElement = document.getElementById(branchElementId);
-        if (branchElement && branchElement.parentElement) {
+        const badgesContainerId = isPamp ? `pamp-version-badges-${projectIndex}` : `pas-version-badges-${projectIndex}`;
+        const badgesContainer = document.getElementById(badgesContainerId);
+        if (badgesContainer) {
           const commitsSpan = document.createElement('span');
           commitsSpan.id = commitsElementId;
           commitsSpan.style.cssText = 'background: #ff6b35; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer;';
           commitsSpan.title = 'Clique para atualizar branch';
           commitsSpan.onclick = () => handleUpdateBranch(projectIndex, project.name, project.path, isPamp);
-          branchElement.parentElement.appendChild(commitsSpan);
+          badgesContainer.appendChild(commitsSpan);
           commitsElement = commitsSpan;
           console.log(`[GIT-BG] 🆕 Badge de commits criado para ${project.name}`);
         } else {
-          console.log(`[GIT-BG] ❌ Não foi possível criar badge - elemento branch não encontrado`);
+          console.log(`[GIT-BG] ❌ Não foi possível criar badge - container não encontrado`);
         }
       }
       
@@ -969,16 +1598,17 @@
       console.log(`[GIT-BG] ✅ 0 commits pendentes - mostrando badge "Atualizado"`);
       // Mostra "Atualizado" quando não há commits pendentes
       if (!commitsElement) {
-        const branchElement = document.getElementById(branchElementId);
-        if (branchElement && branchElement.parentElement) {
+        const badgesContainerId = isPamp ? `pamp-version-badges-${projectIndex}` : `pas-version-badges-${projectIndex}`;
+        const badgesContainer = document.getElementById(badgesContainerId);
+        if (badgesContainer) {
           const commitsSpan = document.createElement('span');
           commitsSpan.id = commitsElementId;
           commitsSpan.style.cssText = 'background: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: flex; align-items: center; gap: 4px;';
-          branchElement.parentElement.appendChild(commitsSpan);
+          badgesContainer.appendChild(commitsSpan);
           commitsElement = commitsSpan;
           console.log(`[GIT-BG] 🆕 Badge "Atualizado" criado para ${project.name}`);
         } else {
-          console.log(`[GIT-BG] ❌ Não foi possível criar badge "Atualizado" - elemento branch não encontrado`);
+          console.log(`[GIT-BG] ❌ Não foi possível criar badge "Atualizado" - container não encontrado`);
         }
       }
       
@@ -1044,20 +1674,34 @@
       lowerMessage.includes('warnings but no errors') ||
       (lowerMessage.includes('compiled') && lowerMessage.includes('ms'));
     
-    // Detecta erros de compilação
+    // Detecta warnings (NÃO devem ser tratados como erros críticos)
+    const isWarning = 
+      lowerMessage.includes('warn') ||
+      lowerMessage.includes('warning');
+    
+    // Detecta erros de compilação (EXCETO warnings)
     const isCompilationError = 
-      lowerMessage.includes('compilation error') ||
-      lowerMessage.includes('build error') ||
-      lowerMessage.includes('typescript error') ||
-      lowerMessage.includes('webpack error') ||
-      lowerMessage.includes('failed to compile') ||
-      lowerMessage.includes('compilation failed') ||
-      lowerMessage.includes('build failed') ||
-      error === true ||
-      (lowerMessage.includes('compiled with') && lowerMessage.includes('error'));
+      !isWarning && (
+        lowerMessage.includes('compilation error') ||
+        lowerMessage.includes('build error') ||
+        lowerMessage.includes('typescript error') ||
+        lowerMessage.includes('webpack error') ||
+        lowerMessage.includes('failed to compile') ||
+        lowerMessage.includes('compilation failed') ||
+        lowerMessage.includes('build failed') ||
+        (lowerMessage.includes('compiled with') && lowerMessage.includes('error'))
+      );
+    
+    // Trata `error` do IPC: se é warning, ignora o flag de erro
+    const isTrueError = error === true && !isWarning;
+    
+    // 🐛 DEBUG: Log para entender o que está acontecendo
+    if (error === true) {
+      console.log(`🐛 [DEBUG] error=true recebido | message="${message}" | isWarning=${isWarning} | isTrueError=${isTrueError}`);
+    }
 
     // ⚡ SEMPRE EXIBE REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
-    let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || error;
+    let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || isTrueError || isWarning;
     
     // Para outras mensagens, verifica duplicação
     if (!shouldShow && pampLogDiv) {
@@ -1086,11 +1730,14 @@
       // ⚡ FORMATAÇÃO ESPECIAL PARA DIFERENTES TIPOS DE MENSAGEM ⚡
       let formattedMessage = message;
       
-      if (isRebuildMessage) {
+      if (isWarning) {
+        // Warnings não recebem ícone de erro, apenas mostra a mensagem
+        formattedMessage = message;
+      } else if (isRebuildMessage) {
         formattedMessage = `🔄 [REBUILD] ${message}`;
       } else if (isCompilationComplete) {
         formattedMessage = `✅ [SUCESSO] ${message}`;
-      } else if (isCompilationError || error) {
+      } else if (isCompilationError || isTrueError) {
         formattedMessage = `❌ [ERRO] ${message}`;
       } else if (isImportant) {
         formattedMessage = `⚡ [IMPORTANTE] ${message}`;
@@ -1472,17 +2119,31 @@
         lowerMessage.includes('warnings but no errors') ||
         (lowerMessage.includes('compiled') && lowerMessage.includes('ms'));
       
-      // Detecta erros de compilação
+      // Detecta warnings (NÃO devem ser tratados como erros críticos)
+      const isWarning = 
+        lowerMessage.includes('warn') ||
+        lowerMessage.includes('warning');
+      
+      // Detecta erros de compilação (EXCETO warnings)
       const isCompilationError = 
-        lowerMessage.includes('compilation error') ||
-        lowerMessage.includes('build error') ||
-        lowerMessage.includes('typescript error') ||
-        lowerMessage.includes('webpack error') ||
-        lowerMessage.includes('failed to compile') ||
-        lowerMessage.includes('compilation failed') ||
-        lowerMessage.includes('build failed') ||
-        error === true ||
-        (lowerMessage.includes('compiled with') && lowerMessage.includes('error'));
+        !isWarning && (
+          lowerMessage.includes('compilation error') ||
+          lowerMessage.includes('build error') ||
+          lowerMessage.includes('typescript error') ||
+          lowerMessage.includes('webpack error') ||
+          lowerMessage.includes('failed to compile') ||
+          lowerMessage.includes('compilation failed') ||
+          lowerMessage.includes('build failed') ||
+          (lowerMessage.includes('compiled with') && lowerMessage.includes('error'))
+        );
+      
+      // Trata `error` do IPC: se é warning, ignora o flag de erro
+      const isTrueError = error === true && !isWarning;
+      
+      // 🐛 DEBUG: Log para entender o que está acontecendo
+      if (error === true) {
+        console.log(`🐛 [DEBUG-PAS] error=true recebido | message="${message}" | isWarning=${isWarning} | isTrueError=${isTrueError}`);
+      }
       
       // Log messages para projetos específicos
       currentProjects.forEach((project, index) => {
@@ -1490,7 +2151,7 @@
             const logDiv = document.getElementById(`log-${index}`);
             if (logDiv) {
               // ⚡ SEMPRE EXIBE REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
-              let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || error;
+              let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || isTrueError || isWarning;
               
               // Para outras mensagens, verifica duplicação
               if (!shouldShow) {
@@ -1517,11 +2178,14 @@
               // ⚡ FORMATAÇÃO ESPECIAL PARA DIFERENTES TIPOS DE MENSAGEM ⚡
               let formattedMessage = message;
               
-              if (isRebuildMessage) {
+              if (isWarning) {
+                // Warnings não recebem ícone de erro, apenas mostra a mensagem
+                formattedMessage = message;
+              } else if (isRebuildMessage) {
                 formattedMessage = `🔄 [REBUILD] ${message}`;
               } else if (isCompilationComplete) {
                 formattedMessage = `✅ [SUCESSO] ${message}`;
-              } else if (isCompilationError || error) {
+              } else if (isCompilationError || isTrueError) {
                 formattedMessage = `❌ [ERRO] ${message}`;
               } else if (isImportant) {
                 formattedMessage = `⚡ [IMPORTANTE] ${message}`;
@@ -1556,42 +2220,141 @@
     updateNexusStatusBadge(isLoggedIn, isLoggedIn ? 'Conectado automaticamente' : 'Necessário fazer login');
   });
 
-  ipcRenderer.send('load-node-info');
-  ipcRenderer.send('load-angular-info');
+  // Solicita status das dependências Node.js portátil
+  ipcRenderer.send('check-dependencies-status');
   
-  ipcRenderer.on('node-info', (event, { version, warning }) => {
-    const nodeVersionSpan = document.getElementById('node-version');
-    const nodeWarningDiv = document.getElementById('node-warning');
+  ipcRenderer.on('dependencies-status', (event, { installed, message, nodesPath }) => {
+    const dependenciesStatusSpan = document.getElementById('dependencies-status');
 
-    if (version) {
-      nodeVersionSpan.innerText = `Node.js: ${version}`;
-      nodeVersionSpan.style.color = version === 'v16.10.0' ? 'green' : 'orange';
+    if (installed) {
+      // ✅ Dependências instaladas - Verde com tooltip e link
+      dependenciesStatusSpan.innerHTML = `
+        <span class="dependencies-container" style="position: relative; display: inline-block;">
+          <span 
+            class="dependencies-text"
+            style="color: #4CAF50; font-weight: 500; cursor: help;"
+            title="Node.js portátil instalado localmente. Cada projeto usa sua versão configurada."
+          >
+            ✔️ Dependências instaladas
+          </span>
+          <a 
+            href="#" 
+            class="open-folder-link"
+            onclick="require('electron').ipcRenderer.send('open-nodes-folder', '${nodesPath.replace(/\\/g, '\\\\')}'); return false;" 
+            style="
+              position: absolute;
+              right: -110px;
+              top: 50%;
+              transform: translateY(-50%);
+              color: #0066cc;
+              text-decoration: none;
+              font-size: 11px;
+              white-space: nowrap;
+              opacity: 0;
+              pointer-events: none;
+              transition: opacity 0.2s ease;
+              background: rgba(0, 0, 0, 0.7);
+              padding: 2px 6px;
+              border-radius: 4px;
+            "
+            title="Abrir pasta das dependências Node.js portáteis"
+          >
+            📁 Abrir pasta
+          </a>
+        </span>
+      `;
+      
+      // Mostra link ao passar o mouse
+      const container = dependenciesStatusSpan.querySelector('.dependencies-container');
+      const link = container.querySelector('.open-folder-link');
+      
+      // Mantém visível quando o mouse está sobre o link
+      let hideTimeout;
+      const hideLink = () => {
+        hideTimeout = setTimeout(() => {
+          link.style.opacity = '0';
+          link.style.pointerEvents = 'none';
+        }, 100);
+      };
+      
+      const cancelHide = () => {
+        if (hideTimeout) clearTimeout(hideTimeout);
+      };
+      
+      container.addEventListener('mouseenter', () => {
+        cancelHide();
+        link.style.opacity = '1';
+        link.style.pointerEvents = 'auto';
+      });
+      
+      container.addEventListener('mouseleave', hideLink);
+      link.addEventListener('mouseenter', cancelHide);
+      link.addEventListener('mouseleave', hideLink);
+      
     } else {
-      nodeVersionSpan.innerHTML = `<a href="https://nodejs.org/" target="_blank" style="color: red; text-decoration: none;">Node.js não instalado (Baixar)</a>`;
-    }
-
-    if (warning) {
-      nodeWarningDiv.innerText = warning;
-    } else {
-      nodeWarningDiv.innerText = '';
-    }
-  });
-
-  ipcRenderer.on('angular-info', (event, { version, warning }) => {
-    const angularVersionSpan = document.getElementById('angular-version');
-    const angularWarningDiv = document.getElementById('angular-warning');
-
-    if (version) {
-      angularVersionSpan.innerText = `Angular CLI: ${version}`;
-      angularVersionSpan.style.color = version === '13.3.11' ? 'green' : 'orange';
-    } else {
-      angularVersionSpan.innerHTML = `<a href="https://angular.io/cli" target="_blank" style="color: red; text-decoration: none;">Angular CLI não instalado (Baixar)</a>`;
-    }
-
-    if (warning) {
-      angularWarningDiv.innerText = warning;
-    } else {
-      angularWarningDiv.innerText = '';
+      // ❗ Dependências não instaladas - Vermelho com tooltip e link
+      dependenciesStatusSpan.innerHTML = `
+        <span class="dependencies-container" style="position: relative; display: inline-block;">
+          <span 
+            class="dependencies-text"
+            style="color: #f44336; font-weight: 500; cursor: help;"
+            title="Node.js portátil não instalado. Use o menu 'Dependências > Instalar Dependências Node.js' para instalar."
+          >
+            ❗ Dependências não instaladas
+          </span>
+          <a 
+            href="#" 
+            class="open-folder-link"
+            onclick="require('electron').ipcRenderer.send('open-nodes-folder', '${nodesPath.replace(/\\/g, '\\\\')}'); return false;" 
+            style="
+              position: absolute;
+              right: -110px;
+              top: 50%;
+              transform: translateY(-50%);
+              color: #0066cc;
+              text-decoration: none;
+              font-size: 11px;
+              white-space: nowrap;
+              opacity: 0;
+              pointer-events: none;
+              transition: opacity 0.2s ease;
+              background: rgba(0, 0, 0, 0.7);
+              padding: 2px 6px;
+              border-radius: 4px;
+            "
+            title="Abrir pasta onde as dependências devem ser instaladas"
+          >
+            📁 Abrir pasta
+          </a>
+        </span>
+      `;
+      
+      // Mostra link ao passar o mouse
+      const container = dependenciesStatusSpan.querySelector('.dependencies-container');
+      const link = container.querySelector('.open-folder-link');
+      
+      // Mantém visível quando o mouse está sobre o link
+      let hideTimeout;
+      const hideLink = () => {
+        hideTimeout = setTimeout(() => {
+          link.style.opacity = '0';
+          link.style.pointerEvents = 'none';
+        }, 100);
+      };
+      
+      const cancelHide = () => {
+        if (hideTimeout) clearTimeout(hideTimeout);
+      };
+      
+      container.addEventListener('mouseenter', () => {
+        cancelHide();
+        link.style.opacity = '1';
+        link.style.pointerEvents = 'auto';
+      });
+      
+      container.addEventListener('mouseleave', hideLink);
+      link.addEventListener('mouseenter', cancelHide);
+      link.addEventListener('mouseleave', hideLink);
     }
   });
 
@@ -1795,9 +2558,197 @@
     console.log(`📊 Contadores atualizados: PAMP Admin=${pampCount}, PAS Site=${pasCount}`);
   }
 
+  // ===== FUNÇÕES PARA GERENCIAR PORTA DOS PROJETOS =====
+  function updatePortDisplay(projectIndex, port, status, isPamp) {
+    const portElementId = isPamp ? `pamp-port-${projectIndex}` : `port-${projectIndex}`;
+    const portElement = document.getElementById(portElementId);
+    
+    if (!portElement) {
+      console.log(`⚠️ Elemento porta não encontrado: ${portElementId}`);
+      return;
+    }
+    
+    console.log(`🔌 Atualizando porta para projeto ${projectIndex}: porta ${port}, status ${status}, PAMP: ${isPamp}`);
+    
+    // Remove classes de status anteriores
+    portElement.classList.remove('port-starting', 'port-in-use', 'port-running');
+    
+    if (status === 'starting') {
+      // Laranja - projeto iniciando, porta definida mas ainda não disponível
+      portElement.style.display = 'inline-flex';
+      portElement.style.backgroundColor = '#ff8c00';
+      portElement.style.color = 'white';
+      portElement.textContent = `Porta: ${port}`;
+      portElement.style.cursor = 'default';
+      portElement.title = 'Projeto iniciando...';
+      portElement.onclick = null;
+      portElement.classList.add('port-starting');
+      
+      // Atualiza tooltip com a porta atual (apenas para PAMP)
+      updateTooltipWithPort(projectIndex, port, isPamp);
+    } else if (status === 'in-use') {
+      // Vermelho - porta em uso, tentando liberar
+      portElement.style.display = 'inline-flex';
+      portElement.style.backgroundColor = '#dc3545';
+      portElement.style.color = 'white';
+      portElement.textContent = `Porta: ${port}`;
+      portElement.style.cursor = 'default';
+      portElement.title = 'Porta em uso, tentando liberar...';
+      portElement.onclick = null;
+      portElement.classList.add('port-in-use');
+      
+      // Atualiza tooltip com a porta atual (apenas para PAMP)
+      updateTooltipWithPort(projectIndex, port, isPamp);
+    } else if (status === 'running') {
+      // Verde - projeto rodando, porta clicável
+      portElement.style.display = 'inline-flex';
+      portElement.style.backgroundColor = '#28a745';
+      portElement.style.color = 'white';
+      portElement.textContent = `Porta: ${port}`;
+      portElement.style.cursor = 'pointer';
+      portElement.title = 'Clique para abrir no navegador';
+      portElement.classList.add('port-running');
+      
+      // Atualiza tooltip com a porta atual (apenas para PAMP)
+      updateTooltipWithPort(projectIndex, port, isPamp);
+      
+      portElement.onclick = () => {
+        // Define a URL base baseada no tipo de projeto
+        let baseUrl;
+        if (isPamp) {
+          // PAMP projects always open on the root port 4200
+          baseUrl = 'http://localhost:4200';
+        } else {
+          // PAS projects open on the PAS root port 9000
+          baseUrl = 'http://localhost:9000';
+        }
+        
+        console.log(`🌐 Abrindo navegador: ${baseUrl} (projeto ${isPamp ? 'PAMP' : 'PAS'} detectado na porta ${port})`);
+        // Send message to main process to open browser
+        require('electron').ipcRenderer.send('open-browser', { url: baseUrl });
+      };
+    }
+  }
+
+  function removePortDisplay(projectIndex, isPamp) {
+    const portElementId = isPamp ? `pamp-port-${projectIndex}` : `port-${projectIndex}`;
+    const portElement = document.getElementById(portElementId);
+    
+    if (portElement) {
+      portElement.style.display = 'none';
+      portElement.onclick = null;
+      console.log(`🔌 Porta removida para projeto ${projectIndex} (${isPamp ? 'PAMP' : 'PAS'})`);
+    }
+  }
+
+  // ===== LISTENERS IPC PARA PORTA =====
+  ipcRenderer.on('port-detected', (event, { projectIndex, port, status, isPamp }) => {
+    console.log(`📡 Port detected IPC recebido:`, { projectIndex, port, status, isPamp });
+    updatePortDisplay(projectIndex, port, status, isPamp);
+  });
+
+  ipcRenderer.on('port-removed', (event, { projectIndex, isPamp }) => {
+    console.log(`📡 Port removed IPC recebido:`, { projectIndex, isPamp });
+    removePortDisplay(projectIndex, isPamp);
+  });
+
   // Initialize UI after DOM is loaded
   document.addEventListener('DOMContentLoaded', function() {
     applyTheme();
+  });
+
+  // Função para mostrar/esconder badges de versão
+  function toggleVersionBadges(projectIndex, isPamp) {
+    const prefix = isPamp ? 'pamp' : 'pas';
+    const container = document.getElementById(`${prefix}-version-badges-${projectIndex}`);
+    const btn = event.target; // O botão que foi clicado
+    
+    if (!container) return;
+    
+    if (container.classList.contains('visible')) {
+      // Esconder badges
+      container.classList.remove('visible');
+      btn.textContent = '›';
+      btn.title = 'Mostrar badges';
+    } else {
+      // Mostrar badges
+      container.classList.add('visible');
+      btn.textContent = '‹';
+      btn.title = 'Esconder badges';
+    }
+  }
+
+  // Função para atualizar badges de versão de um projeto específico
+  async function updateProjectVersionBadges(projectName, projectIndex, isPamp = false) {
+    try {
+      // Buscar configurações de versão de Node para todos os projetos
+      const versionConfigs = await ipcRenderer.invoke('get-all-node-versions');
+      
+      // Mapeamento de versões Node -> Angular CLI (sincronizado com node-version-config.js)
+      const nodeToAngularMap = {
+        '16.10.0': '13.3.11',
+        '18.18.2': '15.2.10',
+        '20.19.5': '18.2.0'
+      };
+
+      // Busca a versão configurada para este projeto ou usa padrão
+      let nodeVersion = versionConfigs[projectName];
+      
+      // Se não tem configuração, busca o padrão do projeto
+      if (!nodeVersion) {
+        // Valores padrão baseados no nome do projeto
+        if (projectName === 'mp-pas-configuracoes') {
+          nodeVersion = '18.18.2';
+        } else {
+          nodeVersion = '16.10.0';
+        }
+      }
+
+      const angularVersion = nodeToAngularMap[nodeVersion] || 'N/A';
+      
+      // Determina o prefixo do ID baseado no tipo de projeto
+      const prefix = isPamp ? 'pamp' : 'pas';
+
+      // Atualiza badges do projeto
+      const nodeBadge = document.getElementById(`${prefix}-node-version-${projectIndex}`);
+      const angularBadge = document.getElementById(`${prefix}-angular-version-${projectIndex}`);
+
+      if (nodeBadge) {
+        nodeBadge.querySelector('.version-text').textContent = nodeVersion;
+        nodeBadge.title = `Node.js ${nodeVersion}`;
+      }
+
+      if (angularBadge) {
+        angularBadge.querySelector('.version-text').textContent = angularVersion;
+        angularBadge.title = `Angular CLI ${angularVersion}`;
+      }
+
+      console.log(`✅ Badges do projeto ${projectName} atualizados: Node ${nodeVersion}, Angular CLI ${angularVersion}`);
+    } catch (error) {
+      console.error(`❌ Erro ao atualizar badges do projeto ${projectName}:`, error);
+    }
+  }
+
+  // Atualiza todos os badges de versão dos projetos carregados
+  async function updateAllProjectVersionBadges() {
+    if (!currentProjects || currentProjects.length === 0) {
+      console.log('⚠️ Nenhum projeto carregado ainda');
+      return;
+    }
+
+    console.log('🔄 Atualizando badges de versão de todos os projetos...');
+    
+    for (let i = 0; i < currentProjects.length; i++) {
+      const project = currentProjects[i];
+      const isPamp = project.name && (project.name.startsWith('mp-pamp') || project.name === 'mp-pamp');
+      await updateProjectVersionBadges(project.name, i, isPamp);
+    }
+  }
+
+  // Atualiza badges quando as configurações são alteradas
+  ipcRenderer.on('node-versions-updated', () => {
+    console.log('🔄 Configurações de versão atualizadas, recarregando badges...');
+    updateAllProjectVersionBadges();
   });
 </script>
 </body>
