@@ -21,6 +21,7 @@ console.log('[MAIN] INÍCIO: Preparando para registrar handler start-node-instal
 const NodeInstaller = require('./node-installer');
 const ProjectConfigManager = require('./project-config-manager');
 const NpmFallbackHandlers = require('./npm-fallback-handlers');
+const OnboardingManager = require('./onboarding-manager');
 const { 
   NODE_VERSIONS, 
   getNodeExecutablePath, 
@@ -746,6 +747,19 @@ ipcMain.handle('get-all-node-versions', async (event) => {
   const configs = projectConfigManager.getAllConfigs();
   console.log('[DEBUG] Retornando configurações de versões:', configs);
   return configs;
+});
+
+// Handler para seleção de pasta
+ipcMain.handle('select-folder', async (event) => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory']
+    });
+    return result;
+  } catch (error) {
+    console.error('[SELECT-FOLDER] Erro ao abrir dialog:', error);
+    return { canceled: true };
+  }
 });
 
 console.log('[DEBUG] Handlers IPC registrados com sucesso');
@@ -3225,6 +3239,19 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
                 menuItem.enabled = true;
               }
             }, 1000);
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '🎓 Configurar Onboarding (Node.js)',
+          id: 'onboarding-node-config',
+          click: () => {
+            console.log('[ONBOARDING] 🖱️ Abrindo configuração Node.js do Onboarding...');
+            
+            // Envia comando para a janela principal abrir a configuração
+            if (mainWindow && mainWindow.webContents) {
+              mainWindow.webContents.send('open-onboarding-node-config');
+            }
           },
         },
         { type: 'separator' },
@@ -5858,6 +5885,15 @@ ipcMain.on('execute-command', (event, command) => {
     });
   });
 
+  // Handler para abrir URL externa (onboarding)
+  ipcMain.on('open-external', (event, url) => {
+    console.log(`🌐 Abrindo URL externa: ${url}`);
+    const { shell } = require('electron');
+    shell.openExternal(url).catch(error => {
+      console.error('Erro ao abrir URL externa:', error);
+    });
+  });
+
   // Handler para abrir arquivo environment.ts
   ipcMain.on('open-environment-file', (event, { filePath, mpPampPath }) => {
     console.log(`📝 Tentando abrir arquivo environment.ts: ${filePath}`);
@@ -6831,6 +6867,17 @@ app.on('ready', async () => {
 
 // ⚡ GESTÃO OTIMIZADA DO CICLO DE VIDA DA APP ⚡
 app.on('window-all-closed', () => {
+  // Limpa recursos do onboarding manager
+  try {
+    const { onboardingManager } = require('./ipc-handlers');
+    if (onboardingManager) {
+      onboardingManager.cleanup();
+      console.log('[ONBOARDING] ✅ Recursos limpos');
+    }
+  } catch (error) {
+    console.log('[ONBOARDING] ⚠️ Erro na limpeza:', error.message);
+  }
+  
   // Salva cache antes de fechar
   saveAppCache();
   

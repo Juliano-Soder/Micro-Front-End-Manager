@@ -108,9 +108,230 @@ try {
   console.error('[IPC-HANDLERS] ❌ Erro ao registrar install-custom-cli:', err);
 }
 
+// ===== HANDLERS ONBOARDING =====
+const OnboardingManager = require('./onboarding-manager');
+const onboardingManager = new OnboardingManager();
+
+try {
+  // Carregar projetos onboarding
+  ipcMain.handle('load-onboarding-projects', async (event) => {
+    console.log('[ONBOARDING] 📡 Carregando projetos onboarding...');
+    try {
+      const projects = onboardingManager.getProjectsStatus();
+      console.log('[ONBOARDING] ✅ Projetos carregados:', projects.length);
+      return { success: true, projects };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao carregar projetos:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Clonar projeto onboarding
+  ipcMain.handle('clone-onboarding-project', async (event, { projectName, targetPath }) => {
+    console.log(`[ONBOARDING] 📡 Clonando projeto ${projectName} para ${targetPath}...`);
+    try {
+      const result = await onboardingManager.cloneProject(
+        projectName,
+        targetPath,
+        (progress) => {
+          event.sender.send('onboarding-clone-progress', { projectName, progress });
+        },
+        (error) => {
+          event.sender.send('onboarding-clone-error', { projectName, error });
+        }
+      );
+      console.log('[ONBOARDING] ✅ Projeto clonado com sucesso');
+      return { success: true, result };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao clonar projeto:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Instalar dependências
+  ipcMain.handle('install-onboarding-dependencies', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] 📡 Instalando dependências do projeto ${projectName}...`);
+    try {
+      const result = await onboardingManager.installDependencies(
+        projectName,
+        (progress) => {
+          event.sender.send('onboarding-install-progress', { projectName, progress });
+        },
+        (error) => {
+          event.sender.send('onboarding-install-error', { projectName, error });
+        }
+      );
+      console.log('[ONBOARDING] ✅ Dependências instaladas com sucesso');
+      return { success: true, result };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao instalar dependências:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Iniciar projeto onboarding
+  ipcMain.handle('start-onboarding-project', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] 📡 Iniciando projeto ${projectName}...`);
+    try {
+      const result = await onboardingManager.startProject(
+        projectName,
+        (output) => {
+          event.sender.send('onboarding-output', { projectName, output });
+        },
+        (error) => {
+          event.sender.send('onboarding-error', { projectName, error });
+        },
+        () => {
+          event.sender.send('onboarding-started', { projectName });
+        }
+      );
+      console.log('[ONBOARDING] ✅ Projeto iniciado com sucesso');
+      return { success: true, result };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao iniciar projeto:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Parar projeto onboarding
+  ipcMain.handle('stop-onboarding-project', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] 📡 Parando projeto ${projectName}...`);
+    try {
+      const result = onboardingManager.stopProject(projectName);
+      
+      // Enviar evento de projeto parado
+      event.sender.send('onboarding-stopped', { projectName });
+      
+      console.log('[ONBOARDING] ✅ Projeto parado com sucesso');
+      return { success: true, stopped: result };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao parar projeto:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Cancelar projeto onboarding (igual ao PAS)
+  ipcMain.on('cancel-onboarding-project', (event, { projectName, index }) => {
+    console.log(`[ONBOARDING] 🛑 Cancelando projeto ${projectName} (índice: ${index})`);
+    
+    try {
+      // Para o projeto se estiver rodando
+      const result = onboardingManager.stopProject(projectName);
+      console.log(`[ONBOARDING] ✅ Processo cancelado para ${projectName}`);
+      
+      // Envia confirmação de cancelamento para o frontend
+      event.reply('onboarding-canceled', { 
+        projectName, 
+        index,
+        message: `🛑 Projeto ${projectName} cancelado com sucesso!` 
+      });
+      
+    } catch (error) {
+      console.error(`[ONBOARDING] ❌ Erro ao cancelar projeto ${projectName}:`, error);
+      event.reply('onboarding-canceled', { 
+        projectName, 
+        index,
+        message: `❌ Erro ao cancelar projeto: ${error.message}` 
+      });
+    }
+  });
+
+  // Definir caminho do projeto
+  ipcMain.handle('set-onboarding-project-path', async (event, { projectName, projectPath }) => {
+    console.log(`[ONBOARDING] 📡 Definindo caminho do projeto ${projectName}: ${projectPath}`);
+    try {
+      onboardingManager.setProjectPath(projectName, projectPath);
+      console.log('[ONBOARDING] ✅ Caminho definido com sucesso');
+      return { success: true };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao definir caminho:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Obter caminho do projeto
+  ipcMain.handle('get-onboarding-project-path', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] 📡 Obtendo caminho do projeto ${projectName}...`);
+    try {
+      const projectPath = onboardingManager.getProjectPath(projectName);
+      console.log(`[ONBOARDING] ✅ Caminho obtido: ${projectPath || 'não definido'}`);
+      return { 
+        success: true, 
+        projectPath: projectPath,
+        hasPath: !!projectPath
+      };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao obter caminho:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Obter versões disponíveis do Node.js
+  ipcMain.handle('get-node-versions', async (event) => {
+    console.log('[ONBOARDING] 📡 Obtendo versões disponíveis do Node.js...');
+    try {
+      // Lista versões baseada nas pastas disponíveis
+      const nodeBasePath = path.join(__dirname, 'nodes', 'windows');
+      const availableVersions = [];
+      
+      if (fs.existsSync(nodeBasePath)) {
+        const folders = fs.readdirSync(nodeBasePath);
+        folders.forEach(folder => {
+          if (folder.startsWith('node-v') && folder.includes('-win-x64')) {
+            const version = folder.replace('node-v', '').replace('-win-x64', '');
+            availableVersions.push(version);
+          }
+        });
+      }
+      
+      // Fallback para versões padrão se nenhuma for encontrada
+      if (availableVersions.length === 0) {
+        availableVersions.push('16.10.0', '18.18.2', '20.19.5');
+      }
+      
+      console.log(`[ONBOARDING] ✅ Versões encontradas:`, availableVersions);
+      return availableVersions;
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao obter versões do Node.js:', error);
+      return ['16.10.0', '18.18.2', '20.19.5']; // Fallback
+    }
+  });
+
+  // Configurar versão do Node.js para projeto onboarding
+  ipcMain.handle('set-onboarding-node-version', async (event, { projectName, nodeVersion }) => {
+    console.log(`[ONBOARDING] 🔧 Configurando Node.js v${nodeVersion} para ${projectName}...`);
+    try {
+      const result = onboardingManager.setNodeVersion(projectName, nodeVersion);
+      console.log(`[ONBOARDING] ✅ Node.js v${nodeVersion} configurado para ${projectName}`);
+      return result;
+    } catch (error) {
+      console.error(`[ONBOARDING] ❌ Erro ao configurar Node.js para ${projectName}:`, error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Obter versão do Node.js para projeto onboarding
+  ipcMain.handle('get-onboarding-node-version', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] 📡 Obtendo versão Node.js para ${projectName}...`);
+    try {
+      const nodeVersion = onboardingManager.getNodeVersion(projectName);
+      console.log(`[ONBOARDING] ✅ Node.js v${nodeVersion} para ${projectName}`);
+      return { success: true, nodeVersion };
+    } catch (error) {
+      console.error(`[ONBOARDING] ❌ Erro ao obter versão Node.js para ${projectName}:`, error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  console.log('[IPC-HANDLERS] ✅ Handlers Onboarding registrados com sucesso!');
+} catch (err) {
+  console.error('[IPC-HANDLERS] ❌ Erro ao registrar handlers Onboarding:', err);
+}
+
 console.log('[IPC-HANDLERS] ✅ Handlers registrados com sucesso!');
 
 module.exports = {
   // Exporta para verificação
-  handlersLoaded: true
+  handlersLoaded: true,
+  onboardingManager
 };

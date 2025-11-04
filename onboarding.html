@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Onboarding Projects</title>
+  <style>
+    /* Herda estilos do arquivo principal */
+    .project-card {
+      position: relative;
+      margin-bottom: 20px;
+      border: 1px solid #ccc;
+      padding: 15px;
+      border-radius: 5px;
+      background-color: #fff;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+
+    /* Version badges */
+    .version-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: bold;
+      border-radius: 12px;
+      transition: all 0.2s ease;
+      cursor: help;
+    }
+
+    .version-badge img {
+      width: 12px;
+      height: 12px;
+      object-fit: contain;
+    }
+
+    .version-badges-container {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .toggle-versions-btn {
+      background: none;
+      border: none;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 50%;
+      transition: all 0.3s ease;
+      color: #666;
+    }
+
+    .toggle-versions-btn:hover {
+      background: rgba(0,0,0,0.1);
+      color: #333;
+    }
+
+    .input-with-folder {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .input-with-folder input {
+      flex: 1;
+      padding: 8px 40px 8px 12px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+
+    .folder-icon {
+      position: absolute;
+      right: 10px;
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+      opacity: 0.7;
+      transition: opacity 0.3s;
+    }
+
+    .folder-icon:hover {
+      opacity: 1;
+    }
+
+    .editor-icon {
+      width: 24px;
+      height: 24px;
+      cursor: pointer;
+      opacity: 0.8;
+      transition: opacity 0.3s;
+    }
+
+    .editor-icon:hover {
+      opacity: 1;
+    }
+
+    button {
+      font-family: 'Fira Code', monospace;
+      cursor: pointer;
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background-color: #f0f0f0;
+      transition: background-color 0.3s;
+    }
+
+    button:hover {
+      background-color: #e0e0e0;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div id="onboarding-projects-container">
+    <!-- Os projetos serão renderizados aqui -->
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    
+    // Variáveis globais compartilhadas
+    let currentOnboardingProjects = [];
+    let currentIDE = { id: 'vscode', name: 'Visual Studio Code', icon: 'vscode.png' };
+
+    // ===== FUNÇÕES UTILITÁRIAS =====
+    function getCurrentIDEIcon() {
+      return `assets/${currentIDE.icon}`;
+    }
+
+    function getTerminalIcon() {
+      return 'terminal.png'; // Assumindo que existe este ícone
+    }
+
+    // ===== FUNÇÃO PRINCIPAL DE RENDERIZAÇÃO =====
+    function renderOnboardingProjects(projects) {
+      const container = document.getElementById('onboarding-projects-container');
+      container.innerHTML = '';
+
+      projects.forEach((project, index) => {
+        const div = document.createElement('div');
+        div.innerHTML = `
+          <div class="project-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <p style="margin: 0;"><strong>${project.name}</strong></p>
+                <span class="toggle-versions-btn" onclick="toggleOnboardingVersionBadges(${index})" title="Mostrar/Esconder badges">›</span>
+                <div class="version-badges-container" id="onb-version-badges-${index}">
+                  <span id="onb-react-version-${index}" class="version-badge" style="background: #61dafb; color: #000;">
+                    <span class="version-text">${project.type.toUpperCase()}</span>
+                  </span>
+                  <span id="onb-port-badge-${index}" class="version-badge" style="background: #28a745; color: white;">
+                    <span class="version-text">Port: ${project.port}</span>
+                  </span>
+                  ${project.isInstalled ? 
+                    `<span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold;">✓ Instalado</span>` : 
+                    `<span style="background: #ffc107; color: #000; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold;">⚠ Não instalado</span>`
+                  }
+                  ${project.isRunning ? 
+                    `<span style="background: #007bff; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold;">🚀 Rodando</span>` : 
+                    ''
+                  }
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 5px;">
+                <img id="onb-btn-editor-${index}" src="${getCurrentIDEIcon()}" class="editor-icon" 
+                     style="${!project.path ? 'display: none' : ''}" 
+                     title="Abrir projeto no ${currentIDE.name}" 
+                     alt="Editor" 
+                     onclick="openOnboardingProjectInEditor(${index})" />
+                <img id="onb-btn-terminal-${index}" src="${getTerminalIcon()}" 
+                     style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" 
+                     title="Abrir terminal na pasta do projeto" 
+                     alt="Terminal" />
+              </div>
+            </div>
+            
+            <div class="input-with-folder" style="margin-bottom: 10px;">
+              <input id="onb-input-${index}" type="text" value="${project.path || ''}" placeholder="Insira o caminho do projeto" />
+              <img id="onb-folder-icon-${index}" src="pasta.png" class="folder-icon" title="Procurar projeto existente" alt="Procurar pasta" />
+            </div>
+            
+            <button id="onb-btn-download-${index}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">📥 Clonar Projeto</button>
+            <button id="onb-btn-install-${index}" style="margin-right: 10px; ${(!project.path || project.isInstalled) ? 'display: none' : ''}">📦 Instalar</button>
+            <button id="onb-btn-start-${index}" style="margin-right: 10px;" ${(!project.path || !project.isInstalled) ? 'disabled' : ''}>Iniciar</button>
+            <span id="onb-port-${index}" style="display: none; margin-right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer;" 
+                  onclick="openOnboardingProject(${index})" 
+                  title="Clique para abrir no navegador"></span>
+            <button id="onb-btn-cancel-${index}" style="display: none; margin-right: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
+            <button id="onb-btn-stop-${index}" style="display: none;">Parar</button>
+            <button id="onb-btn-move-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #5a6c7d; color: white;">Mover para...</button>
+            <button id="onb-btn-delete-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #8b5a5a; color: white;">Deletar</button>
+            
+            <div id="onb-log-${index}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
+          </div>
+        `;
+        container.appendChild(div);
+
+        // Adiciona event listeners
+        setupOnboardingEventListeners(project, index);
+
+        // Atualiza interface baseado no status
+        updateOnboardingProjectUI(project, index);
+      });
+    }
+
+    // ===== EVENT LISTENERS =====
+    function setupOnboardingEventListeners(project, index) {
+      const onbInput = document.getElementById(`onb-input-${index}`);
+      const onbDownloadButton = document.getElementById(`onb-btn-download-${index}`);
+      const onbInstallButton = document.getElementById(`onb-btn-install-${index}`);
+      const onbFolderIcon = document.getElementById(`onb-folder-icon-${index}`);
+      const onbStartButton = document.getElementById(`onb-btn-start-${index}`);
+      const onbStopButton = document.getElementById(`onb-btn-stop-${index}`);
+
+      // Input blur
+      onbInput.addEventListener('blur', () => {
+        handleOnboardingPathChange(project, index, onbInput.value.trim());
+      });
+
+      // Botões
+      onbDownloadButton.addEventListener('click', () => cloneOnboardingProject(project.name, index));
+      onbInstallButton.addEventListener('click', () => installOnboardingDependencies(project.name, index));
+      onbFolderIcon.addEventListener('click', () => selectOnboardingFolder(index));
+      onbStartButton.addEventListener('click', () => startOnboardingProject(project.name, index));
+      onbStopButton.addEventListener('click', () => stopOnboardingProject(project.name, index));
+    }
+
+    // ===== FUNÇÕES DE AÇÃO =====
+    async function handleOnboardingPathChange(project, index, path) {
+      const elements = {
+        download: document.getElementById(`onb-btn-download-${index}`),
+        install: document.getElementById(`onb-btn-install-${index}`),
+        move: document.getElementById(`onb-btn-move-${index}`),
+        delete: document.getElementById(`onb-btn-delete-${index}`),
+        editor: document.getElementById(`onb-btn-editor-${index}`),
+        terminal: document.getElementById(`onb-btn-terminal-${index}`)
+      };
+
+      if (path) {
+        elements.download.style.display = 'none';
+        elements.move.style.display = 'inline-block';
+        elements.delete.style.display = 'inline-block';
+        elements.editor.style.display = 'inline-block';
+        elements.terminal.style.display = 'inline-block';
+        
+        // Atualiza caminho no backend
+        await window.parent.ipcRenderer.invoke('set-onboarding-project-path', {
+          projectName: project.name,
+          projectPath: path
+        });
+        
+        // Recarrega projetos
+        window.parent.loadOnboardingProjects();
+      } else {
+        elements.delete.style.display = 'none';
+        elements.move.style.display = 'none';
+        elements.download.style.display = 'inline-block';
+        elements.editor.style.display = 'none';
+        elements.terminal.style.display = 'none';
+      }
+    }
+
+    async function cloneOnboardingProject(projectName, projectIndex) {
+      const input = document.getElementById(`onb-input-${projectIndex}`);
+      const targetPath = input.value.trim();
+      
+      if (!targetPath) {
+        alert('Por favor, selecione uma pasta de destino.');
+        return;
+      }
+
+      const logDiv = document.getElementById(`onb-log-${projectIndex}`);
+      logDiv.style.display = 'block';
+      logDiv.innerHTML = '<div>📥 Iniciando clone do projeto...</div>';
+
+      try {
+        const result = await window.parent.ipcRenderer.invoke('clone-onboarding-project', {
+          projectName,
+          targetPath
+        });
+
+        if (result.success) {
+          logDiv.innerHTML += '<div style="color: #00ff00;">✅ Projeto clonado com sucesso!</div>';
+          setTimeout(() => window.parent.loadOnboardingProjects(), 1000);
+        } else {
+          logDiv.innerHTML += `<div style="color: #ff6b35;">❌ Erro: ${result.error}</div>`;
+        }
+      } catch (error) {
+        logDiv.innerHTML += `<div style="color: #ff6b35;">❌ Erro: ${error.message}</div>`;
+      }
+    }
+
+    async function installOnboardingDependencies(projectName, projectIndex) {
+      const logDiv = document.getElementById(`onb-log-${projectIndex}`);
+      logDiv.style.display = 'block';
+      logDiv.innerHTML = '<div>📦 Instalando dependências...</div>';
+
+      try {
+        const result = await window.parent.ipcRenderer.invoke('install-onboarding-dependencies', {
+          projectName
+        });
+
+        if (result.success) {
+          logDiv.innerHTML += '<div style="color: #00ff00;">✅ Dependências instaladas!</div>';
+          setTimeout(() => window.parent.loadOnboardingProjects(), 1000);
+        } else {
+          logDiv.innerHTML += `<div style="color: #ff6b35;">❌ Erro: ${result.error}</div>`;
+        }
+      } catch (error) {
+        logDiv.innerHTML += `<div style="color: #ff6b35;">❌ Erro: ${error.message}</div>`;
+      }
+    }
+
+    async function startOnboardingProject(projectName, projectIndex) {
+      const logDiv = document.getElementById(`onb-log-${projectIndex}`);
+      const startButton = document.getElementById(`onb-btn-start-${projectIndex}`);
+      
+      logDiv.style.display = 'block';
+      logDiv.innerHTML = '<div>▶️ Iniciando projeto...</div>';
+      startButton.disabled = true;
+      startButton.innerText = 'Executando...';
+
+      try {
+        const result = await window.parent.ipcRenderer.invoke('start-onboarding-project', {
+          projectName
+        });
+
+        if (result.success) {
+          logDiv.innerHTML += '<div style="color: #00ff00;">✅ Projeto iniciado!</div>';
+          setTimeout(() => window.parent.loadOnboardingProjects(), 2000);
+        } else {
+          logDiv.innerHTML += `<div style="color: #ff6b35;">❌ Erro: ${result.error}</div>`;
+          startButton.disabled = false;
+          startButton.innerText = 'Iniciar';
+        }
+      } catch (error) {
+        logDiv.innerHTML += `<div style="color: #ff6b35;">❌ Erro: ${error.message}</div>`;
+        startButton.disabled = false;
+        startButton.innerText = 'Iniciar';
+      }
+    }
+
+    async function stopOnboardingProject(projectName, projectIndex) {
+      try {
+        const result = await window.parent.ipcRenderer.invoke('stop-onboarding-project', {
+          projectName
+        });
+
+        if (result.success) {
+          setTimeout(() => window.parent.loadOnboardingProjects(), 1000);
+        }
+      } catch (error) {
+        console.error('Erro ao parar projeto:', error);
+      }
+    }
+
+    async function selectOnboardingFolder(projectIndex) {
+      const input = document.getElementById(`onb-input-${projectIndex}`);
+      const result = await window.parent.ipcRenderer.invoke('select-folder');
+      
+      if (result && !result.canceled && result.filePaths.length > 0) {
+        input.value = result.filePaths[0];
+        input.dispatchEvent(new Event('blur'));
+      }
+    }
+
+    function openOnboardingProjectInEditor(projectIndex) {
+      window.parent.openProjectInEditor(projectIndex, false, true);
+    }
+
+    function openOnboardingProject(projectIndex) {
+      const project = currentOnboardingProjects[projectIndex];
+      if (project && project.isRunning) {
+        const url = `http://localhost:${project.port}`;
+        window.parent.ipcRenderer.send('open-external', url);
+      }
+    }
+
+    function toggleOnboardingVersionBadges(projectIndex) {
+      const versionContainer = document.getElementById(`onb-version-badges-${projectIndex}`);
+      const toggleBtn = versionContainer.parentElement.querySelector('.toggle-versions-btn');
+      
+      if (versionContainer.style.display === 'none' || !versionContainer.style.display) {
+        versionContainer.style.display = 'flex';
+        toggleBtn.style.transform = 'rotate(90deg)';
+      } else {
+        versionContainer.style.display = 'none';
+        toggleBtn.style.transform = 'rotate(0deg)';
+      }
+    }
+
+    function updateOnboardingProjectUI(project, index) {
+      if (project.isRunning) {
+        const startButton = document.getElementById(`onb-btn-start-${index}`);
+        const stopButton = document.getElementById(`onb-btn-stop-${index}`);
+        const portSpan = document.getElementById(`onb-port-${index}`);
+        
+        startButton.style.display = 'none';
+        stopButton.style.display = 'inline-block';
+        
+        if (portSpan) {
+          portSpan.style.display = 'inline-block';
+          portSpan.style.background = '#28a745';
+          portSpan.style.color = 'white';
+          portSpan.innerText = `:${project.port} 🔗`;
+        }
+      }
+    }
+
+    // ===== COMUNICAÇÃO COM JANELA PAI =====
+    window.addEventListener('message', (event) => {
+      if (event.data.type === 'render-projects') {
+        currentOnboardingProjects = event.data.projects;
+        renderOnboardingProjects(event.data.projects);
+      } else if (event.data.type === 'update-ide') {
+        currentIDE = event.data.ide;
+      }
+    });
+
+    // Exporta funções para janela pai
+    window.onboardingModule = {
+      renderProjects: renderOnboardingProjects,
+      setIDE: (ide) => { currentIDE = ide; }
+    };
+  </script>
+</body>
+</html>
