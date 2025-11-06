@@ -1226,10 +1226,10 @@
     
     if (badgesContainer.style.display === 'none' || !badgesContainer.style.display) {
       badgesContainer.style.display = 'flex';
-      toggleBtn.style.transform = 'rotate(90deg)';
+      toggleBtn.textContent = '‹';
     } else {
       badgesContainer.style.display = 'none';
-      toggleBtn.style.transform = 'rotate(0deg)';
+      toggleBtn.textContent = '›';
     }
   }
 
@@ -2652,10 +2652,6 @@
                 <span id="onb-port-badge-${index}" class="version-badge" style="background: #28a745; color: white;">
                   <span class="version-text">Port: ${project.port}</span>
                 </span>
-                ${project.isInstalled ? 
-                  sharedServices.createStatusBadge('✓ Instalado', '#28a745') : 
-                  sharedServices.createStatusBadge('⚠ Não instalado', '#ffc107', '#000')
-                }
                 ${project.isRunning ? 
                   sharedServices.createStatusBadge('🚀 Rodando', '#007bff') : 
                   ''
