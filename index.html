@@ -2197,6 +2197,8 @@
     });
 
     pampDownloadButton.addEventListener('click', () => {
+      pampDownloadButton.disabled = true;
+      pampDownloadButton.innerText = 'Baixando...';
       pampFolderIcon.classList.add('disabled');
       ipcRenderer.send('download-project', { name: project.name, index: realIndex });
     });
@@ -2356,6 +2358,8 @@
     });
   
     downloadButton.addEventListener('click', () => {
+      downloadButton.disabled = true;
+      downloadButton.innerText = 'Baixando...';
       ipcRenderer.send('download-project', { name: project.name, index: realIndex });
     });
 
@@ -2942,6 +2946,18 @@
     // ⚡ NOVA LÓGICA INTELIGENTE PARA REBUILDS E ERROS ⚡
     const lowerMessage = message.toLowerCase();
     
+    // Detecta mensagens de download (SEMPRE mostrar)
+    const isDownloadMessage = 
+      lowerMessage.includes('fazendo download') ||
+      lowerMessage.includes('baixando') ||
+      lowerMessage.includes('clonando') ||
+      lowerMessage.includes('cloning') ||
+      lowerMessage.includes('já existe em') ||
+      lowerMessage.includes('projeto baixado') ||
+      lowerMessage.includes('disponível em') ||
+      lowerMessage.includes('erro ao clonar') ||
+      lowerMessage.includes('erro ao criar diretório');
+    
     // Detecta rebuilds e recompilações
     const isRebuildMessage = 
       lowerMessage.includes('file change detected') ||
@@ -2975,7 +2991,10 @@
     // Detecta warnings (NÃO devem ser tratados como erros críticos)
     const isWarning = 
       lowerMessage.includes('warn') ||
-      lowerMessage.includes('warning');
+      lowerMessage.includes('warning') ||
+      lowerMessage.includes('processing legacy') ||
+      lowerMessage.includes('view engine') ||
+      lowerMessage.includes('encourage the library authors to publish an ivy distribution');
     
     // Detecta erros de compilação (EXCETO warnings)
     const isCompilationError = 
@@ -2998,8 +3017,8 @@
       console.log(`🐛 [DEBUG] error=true recebido | message="${message}" | isWarning=${isWarning} | isTrueError=${isTrueError}`);
     }
 
-    // ⚡ SEMPRE EXIBE REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
-    let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || isTrueError || isWarning;
+    // ⚡ SEMPRE EXIBE DOWNLOADS, REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
+    let shouldShow = isDownloadMessage || isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || isTrueError || isWarning;
     
     // Para outras mensagens, verifica duplicação
     if (!shouldShow && pampLogDiv) {
@@ -3044,32 +3063,24 @@
       pampLogDiv.innerText += `\n${formattedMessage}`;
       pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
       
-      if (message.includes('existe em')) {
-        console.log('Mensagem contém "existe em", tentando extrair caminho');
-        try {
-          const existingPath = path;
-          console.log(`Caminho extraído: ${existingPath}`);
-          
-          const pampInput = document.getElementById(`pamp-input-${index}`);
-          const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
-          const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
-          const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
-          
-          if (pampInput) {
-            pampInput.value = existingPath;
-            console.log(`Input atualizado com caminho: ${existingPath}`);
-            
-            if (pampDownloadButton) pampDownloadButton.style.display = 'none';
-            if (pampStartButton) pampStartButton.disabled = false;
-            if (pampDeleteButton) pampDeleteButton.style.display = 'inline-block';
-            
-            ipcRenderer.send('update-project-path', { index: index, path: existingPath });
-          }
-        } catch (error) {
-          console.error('Erro ao extrair caminho:', error);
+      // Detecta quando download termina (sucesso ou erro) e reabilita botão
+      const isDownloadComplete = 
+        message.includes('Projeto baixado com sucesso') ||
+        message.includes('já existe em') ||
+        message.includes('Erro ao clonar o repositório') ||
+        message.includes('Erro ao criar diretório');
+      
+      if (isDownloadComplete) {
+        const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
+        if (pampDownloadButton) {
+          pampDownloadButton.disabled = false;
+          pampDownloadButton.innerText = 'Baixar';
         }
       }
-
+      
+      // REMOVIDO: Lógica duplicada que causava conflito com update-project
+      // O evento update-project agora cuida de atualizar tudo corretamente
+      
       // Só mostra aviso de erro se a mensagem foi marcada explicitamente como erro
       if (data.error && message.includes('terminou com código') && message.includes('1')) {
         const nodeVersionSpan = document.getElementById('node-version');
@@ -3272,8 +3283,11 @@
         }
       }, 2000);
     } else {
+      // Em caso de erro, reabilita o botão e o ícone da pasta
       const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`) || document.getElementById(`btn-delete-${index}`);
+      const folderIcon = document.getElementById(`pamp-folder-icon-${index}`) || document.getElementById(`folder-icon-${index}`);
       if (deleteBtn) deleteBtn.disabled = false;
+      if (folderIcon) folderIcon.classList.remove('disabled');
     }
     });
 
@@ -3433,6 +3447,18 @@
       // ⚡ NOVA LÓGICA MELHORADA PARA LOGS DE PROJETOS PAS ⚡
       const lowerMessage = message.toLowerCase();
       
+      // Detecta mensagens de download (SEMPRE mostrar)
+      const isDownloadMessage = 
+        lowerMessage.includes('fazendo download') ||
+        lowerMessage.includes('baixando') ||
+        lowerMessage.includes('clonando') ||
+        lowerMessage.includes('cloning') ||
+        lowerMessage.includes('já existe em') ||
+        lowerMessage.includes('projeto baixado') ||
+        lowerMessage.includes('disponível em') ||
+        lowerMessage.includes('erro ao clonar') ||
+        lowerMessage.includes('erro ao criar diretório');
+      
       // Detecta rebuilds e recompilações
       const isRebuildMessage = 
         lowerMessage.includes('file change detected') ||
@@ -3466,7 +3492,10 @@
       // Detecta warnings (NÃO devem ser tratados como erros críticos)
       const isWarning = 
         lowerMessage.includes('warn') ||
-        lowerMessage.includes('warning');
+        lowerMessage.includes('warning') ||
+        lowerMessage.includes('processing legacy') ||
+        lowerMessage.includes('view engine') ||
+        lowerMessage.includes('encourage the library authors to publish an ivy distribution');
       
       // Detecta erros de compilação (EXCETO warnings)
       const isCompilationError = 
@@ -3494,8 +3523,8 @@
         if (project.path === path || message.includes(project.name)) {
             const logDiv = document.getElementById(`log-${index}`);
             if (logDiv) {
-              // ⚡ SEMPRE EXIBE REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
-              let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || isTrueError || isWarning;
+              // ⚡ SEMPRE EXIBE DOWNLOADS, REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
+              let shouldShow = isDownloadMessage || isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || isTrueError || isWarning;
               
               // Para outras mensagens, verifica duplicação
               if (!shouldShow) {
@@ -3537,6 +3566,21 @@
               
               logDiv.innerText += `\n${formattedMessage}`;
               logDiv.scrollTop = logDiv.scrollHeight;
+
+              // Detecta quando download termina (sucesso ou erro) e reabilita botão
+              const isDownloadComplete = 
+                message.includes('Projeto baixado com sucesso') ||
+                message.includes('já existe em') ||
+                message.includes('Erro ao clonar o repositório') ||
+                message.includes('Erro ao criar diretório');
+              
+              if (isDownloadComplete) {
+                const downloadButton = document.getElementById(`btn-download-${index}`);
+                if (downloadButton) {
+                  downloadButton.disabled = false;
+                  downloadButton.innerText = 'Baixar';
+                }
+              }
 
               if (message.includes('Caminho do projeto:')) {
                   const downloadButton = document.getElementById(`btn-download-${index}`);
@@ -3704,35 +3748,110 @@
 
   // Outros handlers IPC necessários
   ipcRenderer.on('update-project', (event, { index, path }) => {
+    console.log(`🔄 [UPDATE-PROJECT] Recebido: index=${index}, path="${path}"`);
+    
     const project = currentProjects[index];
+    console.log(`🔍 [UPDATE-PROJECT] Projeto encontrado:`, project);
+    
     const isPampProject = project && project.name && project.name.startsWith('mp-pamp');
+    console.log(`🔍 [UPDATE-PROJECT] É projeto PAMP? ${isPampProject}`);
+    
+    // Se path está vazio, é uma deleção - limpa tudo
+    const isDeleting = !path || path.trim() === '';
+    console.log(`🔍 [UPDATE-PROJECT] É deleção? ${isDeleting}`);
     
     if(isPampProject) {
       const pampInput = document.getElementById(`pamp-input-${index}`);
       const pampMoveButton = document.getElementById(`pamp-btn-move-${index}`);
       const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
       const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
+      const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
       const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
+      
+      console.log(`🔍 [UPDATE-PROJECT PAMP] Elementos encontrados:`, {
+        input: !!pampInput,
+        move: !!pampMoveButton,
+        delete: !!pampDeleteButton,
+        download: !!pampDownloadButton,
+        start: !!pampStartButton,
+        folder: !!pampFolderIcon
+      });
   
-      if (pampInput) pampInput.value = path;
-      if (pampInput) pampInput.disabled = false;
-      if (pampMoveButton) pampMoveButton.style.display = 'none';
-      if (pampDeleteButton) pampDeleteButton.style.display = 'none';
-      if (pampDownloadButton) pampDownloadButton.style.display = 'inline-block';
-      if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
-    }else {
+      if (pampInput) {
+        console.log(`✅ [UPDATE-PROJECT PAMP] Atualizando input com: "${path}"`);
+        pampInput.value = path;
+        pampInput.disabled = false;
+      } else {
+        console.error(`❌ [UPDATE-PROJECT PAMP] Input não encontrado: pamp-input-${index}`);
+      }
+      
+      if (isDeleting) {
+        // Deleção: mostra botão de download, esconde move/delete
+        if (pampMoveButton) pampMoveButton.style.display = 'none';
+        if (pampDeleteButton) pampDeleteButton.style.display = 'none';
+        if (pampDownloadButton) {
+          pampDownloadButton.style.display = 'inline-block';
+          pampDownloadButton.disabled = false;
+          pampDownloadButton.innerText = 'Baixar';
+        }
+        if (pampStartButton) pampStartButton.disabled = true;
+        if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
+      } else {
+        // Download/Atualização: esconde botão de download, mostra move/delete, habilita start
+        if (pampMoveButton) pampMoveButton.style.display = 'inline-block';
+        if (pampDeleteButton) pampDeleteButton.style.display = 'inline-block';
+        if (pampDownloadButton) {
+          pampDownloadButton.style.display = 'none';
+        }
+        if (pampStartButton) pampStartButton.disabled = false;
+        if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
+      }
+    } else {
       const input = document.getElementById(`input-${index}`);
       const moveButton = document.getElementById(`btn-move-${index}`);
       const deleteButton = document.getElementById(`btn-delete-${index}`);
       const browseButton = document.getElementById(`btn-browse-${index}`);
       const downloadButton = document.getElementById(`btn-download-${index}`);
+      const startButton = document.getElementById(`btn-start-${index}`);
+      
+      console.log(`🔍 [UPDATE-PROJECT PAS] Elementos encontrados:`, {
+        input: !!input,
+        move: !!moveButton,
+        delete: !!deleteButton,
+        browse: !!browseButton,
+        download: !!downloadButton,
+        start: !!startButton
+      });
     
-      if (input) input.value = path;
-      if (input) input.disabled = false;
-      if (moveButton) moveButton.style.display = 'none';
-      if (deleteButton) deleteButton.style.display = 'none';
-      if (browseButton) browseButton.style.display = 'inline-block';
-      if (downloadButton) downloadButton.style.display = 'inline-block';
+      if (input) {
+        console.log(`✅ [UPDATE-PROJECT PAS] Atualizando input com: "${path}"`);
+        input.value = path;
+        input.disabled = false;
+      } else {
+        console.error(`❌ [UPDATE-PROJECT PAS] Input não encontrado: input-${index}`);
+      }
+      
+      if (isDeleting) {
+        // Deleção: mostra botão de download, esconde move/delete
+        if (moveButton) moveButton.style.display = 'none';
+        if (deleteButton) deleteButton.style.display = 'none';
+        if (browseButton) browseButton.style.display = 'inline-block';
+        if (downloadButton) {
+          downloadButton.style.display = 'inline-block';
+          downloadButton.disabled = false;
+          downloadButton.innerText = 'Baixar';
+        }
+        if (startButton) startButton.disabled = true;
+      } else {
+        // Download/Atualização: esconde botão de download, mostra move/delete, habilita start
+        if (moveButton) moveButton.style.display = 'inline-block';
+        if (deleteButton) deleteButton.style.display = 'inline-block';
+        if (browseButton) browseButton.style.display = 'inline-block';
+        if (downloadButton) {
+          downloadButton.style.display = 'none';
+        }
+        if (startButton) startButton.disabled = false;
+      }
     }
   });
   
