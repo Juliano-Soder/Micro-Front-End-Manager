@@ -23,6 +23,21 @@ const ProjectConfigManager = require('./project-config-manager');
 const NpmFallbackHandlers = require('./npm-fallback-handlers');
 const OnboardingManager = require('./onboarding-manager');
 const SplashManager = require('./splash-manager');
+
+// Função para ler a versão do package.json
+function getAppVersion() {
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
+    return packageJson.version;
+  } catch (error) {
+    console.error('Erro ao ler versão do package.json:', error);
+    return '0.0.11'; // fallback
+  }
+}
+
+const APP_VERSION = getAppVersion();
+console.log(`[MAIN] 🚀 Front-end Manager v${APP_VERSION} iniciando...`);
+
 const { 
   NODE_VERSIONS, 
   getNodeExecutablePath, 
@@ -784,6 +799,11 @@ ipcMain.handle('get-all-node-versions', async (event) => {
   const configs = projectConfigManager.getAllConfigs();
   console.log('[DEBUG] Retornando configurações de versões:', configs);
   return configs;
+});
+
+// Handler para obter versão do app
+ipcMain.handle('get-app-version', async (event) => {
+  return APP_VERSION;
 });
 
 // Handler para seleção de pasta
@@ -2658,6 +2678,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
+    title: `Front-end Manager v${APP_VERSION}`,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,

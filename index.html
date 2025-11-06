@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Micro Front-End Manager</title>
+  <title>Front-end Manager</title>
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     /* Aplica a fonte Fira Code em todo o app */
@@ -603,7 +603,7 @@
 </head>
 <body>
   <div class="main-title">
-    Micro Front-Ends 
+    Front-end Manager <span style="font-size: 14px; color: #666;">v0.0.11</span>
     <span id="dependencies-status" style="font-size: 12px; margin-left: 10px;"></span>
     <span style="font-size: 10px; margin-left: 20px; color: #666; font-style: italic;" title="Atalhos para reiniciar">
       💡 Ctrl+R ou F5 = Reiniciar
@@ -1899,6 +1899,32 @@
 
   ipcRenderer.send('load-projects');
 
+  // Função para carregar versão dinamicamente
+  async function loadAppVersion() {
+    try {
+      const version = await ipcRenderer.invoke('get-app-version');
+      console.log('[APP] 📋 Versão carregada:', version);
+      
+      // Atualiza o título principal
+      const titleElement = document.querySelector('.main-title');
+      if (titleElement) {
+        const versionSpan = titleElement.querySelector('span');
+        if (versionSpan) {
+          versionSpan.textContent = `v${version}`;
+        } else {
+          // Se não houver span de versão, adiciona um
+          const newVersionSpan = document.createElement('span');
+          newVersionSpan.style.fontSize = '14px';
+          newVersionSpan.style.color = '#666';
+          newVersionSpan.textContent = `v${version}`;
+          titleElement.insertBefore(newVersionSpan, titleElement.firstChild.nextSibling);
+        }
+      }
+    } catch (error) {
+      console.error('[APP] ❌ Erro ao carregar versão:', error);
+    }
+  }
+
   // Inicializa contador de onboarding
   console.log('[ONBOARDING] 🔄 Inicializando contador de onboarding...');
   const initialOnboardingCount = document.getElementById('onboarding-count');
@@ -1912,6 +1938,9 @@
   // Aguarda DOM estar pronto e inicializa onboarding
   document.addEventListener('DOMContentLoaded', function() {
     console.log('[ONBOARDING] 🚀 DOM loaded, verificando elementos...');
+    
+    // Carrega a versão do app dinamicamente
+    loadAppVersion();
     
     // Força verificação dos elementos onboarding
     const onbBtn = document.getElementById('toggle-onboarding-mfes');
