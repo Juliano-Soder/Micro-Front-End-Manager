@@ -9,10 +9,10 @@ const https = require('https');
 const http = require('http');
 const url = require('url');
 
-// ===== CARREGAR HANDLERS IPC IMEDIATAMENTE =====
-console.log('[MAIN] Carregando handlers IPC...');
-require('./ipc-handlers');
-console.log('[MAIN] ✅ Handlers IPC carregados!');
+// ===== CARREGAR HANDLERS IPC APÓS INICIALIZAÇÃO =====
+// console.log('[MAIN] Carregando handlers IPC...');
+// require('./ipc-handlers');
+// console.log('[MAIN] ✅ Handlers IPC carregados!');
 
 // Registrar handler crítico para debugging
 console.log('[MAIN] INÍCIO: Preparando para registrar handler start-node-installation...');
@@ -22,12 +22,48 @@ const NodeInstaller = require('./node-installer');
 const ProjectConfigManager = require('./project-config-manager');
 const NpmFallbackHandlers = require('./npm-fallback-handlers');
 const OnboardingManager = require('./onboarding-manager');
+const SplashManager = require('./splash-manager');
 const { 
   NODE_VERSIONS, 
   getNodeExecutablePath, 
   getCurrentOS,
   getNodesBasePath
 } = require('./node-version-config');
+
+// ⚡ FUNÇÃO HELPER PARA LOGS COMPATÍVEIS COM WINDOWS ⚡
+function safeLog(message, type = 'info') {
+  // Remove emojis problemáticos e substitui por texto
+  const cleanMessage = message
+    .replace(/🚀/g, '[ROCKET]')
+    .replace(/⚡/g, '[LIGHTNING]')
+    .replace(/💾/g, '[DISK]')
+    .replace(/📁/g, '[FOLDER]')
+    .replace(/🔍/g, '[SEARCH]')
+    .replace(/❌/g, '[ERROR]')
+    .replace(/✅/g, '[SUCCESS]')
+    .replace(/🌿/g, '[BRANCH]')
+    .replace(/💡/g, '[IDEA]')
+    .replace(/🔧/g, '[TOOL]')
+    .replace(/🎯/g, '[TARGET]')
+    .replace(/🔄/g, '[RELOAD]')
+    .replace(/⏹️/g, '[STOP]')
+    .replace(/ℹ️/g, '[INFO]')
+    .replace(/⚠️/g, '[WARNING]')
+    .replace(/🔀/g, '[CHECKOUT]')
+    .replace(/📡/g, '[FETCH]')
+    .replace(/⬇️/g, '[PULL]');
+
+  switch(type) {
+    case 'error':
+      console.error(cleanMessage);
+      break;
+    case 'warn':
+      console.warn(cleanMessage);
+      break;
+    default:
+      console.log(cleanMessage);
+  }
+}
 
 // ===== UTILITÁRIOS PARA PERMISSÕES LINUX =====
 /**
@@ -139,6 +175,7 @@ let npmFallbackHandlers = null;
 let installerWindow = null;
 let projectConfigsWindow = null;
 let newCLIsWindow = null;
+let onboardingNodeConfigWindow = null;
 
 // ===== REGISTRAR HANDLER CRÍTICO IMEDIATAMENTE =====
 console.log('[MAIN] EXECUTANDO: Registrando handler start-node-installation AGORA...');
@@ -973,209 +1010,6 @@ const IDE_CONFIG = {
     }
   }
 };
-const cacheFile = path.join(userDataPath, 'app-cache.json');
-
-// Cache global para dados da aplicação
-let appCache = {
-  projects: null,
-  nodeInfo: null,
-  angularInfo: null,
-  loginState: null,
-  lastUpdate: 0
-};
-
-// ⚡ FUNÇÃO HELPER PARA LOGS COMPATÍVEIS COM WINDOWS ⚡
-function safeLog(message, type = 'info') {
-  // Remove emojis problemáticos e substitui por texto
-  const cleanMessage = message
-    .replace(/🚀/g, '[ROCKET]')
-    .replace(/⚡/g, '[LIGHTNING]')
-    .replace(/💾/g, '[DISK]')
-    .replace(/📁/g, '[FOLDER]')
-    .replace(/🔍/g, '[SEARCH]')
-    .replace(/❌/g, '[ERROR]')
-    .replace(/✅/g, '[SUCCESS]')
-    .replace(/🌿/g, '[BRANCH]')
-    .replace(/💡/g, '[IDEA]')
-    .replace(/🔧/g, '[TOOL]')
-    .replace(/🎯/g, '[TARGET]')
-    .replace(/🔄/g, '[RELOAD]')
-    .replace(/⏹️/g, '[STOP]')
-    .replace(/ℹ️/g, '[INFO]')
-    .replace(/⚠️/g, '[WARNING]')
-    .replace(/🔀/g, '[CHECKOUT]')
-    .replace(/📡/g, '[FETCH]')
-    .replace(/⬇️/g, '[PULL]');
-
-  switch(type) {
-    case 'error':
-      console.error(cleanMessage);
-      break;
-    case 'warn':
-      console.warn(cleanMessage);
-      break;
-    default:
-      console.log(cleanMessage);
-  }
-}
-
-// Carrega cache na inicialização
-function loadAppCache() {
-  try {
-    if (fs.existsSync(cacheFile)) {
-      const cacheData = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
-      const cacheAge = Date.now() - cacheData.timestamp;
-      
-      // Cache é válido por 5 minutos
-      if (cacheAge < 5 * 60 * 1000) {
-        appCache = { ...cacheData };
-        safeLog('[CACHE] Cache carregado com sucesso');
-        return true;
-      }
-    }
-  } catch (error) {
-    console.log('Cache não encontrado ou inválido, será regenerado');
-  }
-  return false;
-}
-
-// Salva cache (excluindo dados dinâmicos como commits pendentes)
-function saveAppCache() {
-  try {
-    // Remove dados dinâmicos que nunca devem ser cachados
-    const cleanCache = { ...appCache };
-    
-    // Garante que dados Git dinâmicos nunca sejam salvos no cache
-    if (cleanCache.projects && Array.isArray(cleanCache.projects)) {
-      cleanCache.projects = cleanCache.projects.map(project => {
-        if (typeof project === 'object') {
-          const { pendingCommits, hasUpdates, gitBranch, ...staticData } = project;
-          return staticData;
-        }
-        return project;
-      });
-    }
-    
-    const cacheData = {
-      ...cleanCache,
-      timestamp: Date.now()
-    };
-    fs.writeFileSync(cacheFile, JSON.stringify(cacheData, null, 2));
-    safeLog('[CACHE] Cache salvo com sucesso (dados dinâmicos excluídos)');
-  } catch (error) {
-    console.error('Erro ao salvar cache:', error);
-  }
-}
-
-// ⚡ FUNÇÕES DE PRÉ-CARREGAMENTO E CACHE ⚡
-async function preloadCriticalData() {
-  safeLog('[ROCKET] Pre-carregando dados criticos...');
-  const startTime = Date.now();
-  
-  try {
-    // Carrega dados em paralelo
-    const promises = [];
-    
-    // Se não temos cache válido, carrega os dados
-    if (!appCache.projects) {
-      promises.push(preloadProjects());
-    }
-    
-    if (!appCache.nodeInfo) {
-      promises.push(preloadNodeInfo());
-    }
-    
-    if (!appCache.angularInfo) {
-      promises.push(preloadAngularInfo());
-    }
-    
-    if (!appCache.loginState) {
-      promises.push(preloadLoginState());
-    }
-    
-    // Executa todas as operações em paralelo
-    await Promise.allSettled(promises);
-    
-    // Salva o cache atualizado
-    saveAppCache();
-    
-    const loadTime = Date.now() - startTime;
-    safeLog(`[LIGHTNING] Pre-carregamento concluido em ${loadTime}ms`);
-    
-  } catch (error) {
-    console.error('Erro durante pré-carregamento:', error);
-  }
-}
-
-async function preloadProjects() {
-  try {
-    const projectsContent = await fs.promises.readFile('projects.txt', 'utf-8');
-    const projectNames = projectsContent.split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0);
-    
-    // Não sobrescreve a variável projects global, apenas salva no cache
-    appCache.projects = projectNames;
-    console.log(`[FOLDER] ${projectNames.length} projetos carregados no cache para pre-carregamento`);
-  } catch (error) {
-    console.log('Arquivo projects.txt não encontrado, será criado quando necessário');
-    appCache.projects = [];
-  }
-}
-
-async function preloadNodeInfo() {
-  return new Promise((resolve) => {
-    exec('node --version', { timeout: 3000 }, (error, stdout, stderr) => {
-      if (error) {
-        appCache.nodeInfo = { version: 'N/A', available: false };
-      } else {
-        appCache.nodeInfo = { 
-          version: stdout.trim(),
-          available: true
-        };
-      }
-      resolve();
-    });
-  });
-}
-
-async function preloadAngularInfo() {
-  try {
-    console.log('🔍 Verificando instalações locais de Node.js portátil...');
-    
-    return new Promise((resolve) => {
-      // Com Node.js portátil, não precisamos verificar ng version global
-      // A verificação será feita por projeto baseado no Node portátil configurado
-      console.log('✅ Sistema usando Node.js portátil - verificação por projeto ativa');
-      
-      appCache.angularInfo = {
-        version: 'Portátil (verificado por projeto)',
-        available: true,
-        portable: true,
-        confirmed: true
-      };
-      
-      resolve();
-    });
-  } catch (error) {
-    console.error('Erro ao inicializar sistema portátil:', error);
-    return Promise.resolve();
-  }
-}
-
-async function preloadLoginState() {
-  try {
-    if (fs.existsSync(loginStateFile)) {
-      const data = await fs.promises.readFile(loginStateFile, 'utf-8');
-      appCache.loginState = JSON.parse(data);
-    } else {
-      appCache.loginState = { isLoggedIn: false };
-    }
-  } catch (error) {
-    appCache.loginState = { isLoggedIn: false };
-  }
-}
-
 // ⚡ FUNÇÃO PARA OBTER BRANCH GIT DO PROJETO ⚡
 async function getProjectGitBranch(projectPath) {
   if (!projectPath || projectPath.trim() === '') {
@@ -1595,6 +1429,12 @@ async function checkGitBeforeStart(projectPath) {
   }
 }
 
+// Cache local para configurações e login (separado do cache de loading do SplashManager)
+let appCache = {
+  config: null,
+  loginState: null
+};
+
 // Impede múltiplas instâncias do app
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -1632,7 +1472,6 @@ function saveConfig(config) {
   
   // Atualiza cache
   appCache.config = config;
-  saveAppCache();
 }
 
 function loadConfig() {
@@ -1684,7 +1523,6 @@ function saveLoginState(isLoggedIn) {
   
   // Atualiza cache
   appCache.loginState = loginState;
-  saveAppCache();
   
   console.log(`[SAVE] Estado de login salvo: ${isLoggedIn}`);
 }
@@ -2401,6 +2239,64 @@ function openProjectConfigsWindow() {
   });
 }
 
+// Função para abrir janela de configuração Node.js do Onboarding
+function openOnboardingNodeConfigWindow() {
+  // Se já existe uma janela, apenas foca nela
+  if (onboardingNodeConfigWindow && !onboardingNodeConfigWindow.isDestroyed()) {
+    onboardingNodeConfigWindow.focus();
+    return;
+  }
+
+  onboardingNodeConfigWindow = new BrowserWindow({
+    width: 1000,
+    height: 800,
+    minWidth: 800,
+    minHeight: 600,
+    modal: true,
+    parent: mainWindow,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+    autoHideMenuBar: true,
+    resizable: true,
+    title: '🎓 Configuração Node.js - Onboarding',
+    icon: path.join(__dirname, 'OIP.ico'),
+  });
+
+  // Carrega o arquivo HTML específico para configuração Node.js do Onboarding
+  onboardingNodeConfigWindow.loadFile(path.join(__dirname, 'onboarding-node-config.html'));
+
+  // Para desenvolvimento - descomente a linha abaixo se precisar debugar
+  // onboardingNodeConfigWindow.webContents.openDevTools();
+
+  // Quando a janela estiver carregada, aplica o tema
+  onboardingNodeConfigWindow.webContents.once('did-finish-load', () => {
+    console.log('✅ Janela de configuração Node.js do Onboarding carregada');
+    
+    // Envia tema para a janela
+    try {
+      const config = loadConfig();
+      const isDarkMode = config.darkMode === true;
+      onboardingNodeConfigWindow.webContents.send('apply-theme', isDarkMode);
+      console.log(`🎨 Tema enviado para configuração Onboarding: ${isDarkMode ? 'escuro' : 'claro'}`);
+    } catch (error) {
+      console.error('Erro ao enviar tema:', error);
+    }
+    
+    // Foca na aba de configuração do Node.js se houver
+    setTimeout(() => {
+      onboardingNodeConfigWindow.webContents.send('focus-node-config-tab');
+    }, 500);
+  });
+
+  // Limpa referência quando fechada
+  onboardingNodeConfigWindow.on('closed', () => {
+    onboardingNodeConfigWindow = null;
+    console.log('🧹 Janela de configuração Node.js do Onboarding fechada');
+  });
+}
+
 // Função para abrir janela de novas CLIs
 function openNewCLIsWindow() {
   console.log('[DEBUG] Abrindo janela de novas CLIs');
@@ -2470,7 +2366,7 @@ function openNewCLIsWindow() {
 
 let mainWindow;
 let loginWindow = null;
-let splashWindow;
+let splashManager; // Gerenciador de splash screen e loading
 let appMenu; // Referência global do menu para uso nas funções
 const projectsFile = path.join(userDataPath, 'projects.txt');
 let runningProcesses = {}; // Armazena os processos em execução
@@ -2687,237 +2583,30 @@ function checkCancelationAndExit(projectPath, stepName) {
   return false;
 }
 
-// Função para criar a splash screen
-function createSplashWindow() {
-  safeLog('[TOOL] Criando splash screen...');
-  splashWindow = new BrowserWindow({
-    width: 520, // Aumentado de 500 para evitar barra de rolagem
-    height: 420, // Aumentado de 400 para mais espaço
-    frame: false,
-    alwaysOnTop: true,
-    transparent: false,
-    backgroundColor: '#1e1e1e', // Fundo de fallback
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-      backgroundThrottling: false // Impede throttling
-    },
-    icon: path.join(__dirname, 'OIP.ico'),
-    show: true, // Mostra imediatamente
-    center: true,
-    resizable: false,
-    skipTaskbar: true
-  });
-
-  safeLog('[FOLDER] Carregando splash.html...');
-  
-  // Alternativa: carrega HTML diretamente na memória com conteúdo garantido
-  const splashHtml = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body {
-                margin: 0;
-                padding: 20px;
-                background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
-                color: white;
-                font-family: Arial, sans-serif;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                align-items: center;
-                height: 100vh;
-                text-align: center;
-                overflow: hidden; /* Remove barra de rolagem */
-                box-sizing: border-box;
-                transition: background 0.3s, color 0.3s;
-            }
-            
-            /* Tema claro */
-            body.light-mode {
-                background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%) !important;
-                color: #222222 !important;
-            }
-            
-            .logo { 
-                font-size: 24px; 
-                margin-bottom: 20px;
-                background: linear-gradient(45deg, #0033C6, #E31233);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                background-clip: text;
-            }
-            .spinner {
-                border: 4px solid #333;
-                border-top: 4px solid #0033C6;
-                border-radius: 50%;
-                width: 40px;
-                height: 40px;
-                animation: spin 1s linear infinite;
-                margin: 20px 0;
-            }
-            body.light-mode .spinner {
-                border: 4px solid #cccccc;
-                border-top: 4px solid #0033C6;
-            }
-            @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-            .progress-bar {
-                width: 300px;
-                height: 4px;
-                background: #333;
-                margin: 20px 0;
-                border-radius: 2px;
-                overflow: hidden;
-            }
-            body.light-mode .progress-bar {
-                background: #cccccc;
-            }
-            .progress-fill {
-                height: 100%;
-                background: linear-gradient(90deg, #0033C6, #E31233);
-                width: 0%;
-                transition: width 0.5s ease;
-            }
-            .loading-text {
-                color: #00ff00;
-                margin: 10px 0;
-            }
-            body.light-mode .loading-text {
-                color: #00aa00;
-            }
-            .status {
-                color: #888888;
-                font-size: 14px;
-                margin-top: 10px;
-            }
-            body.light-mode .status {
-                color: #666666;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="logo">Micro Front-End Manager</div>
-        <div class="spinner"></div>
-        <div class="loading-text">Carregando aplicação...</div>
-        <div class="progress-bar">
-            <div class="progress-fill" id="progress"></div>
-        </div>
-        <div class="status" id="status">Inicializando...</div>
-        
-        <script>
-            console.log('Splash screen carregada!');
-            const { ipcRenderer } = require('electron');
-            
-            let progress = 0;
-            const progressBar = document.getElementById('progress');
-            const status = document.getElementById('status');
-            
-            const steps = [
-                'Inicializando sistema...',
-                'Carregando configurações...',
-                'Verificando dependências Node.js...',
-                'Preparando ambiente...',
-                'Carregando projetos...',
-                'Preparando interface...',
-                'Finalizando...'
-            ];
-            
-            let currentStep = 0;
-            
-            function updateProgress() {
-                if (currentStep < steps.length) {
-                    status.textContent = steps[currentStep];
-                    progress = ((currentStep + 1) / steps.length) * 90;
-                    progressBar.style.width = progress + '%';
-                    currentStep++;
-                    setTimeout(updateProgress, 800);
-                }
-            }
-            
-            // Função para aplicar tema
-            function applyTheme(isDark) {
-                console.log('Aplicando tema na splash:', isDark ? 'escuro' : 'claro');
-                if (isDark) {
-                    document.body.classList.remove('light-mode');
-                } else {
-                    document.body.classList.add('light-mode');
-                }
-            }
-            
-            // Listener para tema
-            ipcRenderer.on('apply-dark-mode', (event, isDarkMode) => {
-                applyTheme(isDarkMode);
-            });
-            
-            // Inicia imediatamente
-            updateProgress();
-            
-            // Listener para fechar
-            ipcRenderer.on('main-app-ready', () => {
-                progressBar.style.width = '100%';
-                status.textContent = 'Pronto!';
-                setTimeout(() => {
-                    ipcRenderer.send('close-splash');
-                }, 500);
-            });
-        </script>
-    </body>
-    </html>
-  `;
-  
-  splashWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splashHtml)}`);
-  
-  splashWindow.webContents.once('did-finish-load', () => {
-    console.log('💡 Splash screen HTML carregado diretamente');
-    splashWindow.focus();
-    
-    // Detecta e aplica o tema atual usando a função loadConfig() existente
-    try {
-      const config = loadConfig(); // Usa a função que já salva na pasta do usuário
-      const isDarkMode = config.darkMode === true; // Por padrão é false (tema claro)
-      
-      console.log(`🎨 Aplicando tema na splash: ${isDarkMode ? 'escuro' : 'claro'} (config.darkMode: ${config.darkMode})`);
-      
-      // Aguarda um pouco para garantir que o DOM esteja pronto
-      setTimeout(() => {
-        splashWindow.webContents.send('apply-dark-mode', isDarkMode);
-      }, 200);
-      
-    } catch (error) {
-      console.log('Erro ao aplicar tema na splash:', error);
-    }
-    
-    // DELAY MAIOR para garantir que a splash seja vista
-    console.log('⏳ Aguardando 3 segundos antes de iniciar app principal...');
-    setTimeout(initializeMainApp, 3000); // Aumentado para 3000ms
-  });
-
-  splashWindow.on('closed', () => {
-    splashWindow = null;
-  });
-}
-
 // Função para inicializar a aplicação principal (OTIMIZADA)
 async function initializeMainApp() {
   console.log('[START] Iniciando aplicacao principal com otimizacoes...');
   const startTime = Date.now();
   
+  // Inicializa o SplashManager se não foi inicializado
+  if (!splashManager) {
+    splashManager = new SplashManager();
+  }
+  
   // Carrega cache se ainda não foi carregado
-  if (!appCache.projects) {
-    loadAppCache();
+  const splashCache = splashManager.getAppCache();
+  if (!splashCache.projects) {
+    splashManager.loadAppCache();
   }
   
   // Executa pré-carregamento se necessário
-  if (!appCache.projects || !appCache.nodeInfo || !appCache.angularInfo) {
-    await preloadCriticalData();
+  if (!splashCache.projects || !splashCache.nodePortableInfo) {
+    await splashManager.preloadCriticalData();
   }
   
   // Usa dados do cache
-  let isLoggedIn = appCache.loginState ? appCache.loginState.isLoggedIn : loadLoginState();
+  const updatedSplashCache = splashManager.getAppCache();
+  let isLoggedIn = updatedSplashCache.loginState ? updatedSplashCache.loginState.isLoggedIn : loadLoginState();
   let dependenciesInstalled = false;
   let dependenciesMessage = '';
   
@@ -3248,10 +2937,23 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
           click: () => {
             console.log('[ONBOARDING] 🖱️ Abrindo configuração Node.js do Onboarding...');
             
-            // Envia comando para a janela principal abrir a configuração
-            if (mainWindow && mainWindow.webContents) {
-              mainWindow.webContents.send('open-onboarding-node-config');
+            // Desabilita temporariamente
+            const menuItem = appMenu ? appMenu.getMenuItemById('onboarding-node-config') : null;
+            if (menuItem) {
+              menuItem.label = 'Abrindo...';
+              menuItem.enabled = false;
             }
+
+            // Abre janela separada ao invés de enviar evento para janela principal
+            openOnboardingNodeConfigWindow();
+
+            // Reabilita após um tempo
+            setTimeout(() => {
+              if (menuItem) {
+                menuItem.label = '🎓 Configurar Onboarding (Node.js)';
+                menuItem.enabled = true;
+              }
+            }, 1000);
           },
         },
         { type: 'separator' },
@@ -3330,9 +3032,9 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
     projects = projectsWithBranches;
     
     // Notifica a splash screen que está pronto (SEM comandos Git pesados)
-    if (splashWindow) {
+    if (splashManager && splashManager.isSplashActive()) {
       console.log('📱 Notificando splash que app principal está pronto');
-      splashWindow.webContents.send('main-app-ready');
+      splashManager.notifyMainAppReady();
     }
     
     // DELAY REDUZIDO - app carrega mais rápido
@@ -3343,8 +3045,8 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       
       // Fecha a splash screen após mostrar a principal
       setTimeout(() => {
-        if (splashWindow) {
-          splashWindow.close();
+        if (splashManager && splashManager.isSplashActive()) {
+          splashManager.closeSplash();
         }
       }, 200);
 
@@ -3463,9 +3165,8 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
 
   ipcMain.on('close-splash', () => {
     // Fecha a splash screen se ela existir
-    if (splashWindow && !splashWindow.isDestroyed()) {
-      splashWindow.close();
-      splashWindow = null;
+    if (splashManager && splashManager.isSplashActive()) {
+      splashManager.closeSplash();
     }
   });
 
@@ -6800,6 +6501,11 @@ ipcMain.on('execute-command', (event, command) => {
 // Evento principal do aplicativo
 // ⚡ INICIALIZAÇÃO OTIMIZADA ⚡
 app.on('ready', async () => {
+  // Carrega handlers IPC após Electron estar pronto
+  console.log('[MAIN] Carregando handlers IPC...');
+  require('./ipc-handlers');
+  console.log('[MAIN] ✅ Handlers IPC carregados!');
+  
   safeLog('[ROCKET] Aplicacao pronta, iniciando otimizacoes...');
   
   // ⚡ LIMPA CACHE PROBLEMÁTICO DO ELECTRON NO WINDOWS ⚡
@@ -6816,15 +6522,6 @@ app.on('ready', async () => {
     }
   }
   
-  // Carrega cache na inicialização
-  const cacheLoaded = loadAppCache();
-  if (cacheLoaded) {
-    safeLog('[DISK] Cache pre-carregado com sucesso');
-  }
-  
-  // Inicia pré-carregamento em background
-  preloadCriticalData().catch(console.error);
-  
   // Verifica se Git está disponível (não bloqueia a inicialização)
   setTimeout(() => {
     const isGitAvailable = checkGitGlobal();
@@ -6836,7 +6533,11 @@ app.on('ready', async () => {
   }, 2000);
   
   // Cria splash screen
-  createSplashWindow();
+  splashManager = new SplashManager();
+  splashManager.createSplashWindow();
+  
+  // Aguarda 3 segundos antes de iniciar a aplicação principal
+  setTimeout(initializeMainApp, 3000);
 
   // ⚡ HANDLER PARA ATUALIZAR BRANCH DE PROJETO ESPECÍFICO (TEMPORARIAMENTE DESABILITADO) ⚡
   /*
@@ -6878,11 +6579,14 @@ app.on('window-all-closed', () => {
     console.log('[ONBOARDING] ⚠️ Erro na limpeza:', error.message);
   }
   
-  // Salva cache antes de fechar
-  saveAppCache();
+  // Salva cache antes de fechar se o SplashManager existir
+  if (splashManager) {
+    splashManager.saveAppCache();
+  }
   
   // Limpa cache antigo (mais de 24 horas)
   try {
+    const cacheFile = path.join(app.getPath('userData'), 'app-cache.json');
     if (fs.existsSync(cacheFile)) {
       const cacheData = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
       const cacheAge = Date.now() - cacheData.timestamp;
@@ -6902,14 +6606,20 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createSplashWindow();
+  if (BrowserWindow.getAllWindows().length === 0) {
+    if (!splashManager) {
+      splashManager = new SplashManager();
+    }
+    splashManager.createSplashWindow();
+    setTimeout(initializeMainApp, 3000);
+  }
 });
 
 // ⚡ SISTEMA DE CACHE AUTOMÁTICO ⚡
 // Atualiza cache periodicamente a cada 2 minutos quando a app estiver rodando
 setInterval(() => {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    preloadCriticalData().catch(console.error);
+  if (mainWindow && !mainWindow.isDestroyed() && splashManager) {
+    splashManager.preloadCriticalData().catch(console.error);
     console.log('[CACHE] Cache atualizado automaticamente');
   }
 }, 2 * 60 * 1000); // 2 minutos

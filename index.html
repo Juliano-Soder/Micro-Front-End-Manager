@@ -2669,10 +2669,10 @@
 
       // Adiciona event listeners
       setupOnboardingEventListeners(project, index);
-
-      // Atualiza interface baseado no status
-      updateOnboardingProjectUI(project, index);
     });
+
+    // Atualiza interface baseado no status (após todos os projetos renderizados)
+    updateOnboardingProjectUI();
   }
 
   /**
@@ -2686,6 +2686,8 @@
     const onbStartButton = document.getElementById(`onb-btn-start-${index}`);
     const onbStopButton = document.getElementById(`onb-btn-stop-${index}`);
     const onbCancelButton = document.getElementById(`onb-btn-cancel-${index}`);
+    const onbMoveButton = document.getElementById(`onb-btn-move-${index}`);
+    const onbDeleteButton = document.getElementById(`onb-btn-delete-${index}`);
 
     // Input blur
     onbInput.addEventListener('blur', () => {
@@ -2696,6 +2698,38 @@
     onbDownloadButton.addEventListener('click', () => cloneOnboardingProject(project.name, index));
     onbInstallButton.addEventListener('click', () => installOnboardingDependencies(project.name, index));
     onbFolderIcon.addEventListener('click', () => selectOnboardingFolder(index));
+    
+    // Botão Mover para... (reutilizando lógica do PAS)
+    onbMoveButton.addEventListener('click', () => {
+      if (onbInput.value.trim()) {
+        if (onbStartButton.innerText === 'Rodando ✓' || currentOnboardingProjects[index].isRunning) {
+          alert('Não é possível mover o projeto enquanto ele estiver rodando. Pare o projeto primeiro.');
+          return;
+        }
+        
+        onbMoveButton.disabled = true;
+        onbMoveButton.innerText = 'Movendo...';
+        ipcRenderer.send('move-onboarding-project', { 
+          index: index, 
+          projectName: project.name,
+          currentPath: onbInput.value.trim()
+        });
+      } else {
+        alert('Projeto precisa ter um caminho válido para ser movido.');
+      }
+    });
+
+    // Botão Deletar (reutilizando lógica do PAS)
+    onbDeleteButton.addEventListener('click', () => {
+      if (confirm(`Tem certeza que deseja deletar o projeto ${project.name}?`)) {
+        onbDeleteButton.disabled = true;
+        ipcRenderer.send('delete-onboarding-project', { 
+          index: index, 
+          projectName: project.name,
+          path: onbInput.value.trim() 
+        });
+      }
+    });
     
     // Botão Iniciar (igual ao PAS)
     onbStartButton.addEventListener('click', (event) => {
@@ -2735,6 +2769,20 @@
     });
     
     onbStopButton.addEventListener('click', () => stopOnboardingProject(project.name, index));
+    
+    // Botão Terminal (reutilizando lógica do PAS)
+    const onbTerminalButton = document.getElementById(`onb-btn-terminal-${index}`);
+    if (onbTerminalButton) {
+      onbTerminalButton.addEventListener('click', () => {
+        const projectPath = onbInput.value.trim();
+        if (projectPath) {
+          console.log(`[ONBOARDING] 🖥️ Abrindo terminal para: ${projectPath}`);
+          ipcRenderer.send('open-terminal', { projectPath: projectPath });
+        } else {
+          alert('Projeto precisa ter um caminho válido para abrir o terminal.');
+        }
+      });
+    }
   }
 
   /**
@@ -3246,6 +3294,52 @@
       } else {
         console.error(`Input PAS não encontrado para índice ${index}`);
       }
+    }
+  });
+
+  // Listeners para logs dos handlers de onboarding
+  ipcRenderer.on('move-onboarding-project-log', (event, { index, message, success }) => {
+    let console = document.getElementById(`onb-log-${index}`);
+    
+    if (console && message) {
+      console.style.display = 'block';
+      console.innerText += `\n${message}`;
+      console.scrollTop = console.scrollHeight;
+    }
+    
+    if (success) {
+      const moveButton = document.getElementById(`onb-btn-move-${index}`);
+      if (moveButton) {
+        moveButton.disabled = false;
+        moveButton.innerText = 'Mover para...';
+      }
+    }
+  });
+
+  ipcRenderer.on('delete-onboarding-project-log', (event, { path, message, success, index }) => {
+    let console = document.getElementById(`onb-log-${index}`);
+    
+    if (console && message) {
+      console.style.display = 'block';
+      console.innerText += `\n${message}`;
+      console.scrollTop = console.scrollHeight;
+    }
+    
+    if (success) {
+      const deleteBtn = document.getElementById(`onb-btn-delete-${index}`);
+      if (deleteBtn) {
+        deleteBtn.disabled = false;
+        deleteBtn.innerText = 'Deletar';
+      }
+    }
+  });
+
+  ipcRenderer.on('update-onboarding-project-path', (event, { index, path }) => {
+    const onbInput = document.getElementById(`onb-input-${index}`);
+    if (onbInput) {
+      onbInput.value = path;
+    } else {
+      console.error(`Input Onboarding não encontrado para índice ${index}`);
     }
   });
 

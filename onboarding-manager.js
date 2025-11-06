@@ -289,8 +289,21 @@ class OnboardingManager {
     await this.killPortBeforeStart(project.port, onOutput);
 
     return new Promise((resolve, reject) => {
-      // Constrói comando com Node.js portátil
-      const nodeVersion = project.nodeVersion || project.defaultNodeVersion || '16.10.0';
+      // Carrega configurações salvas e usa a versão configurada
+      const nodeConfigs = this.getNodeConfigurations();
+      const nodeVersion = nodeConfigs[projectName] || project.defaultNodeVersion || '16.10.0';
+      
+      console.log(`[ONBOARDING] 🎯 ========== INICIANDO ${projectName.toUpperCase()} ==========`);
+      console.log(`[ONBOARDING] 🔧 Versão Node configurada: ${nodeVersion}`);
+      console.log(`[ONBOARDING] 📝 Fonte da configuração: ${nodeConfigs[projectName] ? 'arquivo salvo' : 'padrão do projeto'}`);
+      
+      // Enviar logs para o frontend também
+      if (onOutput) {
+        onOutput(`🎯 ========== INICIANDO ${projectName.toUpperCase()} ==========`);
+        onOutput(`🔧 Versão Node configurada: ${nodeVersion}`);
+        onOutput(`📝 Fonte da configuração: ${nodeConfigs[projectName] ? 'arquivo salvo' : 'padrão do projeto'}`);
+      }
+      
       const portableNodePath = this.getPortableNodePath(nodeVersion);
       
       let command, args;
@@ -304,11 +317,37 @@ class OnboardingManager {
           const npmPath = path.join(path.dirname(portableNodePath), 'npm.cmd');
           command = npmPath;
           args = ['start'];
+          
+          // Log do comando completo
+          console.log(`[ONBOARDING] 🔥 COMANDO COMPLETO: "${npmPath}" start`);
+          console.log(`[ONBOARDING] 📂 DIRETÓRIO: ${projectPath}`);
+          console.log(`[ONBOARDING] 🔧 NODE VERSION: ${nodeVersion}`);
+          
+          // Enviar logs para o frontend também
+          if (onOutput) {
+            onOutput(`🚀 Usando Node.js portátil v${nodeVersion}`);
+            onOutput(`🔥 COMANDO COMPLETO: "${npmPath}" start`);
+            onOutput(`📂 DIRETÓRIO: ${projectPath}`);
+            onOutput(`🔧 NODE VERSION: ${nodeVersion}`);
+          }
         } else {
           // Linux/Mac: usa npm do Node portátil
           const npmPath = path.join(path.dirname(portableNodePath), 'npm');
           command = npmPath;
           args = ['start'];
+          
+          // Log do comando completo
+          console.log(`[ONBOARDING] 🔥 COMANDO COMPLETO: "${npmPath}" start`);
+          console.log(`[ONBOARDING] 📂 DIRETÓRIO: ${projectPath}`);
+          console.log(`[ONBOARDING] 🔧 NODE VERSION: ${nodeVersion}`);
+          
+          // Enviar logs para o frontend também
+          if (onOutput) {
+            onOutput(`🚀 Usando Node.js portátil v${nodeVersion}`);
+            onOutput(`🔥 COMANDO COMPLETO: "${npmPath}" start`);
+            onOutput(`📂 DIRETÓRIO: ${projectPath}`);
+            onOutput(`🔧 NODE VERSION: ${nodeVersion}`);
+          }
         }
       } else {
         // Fallback para npm global
@@ -316,9 +355,20 @@ class OnboardingManager {
         const [cmd, ...cmdArgs] = project.startCommand.split(' ');
         command = cmd;
         args = cmdArgs;
+        
+        // Log do comando global
+        console.log(`[ONBOARDING] 🔥 COMANDO COMPLETO (GLOBAL): "${command}" ${args.join(' ')}`);
+        console.log(`[ONBOARDING] 📂 DIRETÓRIO: ${projectPath}`);
+        console.log(`[ONBOARDING] ⚠️ USANDO NPM GLOBAL (Node portátil não encontrado)`);
+        
+        // Enviar logs para o frontend também
+        if (onOutput) {
+          onOutput(`⚠️ Node.js portátil v${nodeVersion} não encontrado, usando npm global`);
+          onOutput(`🔥 COMANDO COMPLETO (GLOBAL): "${command}" ${args.join(' ')}`);
+          onOutput(`📂 DIRETÓRIO: ${projectPath}`);
+          onOutput(`⚠️ USANDO NPM GLOBAL (Node portátil não encontrado)`);
+        }
       }
-      
-      console.log(`[ONBOARDING] 🖥️ Executando: ${command} ${args.join(' ')}`);
       
       const spawnOptions = {
         cwd: projectPath,
@@ -326,6 +376,11 @@ class OnboardingManager {
         env: { ...process.env }, // Mantém variáveis de ambiente
         shell: true // IMPORTANTE: No Windows, arquivos .cmd precisam de shell
       };
+      
+      console.log(`[ONBOARDING] 🚀 EXECUTANDO PROCESSO...`);
+      if (onOutput) {
+        onOutput(`🚀 EXECUTANDO PROCESSO...`);
+      }
       
       const projectProcess = spawn(command, args, spawnOptions);
 
@@ -463,16 +518,34 @@ class OnboardingManager {
    * Obtém status de todos os projetos onboarding
    */
   getProjectsStatus() {
-    return this.onboardingProjects.map(project => ({
-      name: project.name,
-      displayName: project.displayName,
-      type: project.type,
-      description: project.description,
-      isInstalled: this.isProjectInstalled(project.name),
-      isRunning: this.isProjectRunning(project.name),
-      path: this.getProjectPath(project.name),
-      port: project.port
-    }));
+    console.log('[ONBOARDING] 🔍 getProjectsStatus() chamado');
+    console.log('[ONBOARDING] 📝 onboardingProjects.length:', this.onboardingProjects.length);
+    console.log('[ONBOARDING] 📝 onboardingProjects:', this.onboardingProjects.map(p => p.name));
+    
+    // Carrega configurações salvas de versões do Node
+    const nodeConfigs = this.getNodeConfigurations();
+    console.log('[ONBOARDING] 📝 Configurações Node carregadas:', nodeConfigs);
+    
+    const result = this.onboardingProjects.map(project => {
+      // Usa versão configurada, senão a padrão do projeto, senão 16.10.0
+      const configuredVersion = nodeConfigs[project.name] || project.defaultNodeVersion || '16.10.0';
+      
+      return {
+        name: project.name,
+        displayName: project.displayName,
+        type: project.type,
+        description: project.description,
+        isInstalled: this.isProjectInstalled(project.name),
+        isRunning: this.isProjectRunning(project.name),
+        path: this.getProjectPath(project.name),
+        port: project.port,
+        nodeVersion: configuredVersion, // Versão configurada do Node
+        defaultVersion: project.defaultNodeVersion || '16.10.0' // Versão padrão
+      };
+    });
+    
+    console.log('[ONBOARDING] 📋 Resultado final getProjectsStatus:', result);
+    return result;
   }
 
   /**
@@ -617,6 +690,51 @@ class OnboardingManager {
         }, 1000);
       });
     });
+  }
+
+  /**
+   * Obtém configurações de versão do Node.js para todos os projetos
+   */
+  getNodeConfigurations() {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      
+      const configPath = path.join(this.userDataPath, 'onboarding-node-configs.json');
+      
+      if (fs.existsSync(configPath)) {
+        const data = fs.readFileSync(configPath, 'utf-8');
+        return JSON.parse(data);
+      }
+      
+      return {};
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao carregar configurações Node.js:', error);
+      return {};
+    }
+  }
+
+  /**
+   * Salva configurações de versão do Node.js para os projetos
+   */
+  saveNodeConfigurations(configs) {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      
+      // Garante que o diretório existe
+      if (!fs.existsSync(this.userDataPath)) {
+        fs.mkdirSync(this.userDataPath, { recursive: true });
+      }
+      
+      const configPath = path.join(this.userDataPath, 'onboarding-node-configs.json');
+      fs.writeFileSync(configPath, JSON.stringify(configs, null, 2), 'utf-8');
+      
+      console.log(`[ONBOARDING] 💾 Configurações Node.js salvas em: ${configPath}`);
+    } catch (error) {
+      console.error(`[ONBOARDING] ❌ Erro ao salvar configurações Node.js:`, error);
+      throw error;
+    }
   }
 }
 
