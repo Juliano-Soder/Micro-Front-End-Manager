@@ -9,10 +9,10 @@ const https = require('https');
 const http = require('http');
 const url = require('url');
 
-// ===== CARREGAR HANDLERS IPC IMEDIATAMENTE =====
-console.log('[MAIN] Carregando handlers IPC...');
-require('./ipc-handlers');
-console.log('[MAIN] ✅ Handlers IPC carregados!');
+// ===== CARREGAR HANDLERS IPC APÓS INICIALIZAÇÃO =====
+// console.log('[MAIN] Carregando handlers IPC...');
+// require('./ipc-handlers');
+// console.log('[MAIN] ✅ Handlers IPC carregados!');
 
 // Registrar handler crítico para debugging
 console.log('[MAIN] INÍCIO: Preparando para registrar handler start-node-installation...');
@@ -21,12 +21,167 @@ console.log('[MAIN] INÍCIO: Preparando para registrar handler start-node-instal
 const NodeInstaller = require('./node-installer');
 const ProjectConfigManager = require('./project-config-manager');
 const NpmFallbackHandlers = require('./npm-fallback-handlers');
+const OnboardingManager = require('./onboarding-manager');
+const SplashManager = require('./splash-manager');
+
+// Função para ler a versão do package.json
+function getAppVersion() {
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
+    return packageJson.version;
+  } catch (error) {
+    console.error('Erro ao ler versão do package.json:', error);
+    return '0.0.11'; // fallback
+  }
+}
+
+const APP_VERSION = getAppVersion();
+console.log(`[MAIN] 🚀 Front-end Manager v${APP_VERSION} iniciando...`);
+
 const { 
   NODE_VERSIONS, 
   getNodeExecutablePath, 
   getCurrentOS,
   getNodesBasePath
 } = require('./node-version-config');
+
+// ⚡ FUNÇÃO HELPER PARA LOGS COMPATÍVEIS COM WINDOWS ⚡
+function safeLog(message, type = 'info') {
+  // Remove emojis problemáticos e substitui por texto
+  const cleanMessage = message
+    .replace(/🚀/g, '[ROCKET]')
+    .replace(/⚡/g, '[LIGHTNING]')
+    .replace(/💾/g, '[DISK]')
+    .replace(/📁/g, '[FOLDER]')
+    .replace(/🔍/g, '[SEARCH]')
+    .replace(/❌/g, '[ERROR]')
+    .replace(/✅/g, '[SUCCESS]')
+    .replace(/🌿/g, '[BRANCH]')
+    .replace(/💡/g, '[IDEA]')
+    .replace(/🔧/g, '[TOOL]')
+    .replace(/🎯/g, '[TARGET]')
+    .replace(/🔄/g, '[RELOAD]')
+    .replace(/⏹️/g, '[STOP]')
+    .replace(/ℹ️/g, '[INFO]')
+    .replace(/⚠️/g, '[WARNING]')
+    .replace(/🔀/g, '[CHECKOUT]')
+    .replace(/📡/g, '[FETCH]')
+    .replace(/⬇️/g, '[PULL]');
+
+  switch(type) {
+    case 'error':
+      console.error(cleanMessage);
+      break;
+    case 'warn':
+      console.warn(cleanMessage);
+      break;
+    default:
+      console.log(cleanMessage);
+  }
+}
+
+// ===== UTILITÁRIOS PARA PERMISSÕES LINUX =====
+/**
+ * Obtém o caminho seguro para escrita baseado no SO
+ * Windows: Usa __dirname para arquivos de configuração local
+ * Linux: Usa userData para evitar problemas de permissão
+ */
+function getSafeWritePath(filename) {
+  const platform = os.platform();
+  
+  if (platform === 'win32') {
+    // Windows: mantém comportamento atual
+    return path.join(__dirname, filename);
+  } else {
+    // Linux/Mac: usa userData para evitar problemas de permissão
+    return path.join(app.getPath('userData'), filename);
+  }
+}
+
+/**
+ * Cria diretório com tratamento de erro de permissão
+ * Tenta criar no local preferido, fallback para userData em caso de erro
+ */
+function safeMkdirSync(dirPath, options = { recursive: true }) {
+  try {
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, options);
+    }
+    return dirPath;
+  } catch (error) {
+    if (error.code === 'EACCES' || error.code === 'EPERM') {
+      console.warn(`[PERMISSION] Sem permissão para criar ${dirPath}, usando userData...`);
+      const fallbackPath = path.join(app.getPath('userData'), path.basename(dirPath));
+      if (!fs.existsSync(fallbackPath)) {
+        fs.mkdirSync(fallbackPath, options);
+      }
+      return fallbackPath;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Escreve arquivo com tratamento de erro de permissão
+ */
+function safeWriteFileSync(filePath, data, options = 'utf8') {
+  try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      safeMkdirSync(dir);
+    }
+    fs.writeFileSync(filePath, data, options);
+    return filePath;
+  } catch (error) {
+    if (error.code === 'EACCES' || error.code === 'EPERM') {
+      console.warn(`[PERMISSION] Sem permissão para escrever ${filePath}, usando userData...`);
+      const fallbackPath = path.join(app.getPath('userData'), path.basename(filePath));
+      const fallbackDir = path.dirname(fallbackPath);
+      if (!fs.existsSync(fallbackDir)) {
+        fs.mkdirSync(fallbackDir, { recursive: true });
+      }
+      fs.writeFileSync(fallbackPath, data, options);
+      return fallbackPath;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Lê arquivo de configuração com fallback para userData
+ */
+function safeReadConfigFile(filename) {
+  const platform = os.platform();
+  
+  // Lista de caminhos para tentar (ordem: userData, __dirname para compatibilidade)
+  const paths = [];
+  
+  if (platform === 'win32') {
+    // Windows: primeiro __dirname (comportamento atual), depois userData
+    paths.push(path.join(__dirname, filename));
+    paths.push(path.join(app.getPath('userData'), filename));
+  } else {
+    // Linux/Mac: primeiro userData, depois __dirname para migração
+    paths.push(path.join(app.getPath('userData'), filename));
+    paths.push(path.join(__dirname, filename));
+  }
+  
+  for (const configPath of paths) {
+    if (fs.existsSync(configPath)) {
+      try {
+        return { 
+          content: fs.readFileSync(configPath, 'utf8'),
+          path: configPath
+        };
+      } catch (error) {
+        console.warn(`[CONFIG] Erro ao ler ${configPath}:`, error.message);
+        continue;
+      }
+    }
+  }
+  
+  return null;
+}
 
 // Instâncias globais
 let nodeInstaller = null;
@@ -35,6 +190,7 @@ let npmFallbackHandlers = null;
 let installerWindow = null;
 let projectConfigsWindow = null;
 let newCLIsWindow = null;
+let onboardingNodeConfigWindow = null;
 
 // ===== REGISTRAR HANDLER CRÍTICO IMEDIATAMENTE =====
 console.log('[MAIN] EXECUTANDO: Registrando handler start-node-installation AGORA...');
@@ -73,21 +229,85 @@ ipcMain.on('start-node-installation', async () => {
     
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
     
+    // Verifica o status das dependências para enviar update para todas as janelas
+    const depsInstalled = nodeInstaller.checkDependenciesInstalled();
+    const { getNodesBasePath, getCurrentOS } = require('./node-version-config');
+    const nodesPath = path.join(getNodesBasePath(), getCurrentOS());
+    
+    const statusUpdate = depsInstalled ? {
+      installed: true, 
+      message: '✅ Dependências instaladas',
+      nodesPath: nodesPath
+    } : {
+      installed: false, 
+      message: '❗ Dependências não instaladas',
+      nodesPath: nodesPath
+    };
+    
+    // Função para enviar status para uma janela se existir
+    const sendStatusToWindow = (window, windowName) => {
+      if (window && !window.isDestroyed()) {
+        window.webContents.send('dependencies-status', statusUpdate);
+        console.log(`📡 Status das dependências enviado para ${windowName}`);
+      }
+    };
+    
+    // Envia status atualizado para todas as janelas relevantes
+    sendStatusToWindow(mainWindow, 'mainWindow');
+    sendStatusToWindow(configWindow, 'configWindow');
+    sendStatusToWindow(projectConfigsWindow, 'projectConfigsWindow');
+    sendStatusToWindow(newCLIsWindow, 'newCLIsWindow');
+    
     if (installerWindow && !installerWindow.isDestroyed()) {
       installerWindow.webContents.send('installation-complete', {
         success: true,
         message: 'Todas as dependências foram instaladas com sucesso!'
       });
+      
+      // Também envia o status atualizado para a janela do installer
+      sendStatusToWindow(installerWindow, 'installerWindow');
     }
     
   } catch (error) {
     console.error('[DEBUG] Erro na instalação:', error);
+    
+    // Mesmo em caso de erro, verifica o status das dependências
+    const depsInstalled = nodeInstaller ? nodeInstaller.checkDependenciesInstalled() : false;
+    const { getNodesBasePath, getCurrentOS } = require('./node-version-config');
+    const nodesPath = path.join(getNodesBasePath(), getCurrentOS());
+    
+    const statusUpdate = depsInstalled ? {
+      installed: true, 
+      message: '✅ Dependências instaladas',
+      nodesPath: nodesPath
+    } : {
+      installed: false, 
+      message: '❗ Dependências não instaladas',
+      nodesPath: nodesPath
+    };
+    
+    // Função para enviar status para uma janela se existir
+    const sendStatusToWindow = (window, windowName) => {
+      if (window && !window.isDestroyed()) {
+        window.webContents.send('dependencies-status', statusUpdate);
+        console.log(`📡 Status das dependências enviado para ${windowName} (após erro)`);
+      }
+    };
+    
+    // Envia status atualizado para todas as janelas relevantes mesmo após erro
+    sendStatusToWindow(mainWindow, 'mainWindow');
+    sendStatusToWindow(configWindow, 'configWindow');
+    sendStatusToWindow(projectConfigsWindow, 'projectConfigsWindow');
+    sendStatusToWindow(newCLIsWindow, 'newCLIsWindow');
     
     if (installerWindow && !installerWindow.isDestroyed()) {
       installerWindow.webContents.send('installation-complete', {
         success: false,
         message: `Erro na instalação: ${error.message}`
       });
+      
+      // Também envia o status atualizado para a janela do installer
+      sendStatusToWindow(installerWindow, 'installerWindow');
     }
   }
 });
@@ -518,9 +738,9 @@ ipcMain.on('save-project-configs', (event, configs) => {
 // Salva configuração de usar sistema global
 ipcMain.on('save-global-system-config', (event, useGlobal) => {
   try {
-    const configPath = path.join(__dirname, 'global-system-config.json');
+    const configPath = getSafeWritePath('global-system-config.json');
     const config = { useGlobalSystem: useGlobal };
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    safeWriteFileSync(configPath, JSON.stringify(config, null, 2));
     console.log(`[DEBUG] Configuração global salva: usar sistema global = ${useGlobal}`);
   } catch (error) {
     console.error('[ERROR] Erro ao salvar configuração global:', error);
@@ -530,9 +750,9 @@ ipcMain.on('save-global-system-config', (event, useGlobal) => {
 // Obtém configuração de usar sistema global
 ipcMain.on('get-global-system-config', (event) => {
   try {
-    const configPath = path.join(__dirname, 'global-system-config.json');
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const configResult = safeReadConfigFile('global-system-config.json');
+    if (configResult) {
+      const config = JSON.parse(configResult.content);
       event.reply('global-system-config', config.useGlobalSystem);
     } else {
       event.reply('global-system-config', false);
@@ -579,6 +799,24 @@ ipcMain.handle('get-all-node-versions', async (event) => {
   const configs = projectConfigManager.getAllConfigs();
   console.log('[DEBUG] Retornando configurações de versões:', configs);
   return configs;
+});
+
+// Handler para obter versão do app
+ipcMain.handle('get-app-version', async (event) => {
+  return APP_VERSION;
+});
+
+// Handler para seleção de pasta
+ipcMain.handle('select-folder', async (event) => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory']
+    });
+    return result;
+  } catch (error) {
+    console.error('[SELECT-FOLDER] Erro ao abrir dialog:', error);
+    return { canceled: true };
+  }
 });
 
 console.log('[DEBUG] Handlers IPC registrados com sucesso');
@@ -792,209 +1030,6 @@ const IDE_CONFIG = {
     }
   }
 };
-const cacheFile = path.join(userDataPath, 'app-cache.json');
-
-// Cache global para dados da aplicação
-let appCache = {
-  projects: null,
-  nodeInfo: null,
-  angularInfo: null,
-  loginState: null,
-  lastUpdate: 0
-};
-
-// ⚡ FUNÇÃO HELPER PARA LOGS COMPATÍVEIS COM WINDOWS ⚡
-function safeLog(message, type = 'info') {
-  // Remove emojis problemáticos e substitui por texto
-  const cleanMessage = message
-    .replace(/🚀/g, '[ROCKET]')
-    .replace(/⚡/g, '[LIGHTNING]')
-    .replace(/💾/g, '[DISK]')
-    .replace(/📁/g, '[FOLDER]')
-    .replace(/🔍/g, '[SEARCH]')
-    .replace(/❌/g, '[ERROR]')
-    .replace(/✅/g, '[SUCCESS]')
-    .replace(/🌿/g, '[BRANCH]')
-    .replace(/💡/g, '[IDEA]')
-    .replace(/🔧/g, '[TOOL]')
-    .replace(/🎯/g, '[TARGET]')
-    .replace(/🔄/g, '[RELOAD]')
-    .replace(/⏹️/g, '[STOP]')
-    .replace(/ℹ️/g, '[INFO]')
-    .replace(/⚠️/g, '[WARNING]')
-    .replace(/🔀/g, '[CHECKOUT]')
-    .replace(/📡/g, '[FETCH]')
-    .replace(/⬇️/g, '[PULL]');
-
-  switch(type) {
-    case 'error':
-      console.error(cleanMessage);
-      break;
-    case 'warn':
-      console.warn(cleanMessage);
-      break;
-    default:
-      console.log(cleanMessage);
-  }
-}
-
-// Carrega cache na inicialização
-function loadAppCache() {
-  try {
-    if (fs.existsSync(cacheFile)) {
-      const cacheData = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
-      const cacheAge = Date.now() - cacheData.timestamp;
-      
-      // Cache é válido por 5 minutos
-      if (cacheAge < 5 * 60 * 1000) {
-        appCache = { ...cacheData };
-        safeLog('[CACHE] Cache carregado com sucesso');
-        return true;
-      }
-    }
-  } catch (error) {
-    console.log('Cache não encontrado ou inválido, será regenerado');
-  }
-  return false;
-}
-
-// Salva cache (excluindo dados dinâmicos como commits pendentes)
-function saveAppCache() {
-  try {
-    // Remove dados dinâmicos que nunca devem ser cachados
-    const cleanCache = { ...appCache };
-    
-    // Garante que dados Git dinâmicos nunca sejam salvos no cache
-    if (cleanCache.projects && Array.isArray(cleanCache.projects)) {
-      cleanCache.projects = cleanCache.projects.map(project => {
-        if (typeof project === 'object') {
-          const { pendingCommits, hasUpdates, gitBranch, ...staticData } = project;
-          return staticData;
-        }
-        return project;
-      });
-    }
-    
-    const cacheData = {
-      ...cleanCache,
-      timestamp: Date.now()
-    };
-    fs.writeFileSync(cacheFile, JSON.stringify(cacheData, null, 2));
-    safeLog('[CACHE] Cache salvo com sucesso (dados dinâmicos excluídos)');
-  } catch (error) {
-    console.error('Erro ao salvar cache:', error);
-  }
-}
-
-// ⚡ FUNÇÕES DE PRÉ-CARREGAMENTO E CACHE ⚡
-async function preloadCriticalData() {
-  safeLog('[ROCKET] Pre-carregando dados criticos...');
-  const startTime = Date.now();
-  
-  try {
-    // Carrega dados em paralelo
-    const promises = [];
-    
-    // Se não temos cache válido, carrega os dados
-    if (!appCache.projects) {
-      promises.push(preloadProjects());
-    }
-    
-    if (!appCache.nodeInfo) {
-      promises.push(preloadNodeInfo());
-    }
-    
-    if (!appCache.angularInfo) {
-      promises.push(preloadAngularInfo());
-    }
-    
-    if (!appCache.loginState) {
-      promises.push(preloadLoginState());
-    }
-    
-    // Executa todas as operações em paralelo
-    await Promise.allSettled(promises);
-    
-    // Salva o cache atualizado
-    saveAppCache();
-    
-    const loadTime = Date.now() - startTime;
-    safeLog(`[LIGHTNING] Pre-carregamento concluido em ${loadTime}ms`);
-    
-  } catch (error) {
-    console.error('Erro durante pré-carregamento:', error);
-  }
-}
-
-async function preloadProjects() {
-  try {
-    const projectsContent = await fs.promises.readFile('projects.txt', 'utf-8');
-    const projectNames = projectsContent.split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0);
-    
-    // Não sobrescreve a variável projects global, apenas salva no cache
-    appCache.projects = projectNames;
-    console.log(`[FOLDER] ${projectNames.length} projetos carregados no cache para pre-carregamento`);
-  } catch (error) {
-    console.log('Arquivo projects.txt não encontrado, será criado quando necessário');
-    appCache.projects = [];
-  }
-}
-
-async function preloadNodeInfo() {
-  return new Promise((resolve) => {
-    exec('node --version', { timeout: 3000 }, (error, stdout, stderr) => {
-      if (error) {
-        appCache.nodeInfo = { version: 'N/A', available: false };
-      } else {
-        appCache.nodeInfo = { 
-          version: stdout.trim(),
-          available: true
-        };
-      }
-      resolve();
-    });
-  });
-}
-
-async function preloadAngularInfo() {
-  try {
-    console.log('🔍 Verificando instalações locais de Node.js portátil...');
-    
-    return new Promise((resolve) => {
-      // Com Node.js portátil, não precisamos verificar ng version global
-      // A verificação será feita por projeto baseado no Node portátil configurado
-      console.log('✅ Sistema usando Node.js portátil - verificação por projeto ativa');
-      
-      appCache.angularInfo = {
-        version: 'Portátil (verificado por projeto)',
-        available: true,
-        portable: true,
-        confirmed: true
-      };
-      
-      resolve();
-    });
-  } catch (error) {
-    console.error('Erro ao inicializar sistema portátil:', error);
-    return Promise.resolve();
-  }
-}
-
-async function preloadLoginState() {
-  try {
-    if (fs.existsSync(loginStateFile)) {
-      const data = await fs.promises.readFile(loginStateFile, 'utf-8');
-      appCache.loginState = JSON.parse(data);
-    } else {
-      appCache.loginState = { isLoggedIn: false };
-    }
-  } catch (error) {
-    appCache.loginState = { isLoggedIn: false };
-  }
-}
-
 // ⚡ FUNÇÃO PARA OBTER BRANCH GIT DO PROJETO ⚡
 async function getProjectGitBranch(projectPath) {
   if (!projectPath || projectPath.trim() === '') {
@@ -1414,6 +1449,12 @@ async function checkGitBeforeStart(projectPath) {
   }
 }
 
+// Cache local para configurações e login (separado do cache de loading do SplashManager)
+let appCache = {
+  config: null,
+  loginState: null
+};
+
 // Impede múltiplas instâncias do app
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -1451,7 +1492,6 @@ function saveConfig(config) {
   
   // Atualiza cache
   appCache.config = config;
-  saveAppCache();
 }
 
 function loadConfig() {
@@ -1503,7 +1543,6 @@ function saveLoginState(isLoggedIn) {
   
   // Atualiza cache
   appCache.loginState = loginState;
-  saveAppCache();
   
   console.log(`[SAVE] Estado de login salvo: ${isLoggedIn}`);
 }
@@ -1583,6 +1622,87 @@ function cleanupLoginProcesses() {
   console.log('✅ Limpeza de processos concluída');
 }
 
+// Função auxiliar para obter o caminho do npm portátil
+function getPortableNpmPath() {
+  try {
+    const nodeVersionConfig = require('./node-version-config');
+    const currentOS = nodeVersionConfig.getCurrentOS();
+    const nodesBasePath = nodeVersionConfig.getNodesBasePath();
+    
+    console.log(`🔍 Procurando npm portátil...`);
+    console.log(`📁 Base path: ${nodesBasePath}`);
+    console.log(`💻 Sistema: ${currentOS}`);
+    
+    // Mapeamento de OS para pasta
+    const osFolderMap = {
+      'windows': 'windows',
+      'linux': 'linux',
+      'mac': 'mac',
+      'mac-arm64': 'mac'
+    };
+    
+    const osFolder = osFolderMap[currentOS] || 'windows';
+    const nodesFolderPath = path.join(nodesBasePath, osFolder);
+    
+    console.log(`📂 Verificando pasta: ${nodesFolderPath}`);
+    
+    if (!fs.existsSync(nodesFolderPath)) {
+      console.error(`❌ Pasta de nodes não encontrada: ${nodesFolderPath}`);
+      return null;
+    }
+    
+    // Lista todas as versões disponíveis
+    const folders = fs.readdirSync(nodesFolderPath);
+    console.log(`📋 Versões encontradas: ${folders.join(', ')}`);
+    
+    // Procura por qualquer versão do Node
+    for (const folder of folders) {
+      const folderPath = path.join(nodesFolderPath, folder);
+      
+      // Verifica se é uma pasta
+      if (!fs.statSync(folderPath).isDirectory()) {
+        continue;
+      }
+      
+      // Para Windows, verifica se tem npm.cmd na raiz ou em subpastas
+      if (currentOS === 'windows') {
+        // Primeiro verifica na raiz
+        let npmPath = path.join(folderPath, 'npm.cmd');
+        if (fs.existsSync(npmPath)) {
+          console.log(`✅ npm.cmd encontrado em: ${npmPath}`);
+          return npmPath;
+        }
+        
+        // Se não encontrou, verifica em subpastas (ex: node-v18.20.4/node-v18.20.4-win-x64/)
+        const subfolders = fs.readdirSync(folderPath);
+        for (const subfolder of subfolders) {
+          const subfolderPath = path.join(folderPath, subfolder);
+          if (fs.statSync(subfolderPath).isDirectory()) {
+            npmPath = path.join(subfolderPath, 'npm.cmd');
+            if (fs.existsSync(npmPath)) {
+              console.log(`✅ npm.cmd encontrado em: ${npmPath}`);
+              return npmPath;
+            }
+          }
+        }
+      } else {
+        // Para Linux/Mac, verifica em bin/npm
+        const npmPath = path.join(folderPath, 'bin', 'npm');
+        if (fs.existsSync(npmPath)) {
+          console.log(`✅ npm encontrado em: ${npmPath}`);
+          return npmPath;
+        }
+      }
+    }
+    
+    console.error(`❌ Nenhum npm portátil encontrado nas versões instaladas`);
+    return null;
+  } catch (error) {
+    console.error(`❌ Erro ao procurar npm portátil:`, error);
+    return null;
+  }
+}
+
 function checkNexusLoginStatus() {
   return new Promise((resolve) => {
     console.log('🔍 [DEBUG] Iniciando verificação de login...');
@@ -1635,9 +1755,30 @@ function checkNexusLoginStatus() {
 
     console.log(`🔍 [DEBUG] Registry detectado: ${registry}`);
 
+    // Obtém o caminho do npm portátil
+    const npmPath = getPortableNpmPath();
+    
+    if (!npmPath) {
+      console.error('❌ [DEBUG] npm portátil não encontrado para verificação de login');
+      resolve({ isLoggedIn: false, reason: 'npm-not-found', username: null, registry: registry });
+      return;
+    }
+    
+    console.log(`✅ [DEBUG] Usando npm portátil: ${npmPath}`);
+
     // Primeiro tenta npm whoami
     console.log('🔍 [DEBUG] Executando npm whoami...');
-    exec(`npm whoami --registry=${registry}`, { cwd: projectPath, timeout: 10000 }, (whoamiErr, whoamiStdout, whoamiStderr) => {
+    
+    // Para Windows, precisa usar cmd /c para executar .cmd files corretamente
+    const nodeVersionConfig = require('./node-version-config');
+    const currentOS = nodeVersionConfig.getCurrentOS();
+    const whoamiCommand = currentOS === 'windows' 
+      ? `cmd /c "${npmPath}" whoami --registry=${registry}`
+      : `"${npmPath}" whoami --registry=${registry}`;
+    
+    console.log('🔍 [DEBUG] Comando whoami:', whoamiCommand);
+    
+    exec(whoamiCommand, { cwd: projectPath, timeout: 30000 }, (whoamiErr, whoamiStdout, whoamiStderr) => {
       console.log('🔍 [DEBUG] npm whoami resultado:', {
         erro: whoamiErr?.message,
         stdout: whoamiStdout?.trim(),
@@ -1654,7 +1795,13 @@ function checkNexusLoginStatus() {
       console.log(`⚠️ [DEBUG] npm whoami falhou, tentando npm ping...`);
       
       // Se whoami falhar, tenta npm ping
-      exec(`npm ping --registry=${registry}`, { cwd: projectPath, timeout: 10000 }, (pingErr, pingStdout, pingStderr) => {
+      const pingCommand = currentOS === 'windows' 
+        ? `cmd /c "${npmPath}" ping --registry=${registry}`
+        : `"${npmPath}" ping --registry=${registry}`;
+      
+      console.log('🔍 [DEBUG] Comando ping:', pingCommand);
+      
+      exec(pingCommand, { cwd: projectPath, timeout: 30000 }, (pingErr, pingStdout, pingStderr) => {
         console.log('🔍 [DEBUG] npm ping resultado:', {
           erro: pingErr?.message,
           stdout: pingStdout?.trim(),
@@ -1683,22 +1830,13 @@ function handleNpmLogin() {
 
     checkNexusLoginStatus().then(({ isLoggedIn, reason, username, registry }) => {
       if (isLoggedIn) {
-        // Usuário já está logado
-        console.log(`Usuário já está logado no Nexus: ${username}`);
-        mainWindow.webContents.send('log', { message: `✓ Você já está logado no Nexus como: ${username}` });
+        // Usuário já está logado - se clicou é porque quer fazer login de novo!
+        console.log(`Usuário já logado no Nexus: ${username} - mas vai fazer login novamente pois clicou`);
+        mainWindow.webContents.send('log', { message: `🔄 Você já está logado como ${username}, mas vou fazer login novamente...` });
         
-        // Salva o estado de login
-        saveLoginState(true);
-        
-        // Mostra dialog informativo
-        dialog.showMessageBox(mainWindow, {
-          type: 'info',
-          title: 'Login já realizado',
-          message: `Você já está logado no Nexus!`,
-          detail: `Usuário: ${username}\nRegistry: ${registry}\n\nNão é necessário fazer login novamente.`,
-          buttons: ['OK']
-        }).then(() => resolve()).catch(() => resolve());
-        
+        // Continua direto com o processo de login (sem perguntar!)
+        performNpmLogin(registry);
+        resolve();
         return;
       }
 
@@ -1783,9 +1921,22 @@ function performNpmLogin(registry) {
 }
 
 function performNpmLoginWithPath(projectPath, registry) {
-  console.log(`Iniciando processo de login no registry: ${registry}`);
-  console.log(`Usando path: ${projectPath}`);
-  mainWindow.webContents.send('log', { message: `Iniciando login no Nexus (${registry})...` });
+  console.log(`════════════════════════════════════════════`);
+  console.log(`🔐 [performNpmLoginWithPath] INICIANDO LOGIN`);
+  console.log(`📁 Path: ${projectPath}`);
+  console.log(`🌐 Registry: ${registry}`);
+  console.log(`════════════════════════════════════════════`);
+  
+  // Verifica se é login no Nexus ou no registry público para mostrar mensagem apropriada
+  const isNexusLogin = registry && registry.includes('nexus.viavarejo.com.br');
+  console.log(`🔍 É login do Nexus?`, isNexusLogin);
+  
+  if (isNexusLogin) {
+    mainWindow.webContents.send('log', { message: `🔐 Iniciando login no Nexus...` });
+    mainWindow.webContents.send('log', { message: `📍 Após o login, o registry será configurado automaticamente para npm-group` });
+  } else {
+    mainWindow.webContents.send('log', { message: `📍 Login no registry público (${registry})...` });
+  }
 
   // Limpa qualquer processo anterior antes de criar nova janela
   cleanupLoginProcesses();
@@ -1799,8 +1950,8 @@ function performNpmLoginWithPath(projectPath, registry) {
 
   // Cria uma nova janela para o terminal
   loginWindow = new BrowserWindow({
-    width: 600,
-    height: 400,
+    width: 900,
+    height: 600,
     modal: true,
     parent: mainWindow,
     webPreferences: {
@@ -1812,6 +1963,9 @@ function performNpmLoginWithPath(projectPath, registry) {
   });
 
   loginWindow.loadFile(path.join(__dirname, 'login.html'));
+  
+  // Abre DevTools automaticamente para debug
+  loginWindow.webContents.openDevTools();
 
   // Event handlers para cleanup quando a janela for fechada
   loginWindow.on('closed', () => {
@@ -1867,8 +2021,9 @@ function performNpmLoginWithPath(projectPath, registry) {
     
     if (success) {
       console.log('✅ Login no npm realizado com sucesso!');
-      mainWindow.webContents.send('log', { message: 'Logado no Nexus com sucesso!' });
-      saveLoginState(true);
+      
+      // Verifica se este foi um login do Nexus ou do registry público
+      const isNexusLogin = registry && registry.includes('nexus.viavarejo.com.br');
       
       // Salva credenciais em base64 se fornecidas
       if (credentials && credentials.username && credentials.password && credentials.email) {
@@ -1891,17 +2046,89 @@ function performNpmLoginWithPath(projectPath, registry) {
       } else {
         console.log('⚠️ Credenciais não fornecidas ou incompletas, não será possível fazer login silencioso');
       }
+      
+      if (isNexusLogin) {
+        // Login no Nexus completado - agora configura o registry para npm-group
+        console.log('✅ Login Nexus detectado! Configurando registry para npm-group...');
+        console.log('Credenciais disponíveis?', credentials ? 'SIM' : 'NÃO');
+        
+        mainWindow.webContents.send('log', { message: '✅ Logado no Nexus! Agora configurando registry para npm-group...' });
+        
+        // Fecha a janela de login
+        cleanupLoginProcesses();
+        if (loginWindow && !loginWindow.isDestroyed()) {
+          loginWindow.close();
+        }
+        loginWindow = null;
+        
+        // Configura o registry para npm-group para permitir download de dependências
+        const npmPath = getPortableNpmPath();
+        if (npmPath) {
+          const { exec } = require('child_process');
+          const configCmd = `cmd /c "${npmPath}" config set registry https://nexus.viavarejo.com.br/repository/npm-group/`;
+          
+          console.log('🔧 Configurando registry para npm-group...');
+          exec(configCmd, { cwd: projectPath }, (error, stdout, stderr) => {
+            if (error) {
+              console.error('❌ Erro ao configurar registry:', error);
+              mainWindow.webContents.send('log', { 
+                message: `⚠️ Aviso: Erro ao configurar registry automaticamente: ${error.message}` 
+              });
+            } else {
+              console.log('✅ Registry configurado para npm-group');
+              mainWindow.webContents.send('log', { 
+                message: '✅ Registry configurado para npm-group! Agora você pode fazer npm install.' 
+              });
+            }
+            
+            // Salva estado de login
+            saveLoginState(true);
+          });
+        } else {
+          console.error('❌ npm portátil não encontrado para configurar registry');
+          mainWindow.webContents.send('log', { 
+            message: '⚠️ npm portátil não encontrado. Configure o registry manualmente.' 
+          });
+          saveLoginState(true);
+        }
+      } else {
+        // Login no registry público completado - agora sim está tudo pronto
+        mainWindow.webContents.send('log', { message: '✅ Login completo! Você está autenticado no Nexus E no npmjs.org!' });
+        saveLoginState(true);
+        
+        // Limpa processos e fecha janela
+        cleanupLoginProcesses();
+        if (loginWindow && !loginWindow.isDestroyed()) {
+          loginWindow.close();
+        }
+        loginWindow = null;
+      }
     } else {
       console.error('❌ Erro ao realizar login no npm:', message);
       mainWindow.webContents.send('log', { message: `Erro no login: ${message}` });
+      
+      // Limpa processos e fecha janela
+      cleanupLoginProcesses();
+      if (loginWindow && !loginWindow.isDestroyed()) {
+        loginWindow.close();
+      }
+      loginWindow = null;
     }
+  });
+
+  ipcMain.on('open-browser-login', (event, { url }) => {
+    console.log('🌐 Abrindo login do npmjs.org no navegador:', url);
+    mainWindow.webContents.send('log', { message: '🌐 Abrindo navegador para login no npmjs.org...' });
     
-    // Limpa processos e fecha janela
-    cleanupLoginProcesses();
-    if (loginWindow && !loginWindow.isDestroyed()) {
-      loginWindow.close();
-    }
-    loginWindow = null;
+    // Abre URL no navegador padrão do sistema
+    const { shell } = require('electron');
+    shell.openExternal(url).then(() => {
+      console.log('✅ Navegador aberto com sucesso');
+      mainWindow.webContents.send('log', { message: '✅ Complete o login no navegador e aguarde...' });
+    }).catch((error) => {
+      console.error('❌ Erro ao abrir navegador:', error);
+      mainWindow.webContents.send('log', { message: '❌ Erro ao abrir navegador. Copie a URL manualmente da janela de login.' });
+    });
   });
 
   ipcMain.on('close-login-window', () => {
@@ -2220,6 +2447,64 @@ function openProjectConfigsWindow() {
   });
 }
 
+// Função para abrir janela de configuração Node.js do Onboarding
+function openOnboardingNodeConfigWindow() {
+  // Se já existe uma janela, apenas foca nela
+  if (onboardingNodeConfigWindow && !onboardingNodeConfigWindow.isDestroyed()) {
+    onboardingNodeConfigWindow.focus();
+    return;
+  }
+
+  onboardingNodeConfigWindow = new BrowserWindow({
+    width: 1000,
+    height: 800,
+    minWidth: 800,
+    minHeight: 600,
+    modal: true,
+    parent: mainWindow,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+    autoHideMenuBar: true,
+    resizable: true,
+    title: '🎓 Configuração Node.js - Onboarding',
+    icon: path.join(__dirname, 'OIP.ico'),
+  });
+
+  // Carrega o arquivo HTML específico para configuração Node.js do Onboarding
+  onboardingNodeConfigWindow.loadFile(path.join(__dirname, 'onboarding-node-config.html'));
+
+  // Para desenvolvimento - descomente a linha abaixo se precisar debugar
+  // onboardingNodeConfigWindow.webContents.openDevTools();
+
+  // Quando a janela estiver carregada, aplica o tema
+  onboardingNodeConfigWindow.webContents.once('did-finish-load', () => {
+    console.log('✅ Janela de configuração Node.js do Onboarding carregada');
+    
+    // Envia tema para a janela
+    try {
+      const config = loadConfig();
+      const isDarkMode = config.darkMode === true;
+      onboardingNodeConfigWindow.webContents.send('apply-theme', isDarkMode);
+      console.log(`🎨 Tema enviado para configuração Onboarding: ${isDarkMode ? 'escuro' : 'claro'}`);
+    } catch (error) {
+      console.error('Erro ao enviar tema:', error);
+    }
+    
+    // Foca na aba de configuração do Node.js se houver
+    setTimeout(() => {
+      onboardingNodeConfigWindow.webContents.send('focus-node-config-tab');
+    }, 500);
+  });
+
+  // Limpa referência quando fechada
+  onboardingNodeConfigWindow.on('closed', () => {
+    onboardingNodeConfigWindow = null;
+    console.log('🧹 Janela de configuração Node.js do Onboarding fechada');
+  });
+}
+
 // Função para abrir janela de novas CLIs
 function openNewCLIsWindow() {
   console.log('[DEBUG] Abrindo janela de novas CLIs');
@@ -2289,7 +2574,7 @@ function openNewCLIsWindow() {
 
 let mainWindow;
 let loginWindow = null;
-let splashWindow;
+let splashManager; // Gerenciador de splash screen e loading
 let appMenu; // Referência global do menu para uso nas funções
 const projectsFile = path.join(userDataPath, 'projects.txt');
 let runningProcesses = {}; // Armazena os processos em execução
@@ -2506,237 +2791,30 @@ function checkCancelationAndExit(projectPath, stepName) {
   return false;
 }
 
-// Função para criar a splash screen
-function createSplashWindow() {
-  safeLog('[TOOL] Criando splash screen...');
-  splashWindow = new BrowserWindow({
-    width: 520, // Aumentado de 500 para evitar barra de rolagem
-    height: 420, // Aumentado de 400 para mais espaço
-    frame: false,
-    alwaysOnTop: true,
-    transparent: false,
-    backgroundColor: '#1e1e1e', // Fundo de fallback
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-      backgroundThrottling: false // Impede throttling
-    },
-    icon: path.join(__dirname, 'OIP.ico'),
-    show: true, // Mostra imediatamente
-    center: true,
-    resizable: false,
-    skipTaskbar: true
-  });
-
-  safeLog('[FOLDER] Carregando splash.html...');
-  
-  // Alternativa: carrega HTML diretamente na memória com conteúdo garantido
-  const splashHtml = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body {
-                margin: 0;
-                padding: 20px;
-                background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
-                color: white;
-                font-family: Arial, sans-serif;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                align-items: center;
-                height: 100vh;
-                text-align: center;
-                overflow: hidden; /* Remove barra de rolagem */
-                box-sizing: border-box;
-                transition: background 0.3s, color 0.3s;
-            }
-            
-            /* Tema claro */
-            body.light-mode {
-                background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%) !important;
-                color: #222222 !important;
-            }
-            
-            .logo { 
-                font-size: 24px; 
-                margin-bottom: 20px;
-                background: linear-gradient(45deg, #0033C6, #E31233);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                background-clip: text;
-            }
-            .spinner {
-                border: 4px solid #333;
-                border-top: 4px solid #0033C6;
-                border-radius: 50%;
-                width: 40px;
-                height: 40px;
-                animation: spin 1s linear infinite;
-                margin: 20px 0;
-            }
-            body.light-mode .spinner {
-                border: 4px solid #cccccc;
-                border-top: 4px solid #0033C6;
-            }
-            @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-            .progress-bar {
-                width: 300px;
-                height: 4px;
-                background: #333;
-                margin: 20px 0;
-                border-radius: 2px;
-                overflow: hidden;
-            }
-            body.light-mode .progress-bar {
-                background: #cccccc;
-            }
-            .progress-fill {
-                height: 100%;
-                background: linear-gradient(90deg, #0033C6, #E31233);
-                width: 0%;
-                transition: width 0.5s ease;
-            }
-            .loading-text {
-                color: #00ff00;
-                margin: 10px 0;
-            }
-            body.light-mode .loading-text {
-                color: #00aa00;
-            }
-            .status {
-                color: #888888;
-                font-size: 14px;
-                margin-top: 10px;
-            }
-            body.light-mode .status {
-                color: #666666;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="logo">Micro Front-End Manager</div>
-        <div class="spinner"></div>
-        <div class="loading-text">Carregando aplicação...</div>
-        <div class="progress-bar">
-            <div class="progress-fill" id="progress"></div>
-        </div>
-        <div class="status" id="status">Inicializando...</div>
-        
-        <script>
-            console.log('Splash screen carregada!');
-            const { ipcRenderer } = require('electron');
-            
-            let progress = 0;
-            const progressBar = document.getElementById('progress');
-            const status = document.getElementById('status');
-            
-            const steps = [
-                'Inicializando sistema...',
-                'Carregando configurações...',
-                'Verificando dependências Node.js...',
-                'Preparando ambiente...',
-                'Carregando projetos...',
-                'Preparando interface...',
-                'Finalizando...'
-            ];
-            
-            let currentStep = 0;
-            
-            function updateProgress() {
-                if (currentStep < steps.length) {
-                    status.textContent = steps[currentStep];
-                    progress = ((currentStep + 1) / steps.length) * 90;
-                    progressBar.style.width = progress + '%';
-                    currentStep++;
-                    setTimeout(updateProgress, 800);
-                }
-            }
-            
-            // Função para aplicar tema
-            function applyTheme(isDark) {
-                console.log('Aplicando tema na splash:', isDark ? 'escuro' : 'claro');
-                if (isDark) {
-                    document.body.classList.remove('light-mode');
-                } else {
-                    document.body.classList.add('light-mode');
-                }
-            }
-            
-            // Listener para tema
-            ipcRenderer.on('apply-dark-mode', (event, isDarkMode) => {
-                applyTheme(isDarkMode);
-            });
-            
-            // Inicia imediatamente
-            updateProgress();
-            
-            // Listener para fechar
-            ipcRenderer.on('main-app-ready', () => {
-                progressBar.style.width = '100%';
-                status.textContent = 'Pronto!';
-                setTimeout(() => {
-                    ipcRenderer.send('close-splash');
-                }, 500);
-            });
-        </script>
-    </body>
-    </html>
-  `;
-  
-  splashWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splashHtml)}`);
-  
-  splashWindow.webContents.once('did-finish-load', () => {
-    console.log('💡 Splash screen HTML carregado diretamente');
-    splashWindow.focus();
-    
-    // Detecta e aplica o tema atual usando a função loadConfig() existente
-    try {
-      const config = loadConfig(); // Usa a função que já salva na pasta do usuário
-      const isDarkMode = config.darkMode === true; // Por padrão é false (tema claro)
-      
-      console.log(`🎨 Aplicando tema na splash: ${isDarkMode ? 'escuro' : 'claro'} (config.darkMode: ${config.darkMode})`);
-      
-      // Aguarda um pouco para garantir que o DOM esteja pronto
-      setTimeout(() => {
-        splashWindow.webContents.send('apply-dark-mode', isDarkMode);
-      }, 200);
-      
-    } catch (error) {
-      console.log('Erro ao aplicar tema na splash:', error);
-    }
-    
-    // DELAY MAIOR para garantir que a splash seja vista
-    console.log('⏳ Aguardando 3 segundos antes de iniciar app principal...');
-    setTimeout(initializeMainApp, 3000); // Aumentado para 3000ms
-  });
-
-  splashWindow.on('closed', () => {
-    splashWindow = null;
-  });
-}
-
 // Função para inicializar a aplicação principal (OTIMIZADA)
 async function initializeMainApp() {
   console.log('[START] Iniciando aplicacao principal com otimizacoes...');
   const startTime = Date.now();
   
+  // Inicializa o SplashManager se não foi inicializado
+  if (!splashManager) {
+    splashManager = new SplashManager();
+  }
+  
   // Carrega cache se ainda não foi carregado
-  if (!appCache.projects) {
-    loadAppCache();
+  const splashCache = splashManager.getAppCache();
+  if (!splashCache.projects) {
+    splashManager.loadAppCache();
   }
   
   // Executa pré-carregamento se necessário
-  if (!appCache.projects || !appCache.nodeInfo || !appCache.angularInfo) {
-    await preloadCriticalData();
+  if (!splashCache.projects || !splashCache.nodePortableInfo) {
+    await splashManager.preloadCriticalData();
   }
   
   // Usa dados do cache
-  let isLoggedIn = appCache.loginState ? appCache.loginState.isLoggedIn : loadLoginState();
+  const updatedSplashCache = splashManager.getAppCache();
+  let isLoggedIn = updatedSplashCache.loginState ? updatedSplashCache.loginState.isLoggedIn : loadLoginState();
   let dependenciesInstalled = false;
   let dependenciesMessage = '';
   
@@ -2788,6 +2866,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
+    title: `Front-end Manager v${APP_VERSION}`,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -3062,6 +3141,32 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         },
         { type: 'separator' },
         {
+          label: '🎓 Configurar Onboarding (Node.js)',
+          id: 'onboarding-node-config',
+          click: () => {
+            console.log('[ONBOARDING] 🖱️ Abrindo configuração Node.js do Onboarding...');
+            
+            // Desabilita temporariamente
+            const menuItem = appMenu ? appMenu.getMenuItemById('onboarding-node-config') : null;
+            if (menuItem) {
+              menuItem.label = 'Abrindo...';
+              menuItem.enabled = false;
+            }
+
+            // Abre janela separada ao invés de enviar evento para janela principal
+            openOnboardingNodeConfigWindow();
+
+            // Reabilita após um tempo
+            setTimeout(() => {
+              if (menuItem) {
+                menuItem.label = '🎓 Configurar Onboarding (Node.js)';
+                menuItem.enabled = true;
+              }
+            }, 1000);
+          },
+        },
+        { type: 'separator' },
+        {
           label: '⚙️ Configurar CLIs projetos',
           id: 'project-configs',
           click: () => {
@@ -3136,9 +3241,9 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
     projects = projectsWithBranches;
     
     // Notifica a splash screen que está pronto (SEM comandos Git pesados)
-    if (splashWindow) {
+    if (splashManager && splashManager.isSplashActive()) {
       console.log('📱 Notificando splash que app principal está pronto');
-      splashWindow.webContents.send('main-app-ready');
+      splashManager.notifyMainAppReady();
     }
     
     // DELAY REDUZIDO - app carrega mais rápido
@@ -3149,8 +3254,8 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       
       // Fecha a splash screen após mostrar a principal
       setTimeout(() => {
-        if (splashWindow) {
-          splashWindow.close();
+        if (splashManager && splashManager.isSplashActive()) {
+          splashManager.closeSplash();
         }
       }, 200);
 
@@ -3269,9 +3374,8 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
 
   ipcMain.on('close-splash', () => {
     // Fecha a splash screen se ela existir
-    if (splashWindow && !splashWindow.isDestroyed()) {
-      splashWindow.close();
-      splashWindow = null;
+    if (splashManager && splashManager.isSplashActive()) {
+      splashManager.closeSplash();
     }
   });
 
@@ -3414,76 +3518,241 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
   });
 
   ipcMain.on('download-project', (event, { name, index }) => {
-    const workdir = path.join('C:/', 'projetos'); // Caminho base para os projetos
+    console.log(`📥 Iniciando download do projeto: ${name} (index: ${index})`);
+    
+    // Verifica se já está baixando este projeto
+    if (downloadingProjects.has(index)) {
+      console.warn(`⚠️ Projeto ${index} (${name}) já está sendo baixado, ignorando clique duplicado`);
+      return;
+    }
+    
+    // Marca como em processo de download
+    downloadingProjects.set(index, true);
+    
+    // Caminho base para os projetos baseado no SO
+    const platform = os.platform();
+    let workdir;
+    
+    if (platform === 'win32') {
+      // Windows: mantém comportamento atual
+      workdir = path.join('C:', 'projetos');
+    } else {
+      // Linux/Mac: usa pasta do usuário para evitar problemas de permissão
+      workdir = path.join(os.homedir(), 'projetos');
+    }
+    
     const projectPath = path.join(workdir, name);
     const repoUrl = `https://github.com/viavarejo-internal/${name}.git`;
 
     console.log(`Iniciando download do projeto: ${name}`);
+    console.log(`📂 Destino: ${projectPath}`);
+    console.log(`🔗 Repositório: ${repoUrl}`);
+    
+    const downloadMsg = `📥 Fazendo download do projeto: ${name}`;
     if (name.startsWith('mp-pamp')) {
       event.reply('pamp-log', { 
         path: projectPath, 
-        message: `Fazendo download do projeto: ${name}`,
+        message: downloadMsg,
         index: index,
         name: name
       });
     } else {
       event.reply('log', { 
         path: projectPath, 
-        message: `Fazendo download do projeto: ${name}`
+        message: downloadMsg
       });
     }
 
     if (!fs.existsSync(workdir)) {
         console.log(`Criando diretório base: ${workdir}`);
-        fs.mkdirSync(workdir, { recursive: true });
+        try {
+          safeMkdirSync(workdir);
+        } catch (error) {
+          console.error(`❌ Erro ao criar diretório ${workdir}:`, error.message);
+          const errorMsg = `Erro ao criar diretório base: ${error.message}`;
+          if (name.startsWith('mp-pamp')) {
+            event.reply('pamp-log', { path: projectPath, message: errorMsg, index, name, error: true });
+          } else {
+            event.reply('log', { path: projectPath, message: errorMsg, error: true });
+          }
+          downloadingProjects.delete(index); // Remove o bloqueio
+          return;
+        }
     }
 
     if (fs.existsSync(projectPath)) {
         console.log(`O projeto ${name} já existe em ${projectPath}.`);
+        const existsMsg = `O projeto ${name.startsWith('mp-pamp') ? 'pamp' : 'pas'} ${name} já existe em ${projectPath}.`;
+        
         if (name.startsWith('mp-pamp')) {
           event.reply('pamp-log', { 
             path: projectPath, 
-            message: `O projeto pamp ${name} já existe em ${projectPath}.`,
+            message: existsMsg,
             index: index,
             name: name 
           });
         } else {
-          event.reply('log', { path: projectPath, message: `O projeto pas ${name} já existe em ${projectPath}.` });
+          event.reply('log', { path: projectPath, message: existsMsg });
         }
+        
+        // IMPORTANTE: Atualiza o caminho mesmo que já exista
+        console.log(`✅ Atualizando caminho do projeto existente: ${projectPath}`);
+        projects[index].path = projectPath;
+        saveProjects(projects);
+        event.reply('update-project', { index, path: projectPath });
+        
+        downloadingProjects.delete(index); // Remove o bloqueio
         return;
     }
 
-    exec(`git clone ${repoUrl} ${projectPath}`, (err, stdout, stderr) => {
-        if (err) {
-        console.error(`Erro ao clonar o repositório ${repoUrl}: ${err.message}`);
+    const cloneCommand = `git clone ${repoUrl} ${projectPath}`;
+    console.log(`🔧 Executando: ${cloneCommand}`);
+    
+    const cloneProcess = exec(cloneCommand, { 
+      maxBuffer: 1024 * 1024 * 10, // 10MB buffer
+      timeout: 300000 // 5 minutos
+    });
+    
+    // Throttle para mensagens de progresso (evita spam)
+    let lastProgressUpdate = 0;
+    let lastProgressPercent = 0;
+    
+    // Mostra progresso do clone
+    cloneProcess.stdout.on('data', (data) => {
+      const output = data.toString().trim();
+      if (output) {
+        console.log(`[git clone] ${output}`);
+        const progressMsg = `📦 ${output}`;
         if (name.startsWith('mp-pamp')) {
           event.reply('pamp-log', { 
             path: projectPath, 
-            message: `Erro ao clonar o repositório ${repoUrl}: ${err.message}`,
+            message: progressMsg,
             index: index,
             name: name
           });
         } else {
-          event.reply('log', { path: projectPath, message: `Erro ao clonar o repositório ${repoUrl}: ${err.message}` });
+          event.reply('log', { path: projectPath, message: progressMsg });
         }
+      }
+    });
+    
+    cloneProcess.stderr.on('data', (data) => {
+      const output = data.toString().trim();
+      if (output) {
+        console.log(`[git clone stderr] ${output}`);
+        
+        // Git envia progresso para stderr - precisamos mostrar!
+        const isProgressMessage = output.includes('Updating files:') || 
+                                   output.includes('Receiving objects:') || 
+                                   output.includes('Resolving deltas:');
+        
+        if (isProgressMessage) {
+          // Throttle: mostra apenas a cada 10% ou 500ms
+          const now = Date.now();
+          const percentMatch = output.match(/(\d+)%/);
+          const percent = percentMatch ? parseInt(percentMatch[1]) : 0;
+          
+          const shouldShow = 
+            (percent % 10 === 0 && percent !== lastProgressPercent) || // A cada 10%
+            (now - lastProgressUpdate > 500); // Ou a cada 500ms
+          
+          if (shouldShow) {
+            lastProgressUpdate = now;
+            lastProgressPercent = percent;
+            
+            const progressMsg = `📦 ${output}`;
+            if (name.startsWith('mp-pamp')) {
+              event.reply('pamp-log', { 
+                path: projectPath, 
+                message: progressMsg,
+                index: index,
+                name: name
+              });
+            } else {
+              event.reply('log', { path: projectPath, message: progressMsg });
+            }
+          }
+        } else {
+          // Outras mensagens (Cloning into, errors, warnings) sempre mostra
+          const progressMsg = `📦 ${output}`;
+          if (name.startsWith('mp-pamp')) {
+            event.reply('pamp-log', { 
+              path: projectPath, 
+              message: progressMsg,
+              index: index,
+              name: name
+            });
+          } else {
+            event.reply('log', { path: projectPath, message: progressMsg });
+          }
+        }
+      }
+    });
+    
+    cloneProcess.on('close', (code) => {
+      if (code !== 0) {
+        console.error(`❌ Erro ao clonar o repositório ${repoUrl}: código de saída ${code}`);
+        const errorMsg = `❌ Erro ao clonar o repositório ${repoUrl}: código de saída ${code}`;
+        if (name.startsWith('mp-pamp')) {
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: errorMsg,
+            index: index,
+            name: name,
+            error: true
+          });
+        } else {
+          event.reply('log', { path: projectPath, message: errorMsg, error: true });
+        }
+        downloadingProjects.delete(index); // Remove o bloqueio
         return;
-        }
+      }
 
-        console.log(`Projeto ${name} clonado com sucesso em ${projectPath}.`);
-        if (name.startsWith('mp-pamp')) {
-          event.reply('pamp-log', { 
-            path: projectPath, 
-            message: `Projeto baixado e disponível no caminho: ${projectPath}`,
-            index: index,
-            name: name
-          });
-        } else {
-          event.reply('log', { path: projectPath, message: `Projeto baixado e disponível no caminho: ${projectPath}` });
-        }
+      console.log(`✅ Projeto ${name} clonado com sucesso em ${projectPath}.`);
+      const successMsg = `✅ Projeto baixado com sucesso!`;
+      const pathMsg = `📁 Disponível em: ${projectPath}`;
+      
+      if (name.startsWith('mp-pamp')) {
+        event.reply('pamp-log', { 
+          path: projectPath, 
+          message: successMsg,
+          index: index,
+          name: name
+        });
+        event.reply('pamp-log', { 
+          path: projectPath, 
+          message: pathMsg,
+          index: index,
+          name: name
+        });
+      } else {
+        event.reply('log', { path: projectPath, message: successMsg });
+        event.reply('log', { path: projectPath, message: pathMsg });
+      }
 
-        projects[index].path = projectPath;
-        saveProjects(projects); // Atualiza o arquivo `projects.txt`
-        event.reply('projects-loaded', projects); // Atualiza o frontend
+      // Atualiza o caminho no projeto
+      console.log(`✅ Atualizando caminho do projeto no index ${index}: ${projectPath}`);
+      projects[index].path = projectPath;
+      saveProjects(projects);
+      event.reply('update-project', { index, path: projectPath });
+      downloadingProjects.delete(index); // Remove o bloqueio após sucesso
+    });
+    
+    cloneProcess.on('error', (error) => {
+      console.error(`❌ Erro no processo de clone:`, error);
+      const errorMsg = `❌ Erro ao clonar: ${error.message}`;
+      if (name.startsWith('mp-pamp')) {
+        event.reply('pamp-log', { 
+          path: projectPath, 
+          message: errorMsg,
+          index: index,
+          name: name,
+          error: true
+        });
+      } else {
+        event.reply('log', { path: projectPath, message: errorMsg, error: true });
+      }
+      downloadingProjects.delete(index); // Remove o bloqueio após erro
     });
   });
 
@@ -4233,12 +4502,13 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
   function executeNpmInstall(event, projectPath, projectName, projectIndex, isPampProject, npmCmd, nodePaths, command, port) {
     console.log(`[INSTALL] Iniciando npm install para ${projectName}`);
     
-    // Verifica se é mp-pas-atendimento (projeto problemático)
-    const isMpPasAtendimento = projectName === 'mp-pas-atendimento';
+    // Verifica se é projeto problemático que precisa de tratamento especial
+    const problematicProjects = ['mp-pas-catalogo', 'mp-pas-financeiro', 'mp-pas-vendas'];
+    const isProblematicProject = problematicProjects.includes(projectName);
     
-    if (isMpPasAtendimento) {
-      console.log('🎯 Detectado mp-pas-atendimento, usando tratamento especial...');
-      const specialMsg = '🎯 Usando procedimento especial para mp-pas-atendimento...';
+    if (isProblematicProject) {
+      console.log(`🎯 Detectado projeto problemático: ${projectName}, usando tratamento especial...`);
+      const specialMsg = `🎯 Usando procedimento especial para ${projectName}...`;
       if (isPampProject) {
         event.reply('pamp-log', { 
           path: projectPath, 
@@ -4275,8 +4545,8 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       
       npmFallbackHandlers.handleMpPasAtendimentoInstall(projectPath, eventEmitter).then((result) => {
         if (result.success) {
-          console.log('✅ mp-pas-atendimento instalado com sucesso');
-          const successMsg = '✅ Dependências instaladas com sucesso (mp-pas-atendimento)';
+          console.log(`✅ ${projectName} instalado com sucesso`);
+          const successMsg = `✅ Dependências instaladas com sucesso (${projectName})`;
           if (isPampProject) {
             event.reply('pamp-log', { 
               path: projectPath, 
@@ -4291,7 +4561,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
           // Inicia o projeto
           executeStartCommand(event, projectPath, command, port);
         } else {
-          console.error('❌ Falha ao instalar mp-pas-atendimento:', result.message);
+          console.error(`❌ Falha ao instalar ${projectName}:`, result.message);
           const errorMsg = `❌ Erro: ${result.message}`;
           
           if (result.reason === 'login-required') {
@@ -4299,7 +4569,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
             dialog.showMessageBox(mainWindow, {
               type: 'warning',
               title: 'Login Necessário',
-              message: 'É necessário fazer login no Nexus para instalar dependências do mp-pas-atendimento.',
+              message: `É necessário fazer login no Nexus para instalar dependências do ${projectName}.`,
               detail: 'Clique em OK para abrir a janela de login.',
               buttons: ['OK', 'Cancelar']
             }).then((dialogResult) => {
@@ -4342,7 +4612,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
           }
         }
       }).catch((error) => {
-        console.error('❌ Erro inesperado ao instalar mp-pas-atendimento:', error);
+        console.error(`❌ Erro inesperado ao instalar ${projectName}:`, error);
         const errorMsg = `❌ Erro inesperado: ${error.message}`;
         if (isPampProject) {
           event.reply('pamp-log', { 
@@ -4363,17 +4633,29 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
     }
 
     // Executa npm install normal para outros projetos
+    // 🎯 NÃO força registry - deixa o npm usar o .npmrc do projeto + fallback público
     const installCommand = `${npmCmd} install --progress=true --verbose`;
     console.log(`[DEBUG] Executando: ${installCommand}`);
     
-    // 🎯 GARANTE QUE NODE.JS PORTÁTIL SEJA USADO NO NPM INSTALL
-    const installEnv = { 
-      ...process.env,
-      PATH: `${nodePaths.nodeDir}${path.delimiter}${process.env.PATH}`, // Node.js portátil primeiro!
-      NODE_PATH: path.join(nodePaths.nodeDir, 'node_modules'),
-      npm_config_progress: 'true',
-      npm_config_loglevel: 'info' // Mais logs detalhados
-    };
+    // 🎯 GARANTE QUE NODE.JS PORTÁTIL SEJA USADO NO NPM INSTALL (se aplicável)
+    let installEnv;
+    if (nodePaths) {
+      // Sistema portátil: adiciona Node.js portátil ao PATH
+      installEnv = { 
+        ...process.env,
+        PATH: `${nodePaths.nodeDir}${path.delimiter}${process.env.PATH}`, // Node.js portátil primeiro!
+        NODE_PATH: path.join(nodePaths.nodeDir, 'node_modules'),
+        npm_config_progress: 'true',
+        npm_config_loglevel: 'info' // Mais logs detalhados
+      };
+    } else {
+      // Sistema global: usa PATH padrão do sistema
+      installEnv = {
+        ...process.env,
+        npm_config_progress: 'true',
+        npm_config_loglevel: 'info'
+      };
+    }
     
     const installProcess = exec(installCommand, { 
       cwd: projectPath,
@@ -4473,8 +4755,11 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         
         const isAjvError = npmFallbackHandlers.isAjvError(errorOutput);
         const hasNodeModules = npmFallbackHandlers.hasNodeModules(projectPath);
+        const isAuthError = errorOutput.includes('401') || 
+                           errorOutput.includes('Unable to authenticate') || 
+                           errorOutput.includes('BASIC realm');
         
-        console.log(`[FALLBACK] Análise de erro: isAjvError=${isAjvError}, hasNodeModules=${hasNodeModules}`);
+        console.log(`[FALLBACK] Análise de erro: isAjvError=${isAjvError}, hasNodeModules=${hasNodeModules}, isAuthError=${isAuthError}`);
         
         // Se detectou o erro do ajv mas node_modules existe, tenta continuar mesmo assim
         if (isAjvError && hasNodeModules) {
@@ -4546,9 +4831,9 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
     // 🎯 VERIFICA SE DEVE USAR SISTEMA GLOBAL OU PORTÁTIL
     let useGlobalSystem = false;
     try {
-      const configPath = path.join(__dirname, 'global-system-config.json');
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const configResult = safeReadConfigFile('global-system-config.json');
+      if (configResult) {
+        const config = JSON.parse(configResult.content);
         useGlobalSystem = config.useGlobalSystem || false;
       }
     } catch (error) {
@@ -4556,7 +4841,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
     }
 
     console.log(`[DEBUG] Usar sistema global: ${useGlobalSystem}`);
-
+    
     // 🎯 OBTÉM VERSÃO DO NODE.JS PARA ESTE PROJETO
     if (!projectConfigManager) {
       projectConfigManager = new ProjectConfigManager();
@@ -4568,11 +4853,16 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
     
     // Obtém caminhos do Node.js (portátil ou global)
     let nodePaths;
+    let npmCmd;
     let command;
     
     if (useGlobalSystem) {
       // USA SISTEMA GLOBAL (PATH do Windows)
       console.log(`[DEBUG] 🌐 Usando Node.js e CLIs globais do sistema`);
+      
+      // Define para sistema global
+      npmCmd = 'npm';
+      nodePaths = null;
       
       // Define comandos usando binários globais
       if (projectName === 'mp-pas-root') {
@@ -4620,7 +4910,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         
         // 🎯 CONSTRÓI COMANDOS USANDO NODE.JS PORTÁTIL
         const nodeExe = `"${nodePaths.nodeExe}"`;
-        const npmCmd = `"${nodePaths.npmCmd}"`;
+        npmCmd = `"${nodePaths.npmCmd}"`; // ✅ Define npmCmd no escopo externo
         const ngCmd = `"${nodePaths.ngCmd}"`;
 
         // Ajusta o comando para projetos específicos
@@ -4694,6 +4984,8 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       }
       
       console.log(`[DEBUG] node_modules NÃO existe, executando npm install`);
+      console.log(`[DEBUG] 🎯 npmCmd a ser usado: ${npmCmd}`);
+      console.log(`[DEBUG] 🎯 nodePaths: ${nodePaths ? 'PORTÁTIL' : 'GLOBAL'}`);
 
       console.log(`Diretório node_modules não encontrado em ${projectPath}. Instalando dependências...`);
       const installMessage = 'Instalando dependências com npm install...';
@@ -4711,144 +5003,12 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       // Abre o console imediatamente antes de começar a instalação
       event.reply('show-console', { path: projectPath, index: projectIndex, isPamp: isPampProject });
       
-      // ===== VERIFICAÇÃO DE LOGIN NO NEXUS ANTES DO NPM INSTALL =====
-      console.log('🔍 Verificando login no Nexus antes de npm install...');
+      // Prossegue direto com npm install (verificação de login removida para evitar travamentos)
+      // Se houver problema de autenticação, o npm install vai falhar e mostrar o erro apropriado
+      console.log('📦 Iniciando npm install diretamente...');
+      executeNpmInstall(event, projectPath, projectName, projectIndex, isPampProject, npmCmd, nodePaths, command, port);
       
-      if (!npmFallbackHandlers) {
-        npmFallbackHandlers = new NpmFallbackHandlers();
-      }
-      
-      // Verifica se está logado no Nexus
-      npmFallbackHandlers.checkNexusLogin(projectPath).then(async ({ isLoggedIn, username }) => {
-        if (!isLoggedIn) {
-          console.log('⚠️ Não está logado no Nexus, tentando login silencioso...');
-          
-          const logMessage = '⚠️ Não está logado no Nexus. Tentando login automático...';
-          if (isPampProject) {
-            event.reply('pamp-log', { 
-              path: projectPath, 
-              message: logMessage,
-              index: projectIndex,
-              name: projectName
-            });
-          } else {
-            event.reply('log', { path: projectPath, message: logMessage });
-          }
-          
-          // Tenta login silencioso se houver credenciais salvas
-          if (npmFallbackHandlers.hasStoredCredentials()) {
-            const silentLoginResult = await npmFallbackHandlers.silentNexusLogin(projectPath);
-            
-            if (silentLoginResult.success) {
-              console.log('✅ Login silencioso realizado com sucesso');
-              const successLogMsg = '✅ Login silencioso no Nexus realizado com sucesso';
-              if (isPampProject) {
-                event.reply('pamp-log', { 
-                  path: projectPath, 
-                  message: successLogMsg,
-                  index: projectIndex,
-                  name: projectName
-                });
-              } else {
-                event.reply('log', { path: projectPath, message: successLogMsg });
-              }
-              
-              // Prossegue com npm install
-              executeNpmInstall(event, projectPath, projectName, projectIndex, isPampProject, npmCmd, nodePaths, command, port);
-            } else {
-              console.error('❌ Login silencioso falhou, solicitando login manual...');
-              const failLogMsg = '❌ Login automático falhou. É necessário fazer login manual no Nexus.';
-              if (isPampProject) {
-                event.reply('pamp-log', { 
-                  path: projectPath, 
-                  message: failLogMsg,
-                  index: projectIndex,
-                  name: projectName
-                });
-              } else {
-                event.reply('log', { path: projectPath, message: failLogMsg });
-              }
-              
-              // Solicita login manual
-              dialog.showMessageBox(mainWindow, {
-                type: 'warning',
-                title: 'Login Necessário',
-                message: 'É necessário fazer login no Nexus para instalar dependências.',
-                detail: 'Clique em OK para abrir a janela de login.',
-                buttons: ['OK', 'Cancelar']
-              }).then((result) => {
-                if (result.response === 0) {
-                  // Usuário clicou OK, abre janela de login
-                  handleNpmLogin().then(() => {
-                    // Após login bem-sucedido, tenta novamente
-                    setTimeout(() => {
-                      startProject(event, projectPath, port);
-                    }, 2000);
-                  });
-                } else {
-                  // Usuário cancelou
-                  const cancelMsg = '❌ Instalação cancelada pelo usuário';
-                  if (isPampProject) {
-                    event.reply('pamp-log', { 
-                      path: projectPath, 
-                      message: cancelMsg,
-                      index: projectIndex,
-                      name: projectName
-                    });
-                    event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
-                  } else {
-                    event.reply('log', { path: projectPath, message: cancelMsg });
-                    event.reply('process-error', { path: projectPath });
-                  }
-                }
-              });
-            }
-          } else {
-            console.log('⚠️ Nenhuma credencial salva, solicitando login manual...');
-            const noCredsMsg = '⚠️ Credenciais não encontradas. Abrindo janela de login...';
-            if (isPampProject) {
-              event.reply('pamp-log', { 
-                path: projectPath, 
-                message: noCredsMsg,
-                index: projectIndex,
-                name: projectName
-              });
-            } else {
-              event.reply('log', { path: projectPath, message: noCredsMsg });
-            }
-            
-            // Solicita login manual
-            handleNpmLogin().then(() => {
-              // Após login bem-sucedido, tenta novamente
-              setTimeout(() => {
-                startProject(event, projectPath, port);
-              }, 2000);
-            });
-          }
-        } else {
-          console.log(`✅ Já logado no Nexus como: ${username}`);
-          const loggedMsg = `✅ Logado no Nexus como: ${username}`;
-          if (isPampProject) {
-            event.reply('pamp-log', { 
-              path: projectPath, 
-              message: loggedMsg,
-              index: projectIndex,
-              name: projectName
-            });
-          } else {
-            event.reply('log', { path: projectPath, message: loggedMsg });
-          }
-          
-          // Prossegue com npm install
-          executeNpmInstall(event, projectPath, projectName, projectIndex, isPampProject, npmCmd, nodePaths, command, port);
-        }
-      }).catch((error) => {
-        console.error('❌ Erro ao verificar login no Nexus:', error);
-        // Em caso de erro na verificação, prossegue com npm install mesmo assim
-        executeNpmInstall(event, projectPath, projectName, projectIndex, isPampProject, npmCmd, nodePaths, command, port);
-      });
-      
-      // Retorna aqui para evitar execução do código abaixo (já chamado via executeNpmInstall)
+      // Retorna aqui para evitar execução do código abaixo
       return;
     } else {
       // Verifica cancelamento antes de executar comando diretamente
@@ -4874,9 +5034,9 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
     // 🎯 VERIFICA SE DEVE USAR SISTEMA GLOBAL OU PORTÁTIL
     let useGlobalSystem = false;
     try {
-      const configPath = path.join(__dirname, 'global-system-config.json');
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const configResult = safeReadConfigFile('global-system-config.json');
+      if (configResult) {
+        const config = JSON.parse(configResult.content);
         useGlobalSystem = config.useGlobalSystem || false;
       }
     } catch (error) {
@@ -4907,7 +5067,12 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       
       console.log(`🎯 PATH configurado para usar Node.js portátil: ${nodeDir}`);
       console.log(`📦 Versão Node.js: ${nodeVersion}`);
+      console.log(`🔧 PATH completo: ${customEnv.PATH.substring(0, 200)}...`);
+      console.log(`🔧 NODE_PATH: ${customEnv.NODE_PATH}`);
     }
+    
+    console.log(`🚀 Executando comando: ${command}`);
+    console.log(`📂 Diretório de trabalho: ${projectPath}`);
     
     const childProcess = exec(command, { 
       cwd: projectPath,
@@ -4955,6 +5120,9 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         'the local angular cli version is used',
         'depends on \'',
         'for more info see: https://angular.io/guide/',
+        'processing legacy',
+        'view engine',
+        'encourage the library authors to publish an ivy distribution',
         '[webpack-dev-server]',
         'project is running at:',
         'loopback:',
@@ -4964,7 +5132,21 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         'webpack output is served from',
         'generating browser application bundles',
         'generating browser application bundles (phase: setup)',
-        'generating browser application bundles (phase: building)'
+        'generating browser application bundles (phase: building)',
+        // Padrões específicos para bibliotecas View Engine (Angular)
+        'es2015/esm2015',
+        'es2015/esm5',
+        'module/esm5',
+        '[es2015/esm2015]',
+        '[module/esm5]',
+        'git+https://github.com/',
+        'git+ssh://git@github.com:',
+        '@ngx-translate/',
+        '@ng-bootstrap/',
+        '@angular/',
+        'ngx-',
+        'angular-',
+        'angular2-'
       ];
       
       // Lista de padrões que SÃO erros críticos
@@ -5548,11 +5730,46 @@ let terminalProcess = null;
 // Função cleanupLoginProcesses já definida acima
 
 ipcMain.on('execute-command', (event, command) => {
-  console.log(`🔧 Executando comando: ${command}`);
+  console.log(`🔧 [execute-command] Recebido comando: ${command}`);
+  console.log(`🔧 [execute-command] terminalProcess existe?`, terminalProcess ? 'SIM' : 'NÃO');
   
   if (!terminalProcess) {
     console.log('🚀 Inicializando novo processo de terminal...');
     loginInProgress = true;
+    
+    // Verifica se o comando é npm login e substitui pelo caminho portátil
+    let finalCommand = command;
+    if (command.includes('npm login')) {
+      const npmPath = getPortableNpmPath();
+      
+      if (npmPath) {
+        // Substitui "npm" pelo caminho completo do npm portátil
+        finalCommand = command.replace('npm', `"${npmPath}"`);
+        console.log(`✅ Usando npm portátil: ${npmPath}`);
+        console.log(`📝 Comando ajustado: ${finalCommand}`);
+        
+        // Envia feedback visual para o usuário
+        event.reply('command-output', `\n✅ Usando npm portátil: ${npmPath}\n\n`);
+      } else {
+        console.error(`❌ npm portátil não encontrado!`);
+        event.reply('command-output', `\n❌ ERRO: npm não encontrado!\n`);
+        event.reply('command-output', `Nenhuma versão do Node.js portátil foi encontrada.\n`);
+        event.reply('command-output', `Por favor, instale pelo menos uma versão do Node.js através do menu "Dependências > Instalar Node Portable".\n\n`);
+        
+        // Encerra o processo de login
+        loginInProgress = false;
+        
+        // Envia evento de falha
+        setTimeout(() => {
+          event.sender.send('npm-login-complete', { 
+            success: false, 
+            message: 'npm não encontrado. Instale uma versão do Node.js portátil primeiro.' 
+          });
+        }, 2000);
+        
+        return;
+      }
+    }
     
     // Inicializa o terminal real
     terminalProcess = spawn('cmd.exe', [], { 
@@ -5570,6 +5787,15 @@ ipcMain.on('execute-command', (event, command) => {
       const error = data.toString();
       console.log(`📤 Terminal error: ${error.trim()}`);
       event.reply('command-output', `${error}`);
+      
+      // Detecta erros críticos
+      if (error.toLowerCase().includes('not recognized') || 
+          error.toLowerCase().includes('não é reconhecido') ||
+          error.toLowerCase().includes('command not found')) {
+        console.error('❌ Comando não encontrado - provável que npm não está disponível');
+        event.reply('command-output', `\n❌ ERRO: Comando npm não foi encontrado no sistema.\n`);
+        event.reply('command-output', `Instale uma versão do Node.js portátil através do menu.\n\n`);
+      }
     });
 
     terminalProcess.on('close', (code) => {
@@ -5584,41 +5810,138 @@ ipcMain.on('execute-command', (event, command) => {
       terminalProcess = null;
       loginInProgress = false;
     });
-  }
-
-  // Envia o comando para o terminal real
-  if (terminalProcess && terminalProcess.stdin && !terminalProcess.stdin.destroyed) {
-    try {
-      terminalProcess.stdin.write(`${command}\n`);
-      console.log(`✅ Comando enviado: ${command}`);
-    } catch (error) {
-      console.error('❌ Erro ao enviar comando:', error);
-      event.reply('command-output', `Erro ao enviar comando: ${error.message}\n`);
+    
+    // Envia o comando ajustado para o terminal real
+    if (terminalProcess && terminalProcess.stdin && !terminalProcess.stdin.destroyed) {
+      try {
+        terminalProcess.stdin.write(`${finalCommand}\n`);
+        console.log(`✅ Comando enviado: ${finalCommand}`);
+      } catch (error) {
+        console.error('❌ Erro ao enviar comando:', error);
+        event.reply('command-output', `Erro ao enviar comando: ${error.message}\n`);
+      }
+    } else {
+      console.error('❌ Terminal não disponível para executar comando');
+      event.reply('command-output', `Erro: Terminal não disponível\n`);
     }
   } else {
-    console.error('❌ Terminal não disponível para executar comando');
-    event.reply('command-output', `Erro: Terminal não disponível\n`);
+    // Se o terminal já existe, apenas envia o comando (para inputs de usuário/senha)
+    if (terminalProcess && terminalProcess.stdin && !terminalProcess.stdin.destroyed) {
+      try {
+        terminalProcess.stdin.write(`${command}\n`);
+        console.log(`✅ Comando enviado: ${command}`);
+      } catch (error) {
+        console.error('❌ Erro ao enviar comando:', error);
+        event.reply('command-output', `Erro ao enviar comando: ${error.message}\n`);
+      }
+    } else {
+      console.error('❌ Terminal não disponível para executar comando');
+      event.reply('command-output', `Erro: Terminal não disponível\n`);
+    }
   }
 });
 
-  ipcMain.on('delete-project', (event, { index, path }) => {
-    console.log(`Deletando projeto no caminho: ${path}`);
-    event.reply('delete-project-log', { path, message: `Iniciando exclusão do projeto em ${path}...`, success: false, index });
+  // Map para rastrear deleções em andamento e prevenir múltiplos cliques
+  const deletingProjects = new Map();
+  
+  // Map para rastrear downloads em andamento e prevenir múltiplos cliques
+  const downloadingProjects = new Map();
 
-    const deleteCommand = os.platform() === 'win32' ? `rmdir /s /q "${path}"` : `rm -rf "${path}"`;
+  ipcMain.on('delete-project', (event, { index, path: projectPath }) => {
+    console.log(`🗑️ Deletando projeto no caminho: ${projectPath}`);
+    console.log(`🗑️ Index do projeto: ${index}`);
+    
+    // Verifica se já está deletando este projeto
+    if (deletingProjects.has(index)) {
+      console.warn(`⚠️ Projeto ${index} já está sendo deletado, ignorando clique duplicado`);
+      return;
+    }
+    
+    // Marca como em processo de deleção
+    deletingProjects.set(index, true);
+    
+    // Valida se o caminho existe
+    if (!projectPath || projectPath.trim() === '') {
+      console.error('❌ Caminho do projeto vazio ou inválido');
+      event.reply('delete-project-log', { 
+        path: projectPath, 
+        message: 'Erro: Caminho do projeto vazio ou inválido', 
+        success: false, 
+        index 
+      });
+      deletingProjects.delete(index); // Remove o bloqueio
+      return;
+    }
+    
+    // Verifica se o diretório existe antes de tentar deletar
+    if (!fs.existsSync(projectPath)) {
+      console.warn('⚠️ Diretório não existe, apenas limpando referência');
+      event.reply('delete-project-log', { 
+        path: projectPath, 
+        message: 'Diretório não encontrado, apenas limpando referência...', 
+        success: true, 
+        index 
+      });
+      
+      projects[index].path = '';
+      saveProjects(projects);
+      event.reply('update-project', { index, path: '' });
+      deletingProjects.delete(index); // Remove o bloqueio
+      return;
+    }
+    
+    event.reply('delete-project-log', { 
+      path: projectPath, 
+      message: `Iniciando exclusão do projeto em ${projectPath}...`, 
+      success: false, 
+      index 
+    });
+
+    const deleteCommand = os.platform() === 'win32' 
+      ? `rmdir /s /q "${projectPath}"` 
+      : `rm -rf "${projectPath}"`;
+    
+    console.log(`🔧 Executando comando: ${deleteCommand}`);
 
     exec(deleteCommand, (err, stdout, stderr) => {
       if (err) {
-        console.error(`Erro ao deletar o projeto: ${err.message}`);
-        event.reply('delete-project-log', { path, message: `Erro ao deletar o projeto: ${err.message}`, success: false, index });
+        console.error(`❌ Erro ao deletar o projeto: ${err.message}`);
+        console.error(`❌ stderr: ${stderr}`);
+        event.reply('delete-project-log', { 
+          path: projectPath, 
+          message: `Erro ao deletar o projeto: ${err.message}`, 
+          success: false, 
+          index 
+        });
+        deletingProjects.delete(index); // Remove o bloqueio
+        return; // IMPORTANTE: Para a execução aqui se houver erro
       }
 
-      console.log(`Projeto deletado com sucesso: ${path}`);
-      event.reply('delete-project-log', { path, message: `Projeto deletado com sucesso: ${path}`, success: true, index });
+      // Verifica se o diretório realmente foi deletado
+      if (fs.existsSync(projectPath)) {
+        console.error(`❌ Diretório ainda existe após comando de deleção: ${projectPath}`);
+        event.reply('delete-project-log', { 
+          path: projectPath, 
+          message: `Erro: Falha ao deletar diretório. Pode estar em uso por outro processo.`, 
+          success: false, 
+          index 
+        });
+        deletingProjects.delete(index); // Remove o bloqueio
+        return;
+      }
+
+      console.log(`✅ Projeto deletado com sucesso: ${projectPath}`);
+      event.reply('delete-project-log', { 
+        path: projectPath, 
+        message: `Projeto deletado com sucesso: ${projectPath}`, 
+        success: true, 
+        index 
+      });
 
       projects[index].path = '';
       saveProjects(projects);
       event.reply('update-project', { index, path: '' });
+      deletingProjects.delete(index); // Remove o bloqueio após sucesso
     });
   });
 
@@ -5666,6 +5989,15 @@ ipcMain.on('execute-command', (event, command) => {
     const { shell } = require('electron');
     shell.openExternal(url).catch(error => {
       console.error('Erro ao abrir navegador:', error);
+    });
+  });
+
+  // Handler para abrir URL externa (onboarding)
+  ipcMain.on('open-external', (event, url) => {
+    console.log(`🌐 Abrindo URL externa: ${url}`);
+    const { shell } = require('electron');
+    shell.openExternal(url).catch(error => {
+      console.error('Erro ao abrir URL externa:', error);
     });
   });
 
@@ -6575,6 +6907,11 @@ ipcMain.on('execute-command', (event, command) => {
 // Evento principal do aplicativo
 // ⚡ INICIALIZAÇÃO OTIMIZADA ⚡
 app.on('ready', async () => {
+  // Carrega handlers IPC após Electron estar pronto
+  console.log('[MAIN] Carregando handlers IPC...');
+  require('./ipc-handlers');
+  console.log('[MAIN] ✅ Handlers IPC carregados!');
+  
   safeLog('[ROCKET] Aplicacao pronta, iniciando otimizacoes...');
   
   // ⚡ LIMPA CACHE PROBLEMÁTICO DO ELECTRON NO WINDOWS ⚡
@@ -6591,15 +6928,6 @@ app.on('ready', async () => {
     }
   }
   
-  // Carrega cache na inicialização
-  const cacheLoaded = loadAppCache();
-  if (cacheLoaded) {
-    safeLog('[DISK] Cache pre-carregado com sucesso');
-  }
-  
-  // Inicia pré-carregamento em background
-  preloadCriticalData().catch(console.error);
-  
   // Verifica se Git está disponível (não bloqueia a inicialização)
   setTimeout(() => {
     const isGitAvailable = checkGitGlobal();
@@ -6611,7 +6939,11 @@ app.on('ready', async () => {
   }, 2000);
   
   // Cria splash screen
-  createSplashWindow();
+  splashManager = new SplashManager();
+  splashManager.createSplashWindow();
+  
+  // Aguarda 3 segundos antes de iniciar a aplicação principal
+  setTimeout(initializeMainApp, 3000);
 
   // ⚡ HANDLER PARA ATUALIZAR BRANCH DE PROJETO ESPECÍFICO (TEMPORARIAMENTE DESABILITADO) ⚡
   /*
@@ -6642,11 +6974,25 @@ app.on('ready', async () => {
 
 // ⚡ GESTÃO OTIMIZADA DO CICLO DE VIDA DA APP ⚡
 app.on('window-all-closed', () => {
-  // Salva cache antes de fechar
-  saveAppCache();
+  // Limpa recursos do onboarding manager
+  try {
+    const { onboardingManager } = require('./ipc-handlers');
+    if (onboardingManager) {
+      onboardingManager.cleanup();
+      console.log('[ONBOARDING] ✅ Recursos limpos');
+    }
+  } catch (error) {
+    console.log('[ONBOARDING] ⚠️ Erro na limpeza:', error.message);
+  }
+  
+  // Salva cache antes de fechar se o SplashManager existir
+  if (splashManager) {
+    splashManager.saveAppCache();
+  }
   
   // Limpa cache antigo (mais de 24 horas)
   try {
+    const cacheFile = path.join(app.getPath('userData'), 'app-cache.json');
     if (fs.existsSync(cacheFile)) {
       const cacheData = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
       const cacheAge = Date.now() - cacheData.timestamp;
@@ -6666,14 +7012,20 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createSplashWindow();
+  if (BrowserWindow.getAllWindows().length === 0) {
+    if (!splashManager) {
+      splashManager = new SplashManager();
+    }
+    splashManager.createSplashWindow();
+    setTimeout(initializeMainApp, 3000);
+  }
 });
 
 // ⚡ SISTEMA DE CACHE AUTOMÁTICO ⚡
 // Atualiza cache periodicamente a cada 2 minutos quando a app estiver rodando
 setInterval(() => {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    preloadCriticalData().catch(console.error);
+  if (mainWindow && !mainWindow.isDestroyed() && splashManager) {
+    splashManager.preloadCriticalData().catch(console.error);
     console.log('[CACHE] Cache atualizado automaticamente');
   }
 }, 2 * 60 * 1000); // 2 minutos

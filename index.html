@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Micro Front-End Manager</title>
+  <title>Front-end Manager</title>
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     /* Aplica a fonte Fira Code em todo o app */
@@ -336,8 +336,15 @@
       color: #000;
     }
 
+    /* Força visibilidade do botão onboarding */
+    #toggle-onboarding-mfes {
+      display: flex !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+    }
+
     /* Conteúdo das abas */
-    #pamp-mfes, #projects {
+    #pamp-mfes, #projects, #onboarding-mfes {
       padding: 20px 0;
       min-height: 200px;
     }
@@ -596,7 +603,7 @@
 </head>
 <body>
   <div class="main-title">
-    Micro Front-Ends 
+    Front-end Manager <span style="font-size: 14px; color: #666;">v0.0.11</span>
     <span id="dependencies-status" style="font-size: 12px; margin-left: 10px;"></span>
     <span style="font-size: 10px; margin-left: 20px; color: #666; font-style: italic;" title="Atalhos para reiniciar">
       💡 Ctrl+R ou F5 = Reiniciar
@@ -626,19 +633,760 @@
         <span class="toggle-text">PAMP</span>
         <span class="toggle-count" id="pamp-count">0</span>
       </button>
+      <button id="toggle-onboarding-mfes" class="toggle-btn onboarding-btn">
+        <span class="toggle-text">Onboarding</span>
+        <span class="toggle-count" id="onboarding-count">0</span>
+      </button>
     </div>
   </div>
   
   <div id="pamp-mfes" style="display: none;"></div>
   <div id="projects" style="display: none;"></div>
+  <div id="onboarding-mfes" style="display: none;">
+    <!-- Container para carregar conteúdo do onboarding -->
+    <div id="onboarding-content">
+      <!-- Conteúdo será carregado aqui -->
+    </div>
+  </div>
+
+  <!-- Container para configuração Node.js Onboarding -->
+  <div id="onboarding-node-config" style="display: none;">
+    <div class="onboarding-container">
+      <h1>⚙️ Configuração Node.js - Projetos Onboarding</h1>
+      <p class="onboarding-subtitle">Selecione a versão do Node.js para cada projeto</p>
+
+      <div class="onboarding-info-box">
+        <strong>ℹ️ Informação:</strong>
+        Cada projeto pode usar uma versão diferente do Node.js.
+        Os projetos Onboarding usam React e não precisam do Angular CLI.
+        As alterações são salvas automaticamente.
+        <br><br>
+        📚 <strong>Referência de Compatibilidade:</strong>
+        <a href="#" onclick="require('electron').shell.openExternal('https://nodejs.org/en/download/releases'); return false;" 
+           style="color: #4CAF50; text-decoration: none;">
+            Node.js Release Schedule
+        </a>
+      </div>
+
+      <div class="onboarding-project-list" id="onboarding-project-list">
+        <!-- Projetos serão inseridos aqui via JavaScript -->
+      </div>
+    </div>
+  </div>
+
+  <style>
+    /* Estilos específicos para configuração Node.js Onboarding */
+    .onboarding-container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      transition: background-color 0.3s, border-color 0.3s;
+      min-height: calc(100vh - 40px);
+    }
+
+    body.dark-mode .onboarding-container {
+      background: #2d2d2d;
+      border-color: #444;
+    }
+
+    .onboarding-container h1 {
+      text-align: center;
+      margin-bottom: 10px;
+      font-size: 28px;
+      color: var(--text-color);
+    }
+
+    .onboarding-subtitle {
+      text-align: center;
+      opacity: 0.9;
+      margin-bottom: 30px;
+      font-size: 14px;
+      color: var(--text-color);
+    }
+
+    .onboarding-info-box {
+      background: #f9f9f9;
+      border-left: 4px solid #333;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-left-width: 4px;
+      border-radius: 3px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #333;
+    }
+
+    body.dark-mode .onboarding-info-box {
+      background: #3a3a3a;
+      border-color: #555;
+      border-left-color: #777;
+      color: #fff;
+    }
+
+    .onboarding-info-box strong {
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .onboarding-project-list {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .onboarding-project-item {
+      background: #f9f9f9;
+      padding: 20px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      gap: 30px;
+      margin-bottom: 15px;
+      transition: all 0.2s ease;
+    }
+
+    body.dark-mode .onboarding-project-item {
+      background: #3a3a3a;
+      border-color: #555;
+    }
+
+    .onboarding-project-item:hover {
+      background: #f0f0f0;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    body.dark-mode .onboarding-project-item:hover {
+      background: #444;
+    }
+
+    .onboarding-project-info {
+      min-width: 280px;
+      max-width: 320px;
+      flex: 0 0 auto;
+    }
+
+    .onboarding-project-name {
+      font-size: 16px;
+      font-weight: bold;
+      margin-bottom: 5px;
+      color: #333;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    body.dark-mode .onboarding-project-name {
+      color: #e0e0e0;
+    }
+
+    .onboarding-project-path {
+      font-size: 11px;
+      color: #666;
+      font-family: 'Courier New', monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+
+    body.dark-mode .onboarding-project-path {
+      color: #aaa;
+    }
+
+    .onboarding-project-badges {
+      display: flex;
+      gap: 5px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+
+    .onboarding-project-badge {
+      background: #61dafb;
+      color: #000;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: bold;
+    }
+
+    .onboarding-version-selector {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: flex-start;
+      flex: 1;
+      justify-content: flex-start;
+    }
+
+    .onboarding-version-option {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: #e9e9e9;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      padding: 12px 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+      min-width: 140px;
+      width: 140px;
+      height: auto;
+      min-height: 60px;
+    }
+
+    body.dark-mode .onboarding-version-option {
+      background: #404040;
+      border-color: #666;
+    }
+
+    .onboarding-version-option:hover {
+      background: #d4edda;
+      border-color: #28a745;
+      transform: translateY(-1px);
+    }
+
+    body.dark-mode .onboarding-version-option:hover {
+      background: #495057;
+      border-color: #28a745;
+    }
+
+    .onboarding-version-option.selected {
+      background: linear-gradient(135deg, #28a745, #20c997);
+      border-color: #28a745;
+      color: white;
+    }
+
+    .onboarding-version-option input[type="radio"] {
+      display: none;
+    }
+
+    .onboarding-version-label {
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      width: 100%;
+      text-align: center;
+    }
+
+    .onboarding-status-badge {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      margin-top: 4px;
+    }
+
+    .onboarding-in-use {
+      background: rgba(40, 167, 69, 0.1);
+      color: #28a745;
+      border: 1px solid rgba(40, 167, 69, 0.3);
+    }
+
+    body.dark-mode .onboarding-in-use {
+      background: rgba(40, 167, 69, 0.2);
+      color: #5cb85c;
+    }
+
+    .onboarding-empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #999;
+    }
+
+    .onboarding-empty-state-icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+    }
+
+    .onboarding-empty-state-text {
+      font-size: 18px;
+    }
+
+    /* Responsividade */
+    @media (max-width: 600px) {
+      .onboarding-version-selector {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      
+      .onboarding-version-option {
+        width: 100%;
+        height: 70px;
+      }
+    }
+  </style>
+  
+  <!-- Serviços compartilhados -->
+  <script src="shared-services.js"></script>
   
   <script>
   const { ipcRenderer } = require('electron');
   const path = require('path');
+  const { shell } = require('electron');
   
   // Store projects globally for reference
   let currentProjects = [];
+  let currentOnboardingProjects = [];
   let currentIDE = { id: 'vscode', name: 'Visual Studio Code', icon: 'vscode.png' };
+
+  // Estado de visibilidade do onboarding
+  let onboardingVisible = false;
+  let onboardingNodeConfigVisible = false;
+
+  // =============================================================================
+  // FUNÇÕES ONBOARDING NODE CONFIGURATION
+  // =============================================================================
+
+  /**
+   * Carrega configuração do Node.js para projetos onboarding
+   */
+  async function loadOnboardingNodeConfig() {
+    console.log('[ONBOARDING-NODE] 📡 Carregando configuração Node.js...');
+    
+    try {
+      // Obtém informações dos projetos onboarding
+      const result = await ipcRenderer.invoke('load-onboarding-projects');
+      
+      if (result.success) {
+        const projects = result.projects;
+        console.log('[ONBOARDING-NODE] ✅ Projetos carregados:', projects);
+        
+        // Busca caminhos persistidos e versões do Node para cada projeto
+        const projectsWithPaths = await Promise.all(
+          projects.map(async (project) => {
+            const pathResult = await ipcRenderer.invoke('get-onboarding-project-path', { 
+              projectName: project.name 
+            });
+            
+            const versionResult = await ipcRenderer.invoke('get-onboarding-node-version', { 
+              projectName: project.name 
+            });
+            
+            return {
+              ...project,
+              persistedPath: pathResult.success ? pathResult.projectPath : null,
+              nodeVersion: versionResult.success ? versionResult.nodeVersion : '16.10.0'
+            };
+          })
+        );
+        
+        console.log('[ONBOARDING-NODE] 📁 Projetos com caminhos persistidos:', projectsWithPaths);
+        
+        // Obtém versões disponíveis do Node
+        const nodeVersions = await getAvailableNodeVersions();
+        
+        // Renderiza interface
+        renderOnboardingNodeConfig(projectsWithPaths, nodeVersions);
+      } else {
+        console.error('[ONBOARDING-NODE] ❌ Erro ao carregar projetos:', result.error);
+      }
+    } catch (error) {
+      console.error('[ONBOARDING-NODE] ❌ Erro:', error);
+    }
+  }
+
+  /**
+   * Obtém versões disponíveis do Node.js
+   */
+  async function getAvailableNodeVersions() {
+    try {
+      const versions = await ipcRenderer.invoke('get-node-versions');
+      return versions || ['16.10.0', '18.18.2', '20.19.5']; // Fallback
+    } catch (error) {
+      console.error('[ONBOARDING-NODE] ❌ Erro ao obter versões Node:', error);
+      return ['16.10.0', '18.18.2', '20.19.5']; // Fallback
+    }
+  }
+
+  /**
+   * Renderiza interface de configuração do Node.js
+   */
+  function renderOnboardingNodeConfig(projects, nodeVersions) {
+    const container = document.getElementById('onboarding-project-list');
+    
+    if (!projects || projects.length === 0) {
+      container.innerHTML = `
+        <div class="onboarding-empty-state">
+          <div class="onboarding-empty-state-icon">📦</div>
+          <div class="onboarding-empty-state-text">Nenhum projeto onboarding encontrado</div>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = '';
+
+    projects.forEach((project, projectIndex) => {
+      // Obtém versão atual configurada ou usa padrão
+      const currentVersion = project.nodeVersion || '16.10.0';
+      
+      // Cria item do projeto
+      const projectItem = document.createElement('div');
+      projectItem.className = 'onboarding-project-item';
+      projectItem.dataset.project = project.name;
+
+      projectItem.innerHTML = `
+        <div class="onboarding-project-info">
+          <div class="onboarding-project-name">� ${project.name}</div>
+          <div class="onboarding-project-path">${project.persistedPath || project.path || 'Caminho não definido'}</div>
+          <div class="onboarding-project-badges">
+            <span class="onboarding-project-badge">⚛️ React</span>
+            <span class="onboarding-project-badge" style="background: #68B684;">🚀 Portátil</span>
+            <span class="onboarding-project-badge" style="background: #ff6b6b; color: white;">Porta: ${project.port}</span>
+          </div>
+        </div>
+        <div class="onboarding-version-selector" id="version-selector-${projectIndex}">
+          ${nodeVersions.map((version, versionIndex) => {
+            const isSelected = version === currentVersion;
+            
+            return `
+              <div class="onboarding-version-option ${isSelected ? 'selected' : ''}" 
+                   data-project="${project.name}" 
+                   data-version="${version}"
+                   onclick="selectOnboardingNodeVersion('${project.name}', '${version}', ${projectIndex})">
+                <input type="radio" 
+                       name="node-version-${projectIndex}" 
+                       value="${version}" 
+                       ${isSelected ? 'checked' : ''}>
+                <div class="onboarding-version-label">Node ${version}</div>
+                ${isSelected ? '<div class="onboarding-status-badge onboarding-in-use">🟢 Em uso</div>' : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+
+      container.appendChild(projectItem);
+    });
+  }
+
+  /**
+   * Seleciona pasta para configuração do projeto onboarding
+   */
+  async function selectOnboardingConfigFolder(index) {
+    const project = currentOnboardingProjects[index];
+    const inputId = `onb-config-input-${index}`;
+    
+    console.log(`[ONBOARDING-CONFIG] 📁 Selecionando pasta para ${project.name}...`);
+    
+    await sharedServices.selectFolder(
+      inputId, 
+      index, 
+      'onboarding-config', 
+      (path, idx, type) => {
+        console.log(`[ONBOARDING-CONFIG] ✅ Pasta selecionada: ${path}`);
+        
+        // Atualiza projeto no backend
+        ipcRenderer.invoke('set-onboarding-project-path', {
+          projectName: project.name,
+          projectPath: path
+        }).then(() => {
+          console.log(`[ONBOARDING-CONFIG] ✅ Caminho salvo no backend`);
+        });
+      }
+    );
+  }
+
+  /**
+   * Atualiza display da versão do Node
+   */
+  function updateNodeVersionDisplay(index, version) {
+    const statusDiv = document.getElementById(`node-status-${index}`);
+    statusDiv.innerHTML = `
+      <span style="color: var(--warning-color);">⚠️</span>
+      <span style="color: var(--text-color);">Node.js v${version} - Aguardando aplicação</span>
+    `;
+  }
+
+  /**
+   * Aplica nova versão do Node.js
+   */
+  async function applyNodeVersion(index) {
+    const versionSelect = document.getElementById(`node-version-${index}`);
+    const button = document.getElementById(`apply-node-${index}`);
+    const statusDiv = document.getElementById(`node-status-${index}`);
+    
+    const selectedVersion = versionSelect.value;
+    const projectName = currentOnboardingProjects[index].name;
+    
+    button.disabled = true;
+    button.innerHTML = '⏳ Aplicando...';
+    
+    statusDiv.innerHTML = `
+      <span style="color: var(--info-color);">🔄</span>
+      <span style="color: var(--text-color);">Configurando Node.js v${selectedVersion}...</span>
+    `;
+    
+    try {
+      const result = await ipcRenderer.invoke('set-onboarding-node-version', {
+        projectName,
+        nodeVersion: selectedVersion
+      });
+      
+      if (result.success) {
+        statusDiv.innerHTML = `
+          <span style="color: var(--success-color);">✅</span>
+          <span style="color: var(--text-color);">Node.js v${selectedVersion} - Configurado!</span>
+        `;
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error) {
+      statusDiv.innerHTML = `
+        <span style="color: var(--error-color);">❌</span>
+        <span style="color: var(--text-color);">Erro: ${error.message}</span>
+      `;
+    } finally {
+      button.disabled = false;
+      button.innerHTML = '💾 Aplicar Configuração';
+    }
+  }
+
+  /**
+   * Restaura versão padrão do Node.js
+   */
+  async function resetNodeVersion(index) {
+    const versionSelect = document.getElementById(`node-version-${index}`);
+    versionSelect.value = '16.10.0';
+    updateNodeVersionDisplay(index, '16.10.0');
+    await applyNodeVersion(index);
+  }
+
+  /**
+   * Seleciona versão do Node.js para projeto onboarding
+   */
+  async function selectOnboardingNodeVersion(projectName, nodeVersion, projectIndex) {
+    console.log(`[ONBOARDING-NODE] 🔧 Configurando ${projectName} para usar Node.js v${nodeVersion}`);
+    
+    try {
+      // Atualiza seleção visual
+      const versionSelector = document.getElementById(`version-selector-${projectIndex}`);
+      const allOptions = versionSelector.querySelectorAll('.onboarding-version-option');
+      
+      // Remove seleção anterior e tag "Em uso"
+      allOptions.forEach(option => {
+        option.classList.remove('selected');
+        const radio = option.querySelector('input[type="radio"]');
+        radio.checked = false;
+        
+        // Remove tag "Em uso" anterior
+        const statusBadge = option.querySelector('.onboarding-status-badge');
+        if (statusBadge) {
+          statusBadge.remove();
+        }
+      });
+      
+      // Adiciona seleção nova e tag "Em uso"
+      const selectedOption = versionSelector.querySelector(`[data-version="${nodeVersion}"]`);
+      if (selectedOption) {
+        selectedOption.classList.add('selected');
+        const radio = selectedOption.querySelector('input[type="radio"]');
+        radio.checked = true;
+        
+        // Adiciona nova tag "Em uso"
+        const labelDiv = selectedOption.querySelector('.onboarding-version-label');
+        const statusBadge = document.createElement('div');
+        statusBadge.className = 'onboarding-status-badge onboarding-in-use';
+        statusBadge.textContent = '🟢 Em uso';
+        labelDiv.parentNode.appendChild(statusBadge);
+      }
+      
+      // Salva configuração no backend
+      const result = await ipcRenderer.invoke('set-onboarding-node-version', {
+        projectName,
+        nodeVersion
+      });
+      
+      if (result.success) {
+        console.log(`[ONBOARDING-NODE] ✅ Versão Node.js v${nodeVersion} salva para ${projectName}`);
+      } else {
+        console.error(`[ONBOARDING-NODE] ❌ Erro ao salvar configuração:`, result.error);
+      }
+      
+    } catch (error) {
+      console.error(`[ONBOARDING-NODE] ❌ Erro ao configurar Node.js para ${projectName}:`, error);
+    }
+  }
+
+  // =============================================================================
+  // FUNÇÕES AUXILIARES ONBOARDING
+  // =============================================================================
+
+  /**
+   * Toggle dos badges de versão onboarding
+   */
+  function toggleOnboardingVersionBadges(index) {
+    const badgesContainer = document.getElementById(`onb-version-badges-${index}`);
+    const toggleBtn = badgesContainer.previousElementSibling;
+    
+    if (badgesContainer.style.display === 'none' || !badgesContainer.style.display) {
+      badgesContainer.style.display = 'flex';
+      toggleBtn.textContent = '‹';
+    } else {
+      badgesContainer.style.display = 'none';
+      toggleBtn.textContent = '›';
+    }
+  }
+
+  /**
+   * Abre projeto onboarding no editor
+   */
+  async function openOnboardingProjectInEditor(index) {
+    const project = currentOnboardingProjects[index];
+    if (project && project.path) {
+      await sharedServices.openInEditor(project.path, currentIDE);
+    }
+  }
+
+  /**
+   * Abre projeto onboarding no navegador
+   */
+  function openOnboardingProject(index) {
+    const project = currentOnboardingProjects[index];
+    if (project && project.isRunning) {
+      sharedServices.openInBrowser(project.port);
+    }
+  }
+
+  /**
+   * Seleciona pasta para projeto onboarding
+   */
+  async function selectOnboardingFolder(index) {
+    await sharedServices.selectFolder(
+      `onb-input-${index}`, 
+      index, 
+      'onboarding', 
+      (path, idx, type) => {
+        // Callback após seleção - atualiza projeto no backend
+        ipcRenderer.invoke('set-onboarding-project-path', {
+          projectName: currentOnboardingProjects[idx].name,
+          projectPath: path
+        }).then(() => {
+          loadOnboardingProjects(); // Recarrega projetos
+        });
+      }
+    );
+  }
+
+  /**
+   * Clona projeto onboarding
+   */
+  async function cloneOnboardingProject(projectName, index) {
+    const logElementId = `onb-log-${index}`;
+    const buttonId = `onb-btn-download-${index}`;
+    
+    sharedServices.updateButton(buttonId, '⏳ Clonando...', true);
+    sharedServices.clearLog(logElementId);
+    sharedServices.updateLog(logElementId, '');
+    
+    try {
+      const result = await ipcRenderer.invoke('clone-onboarding-project', { projectName });
+      
+      if (result.success) {
+        sharedServices.updateLog(logElementId, `✅ Projeto clonado em: ${result.projectPath}`);
+        const input = document.getElementById(`onb-input-${index}`);
+        if (input) {
+          input.value = result.projectPath;
+        }
+        await loadOnboardingProjects(); // Reload to update UI
+      } else {
+        sharedServices.updateLog(logElementId, `❌ Erro: ${result.error}`);
+      }
+    } catch (error) {
+      sharedServices.updateLog(logElementId, `❌ Erro: ${error.message}`);
+    } finally {
+      sharedServices.updateButton(buttonId, '📥 Clonar Projeto', false);
+    }
+  }
+
+  /**
+   * Instala dependências do projeto onboarding
+   */
+  async function installOnboardingDependencies(projectName, index) {
+    const logElementId = `onb-log-${index}`;
+    const buttonId = `onb-btn-install-${index}`;
+    
+    sharedServices.updateButton(buttonId, '⏳ Instalando...', true);
+    sharedServices.clearLog(logElementId);
+    sharedServices.updateLog(logElementId, '');
+    
+    try {
+      const result = await ipcRenderer.invoke('install-onboarding-dependencies', { projectName });
+      
+      if (result.success) {
+        sharedServices.updateLog(logElementId, '✅ Dependências instaladas com sucesso!');
+        await loadOnboardingProjects(); // Reload to update UI
+      } else {
+        sharedServices.updateLog(logElementId, `❌ Erro: ${result.error}`);
+      }
+    } catch (error) {
+      sharedServices.updateLog(logElementId, `❌ Erro: ${error.message}`);
+    } finally {
+      sharedServices.updateButton(buttonId, '📦 Instalar', false);
+    }
+  }
+
+  /**
+   * Inicia projeto onboarding
+   */
+  async function startOnboardingProject(projectName, index) {
+    const logElementId = `onb-log-${index}`;
+    const startButtonId = `onb-btn-start-${index}`;
+    const cancelButtonId = `onb-btn-cancel-${index}`;
+    
+    sharedServices.updateButton(startButtonId, '⏳ Iniciando...', true);
+    sharedServices.updateButton(cancelButtonId, null, null, 'inline-block');
+    sharedServices.clearLog(logElementId);
+    sharedServices.updateLog(logElementId, '');
+    
+    try {
+      const result = await ipcRenderer.invoke('start-onboarding-project', { projectName });
+      
+      if (result.success) {
+        sharedServices.updateLog(logElementId, `✅ Projeto iniciado na porta ${result.port}!`);
+        // O evento 'onboarding-started' irá atualizar a UI automaticamente
+      } else {
+        sharedServices.updateLog(logElementId, `❌ Erro: ${result.error}`);
+        sharedServices.updateButton(startButtonId, 'Iniciar', false);
+        sharedServices.updateButton(cancelButtonId, null, null, 'none');
+      }
+    } catch (error) {
+      sharedServices.updateLog(logElementId, `❌ Erro: ${error.message}`);
+      sharedServices.updateButton(startButtonId, 'Iniciar', false);
+      sharedServices.updateButton(cancelButtonId, null, null, 'none');
+    }
+  }
+
+  /**
+   * Para projeto onboarding
+   */
+  async function stopOnboardingProject(projectName, index) {
+    const logElementId = `onb-log-${index}`;
+    const stopButtonId = `onb-btn-stop-${index}`;
+    
+    sharedServices.updateButton(stopButtonId, '⏳ Parando...', true);
+    sharedServices.updateLog(logElementId, '');
+    
+    try {
+      const result = await ipcRenderer.invoke('stop-onboarding-project', { projectName });
+      
+      if (result.success) {
+        sharedServices.updateLog(logElementId, '✅ Projeto parado com sucesso!');
+        // O evento 'onboarding-stopped' irá atualizar a UI automaticamente
+      } else {
+        sharedServices.updateLog(logElementId, `❌ Erro: ${result.error}`);
+        sharedServices.updateButton(stopButtonId, 'Parar', false);
+      }
+    } catch (error) {
+      sharedServices.updateLog(logElementId, `❌ Erro: ${error.message}`);
+      sharedServices.updateButton(stopButtonId, 'Parar', false);
+    }
+  }
 
   // ===== FUNÇÃO PARA OBTER ÍCONE DA IDE ATUAL =====
   function getCurrentIDEIcon() {
@@ -655,6 +1403,9 @@
       img.src = ideIcon;
       img.title = `Abrir projeto no ${currentIDE.name}`;
     });
+
+    // Atualiza IDE no módulo onboarding
+    updateOnboardingIDE();
   }
 
   // Função para aplicar tema
@@ -683,9 +1434,18 @@
   }
 
   // ===== FUNÇÃO PARA ABRIR PROJETO NO EDITOR =====
-  function openProjectInEditor(projectIndex, isPamp) {
+  function openProjectInEditor(projectIndex, isPamp, isOnboarding = false) {
     // Verifica se já está processando para evitar múltiplos cliques
-    const editorButtonId = isPamp ? `pamp-btn-editor-${projectIndex}` : `btn-editor-${projectIndex}`;
+    let editorButtonId, inputId;
+    
+    if (isOnboarding) {
+      editorButtonId = `onb-btn-editor-${projectIndex}`;
+      inputId = `onb-input-${projectIndex}`;
+    } else {
+      editorButtonId = isPamp ? `pamp-btn-editor-${projectIndex}` : `btn-editor-${projectIndex}`;
+      inputId = isPamp ? `pamp-input-${projectIndex}` : `input-${projectIndex}`;
+    }
+    
     const editorButton = document.getElementById(editorButtonId);
     
     if (!editorButton || editorButton.classList.contains('disabled')) {
@@ -694,7 +1454,6 @@
     }
     
     // Pega o caminho do projeto
-    const inputId = isPamp ? `pamp-input-${projectIndex}` : `input-${projectIndex}`;
     const inputElement = document.getElementById(inputId);
     
     if (!inputElement || !inputElement.value.trim()) {
@@ -714,7 +1473,8 @@
     ipcRenderer.send('open-project-in-editor', { 
       projectPath: projectPath,
       projectIndex: projectIndex,
-      isPamp: isPamp
+      isPamp: isPamp,
+      isOnboarding: isOnboarding
     });
     
     // Reabilita o botão após 5 segundos
@@ -950,6 +1710,52 @@
   }
 
   // ===== FUNÇÕES PARA BOTÕES TOGGLE MODERNOS =====
+  
+  /**
+   * Esconde todos os containers principais da aplicação
+   */
+  function hideAllContainers() {
+    console.log('[UI] 🫥 Escondendo todos os containers...');
+    
+    const containers = [
+      'projects',      // PAS
+      'pamp-mfes',     // PAMP
+      'onboarding-mfes' // Onboarding
+    ];
+    
+    containers.forEach(containerId => {
+      const container = document.getElementById(containerId);
+      if (container) {
+        container.style.display = 'none';
+        console.log(`[UI] ✅ Container ${containerId} escondido`);
+      } else {
+        console.warn(`[UI] ⚠️ Container ${containerId} não encontrado`);
+      }
+    });
+    
+    // Remove estado expanded de todos os botões toggle
+    const toggleButtons = [
+      'toggle-mfes',
+      'toggle-pamp-mfes', 
+      'toggle-onboarding-mfes'
+    ];
+    
+    toggleButtons.forEach(buttonId => {
+      const button = document.getElementById(buttonId);
+      if (button) {
+        button.classList.remove('expanded');
+        console.log(`[UI] ✅ Estado expanded removido do botão ${buttonId}`);
+      }
+    });
+    
+    // Atualiza variáveis globais de visibilidade
+    if (typeof mfesVisible !== 'undefined') mfesVisible = false;
+    if (typeof pampVisible !== 'undefined') pampVisible = false;
+    if (typeof onboardingVisible !== 'undefined') onboardingVisible = false;
+    
+    console.log('[UI] ✅ Todos os containers foram escondidos');
+  }
+  
   function updateToggleButton(button, isExpanded, count = 0) {
     const countElement = button.querySelector('.toggle-count');
     
@@ -994,7 +1800,167 @@
     updateToggleButton(toggleBtn, mfesVisible, pasCount);
   });
 
+  // Toggle para Onboarding
+  const toggleOnboardingBtn = document.getElementById('toggle-onboarding-mfes');
+  const onboardingContainer = document.getElementById('onboarding-mfes');
+  
+  console.log('[ONBOARDING] Inicializando botão Onboarding...');
+  console.log('[ONBOARDING] toggleOnboardingBtn:', toggleOnboardingBtn);
+  console.log('[ONBOARDING] onboardingContainer:', onboardingContainer);
+  
+  if (!toggleOnboardingBtn) {
+    console.error('[ONBOARDING] ❌ Botão Onboarding não encontrado!');
+  } else {
+    console.log('[ONBOARDING] ✅ Botão Onboarding encontrado');
+  }
+  
+  if (!onboardingContainer) {
+    console.error('[ONBOARDING] ❌ Container Onboarding não encontrado!');
+  } else {
+    console.log('[ONBOARDING] ✅ Container Onboarding encontrado');
+  }
+  
+  toggleOnboardingBtn.addEventListener('click', () => {
+    console.log('[ONBOARDING] 🖱️ Botão clicado! onboardingVisible:', onboardingVisible);
+    onboardingVisible = !onboardingVisible;
+    onboardingContainer.style.display = onboardingVisible ? 'block' : 'none';
+    
+    if (onboardingVisible) {
+      console.log('[ONBOARDING] 👁️ Mostrando Onboarding, escondendo PAS e PAMP');
+      // Esconde PAS e PAMP quando Onboarding estiver aberto (sem encerrar processos)
+      projectsContainer.style.display = 'none';
+      pampContainer.style.display = 'none';
+      
+      // Atualiza botões para mostrar que estão ocultos mas não desativados
+      toggleBtn.classList.remove('expanded');
+      togglePampBtn.classList.remove('expanded');
+      
+      // Carrega projetos onboarding
+      loadOnboardingProjects();
+    } else {
+      console.log('[ONBOARDING] 👁️ Escondendo Onboarding, restaurando PAS e PAMP');
+      // Restaura visibilidade anterior dos painéis PAS e PAMP
+      projectsContainer.style.display = mfesVisible ? 'block' : 'none';
+      pampContainer.style.display = pampVisible ? 'block' : 'none';
+      
+      // Restaura estado dos botões
+      if (mfesVisible) toggleBtn.classList.add('expanded');
+      if (pampVisible) togglePampBtn.classList.add('expanded');
+    }
+    
+    // Conta projetos Onboarding visíveis
+    const onboardingCount = onboardingContainer.querySelectorAll('.project-card').length;
+    updateToggleButton(toggleOnboardingBtn, onboardingVisible, onboardingCount);
+  });
+
+  // Toggle para configuração do Node.js do Onboarding
+  const toggleOnboardingNodeConfigBtn = document.getElementById('toggle-onboarding-node-config');
+  const onboardingNodeConfigContainer = document.getElementById('onboarding-node-config');
+  
+  if (toggleOnboardingNodeConfigBtn && onboardingNodeConfigContainer) {
+    toggleOnboardingNodeConfigBtn.addEventListener('click', () => {
+      console.log('[ONBOARDING-NODE] 🖱️ Botão de configuração Node clicado!');
+      onboardingNodeConfigVisible = !onboardingNodeConfigVisible;
+      onboardingNodeConfigContainer.style.display = onboardingNodeConfigVisible ? 'block' : 'none';
+      
+      if (onboardingNodeConfigVisible) {
+        // Esconde todos os outros painéis
+        projectsContainer.style.display = 'none';
+        pampContainer.style.display = 'none';
+        onboardingContainer.style.display = 'none';
+        
+        // Remove estado expanded de todos os botões
+        toggleBtn.classList.remove('expanded');
+        togglePampBtn.classList.remove('expanded');
+        toggleOnboardingBtn.classList.remove('expanded');
+        
+        // Carrega configuração do Node
+        loadOnboardingNodeConfig();
+      } else {
+        // Restaura estados anteriores
+        if (mfesVisible) {
+          projectsContainer.style.display = 'block';
+          toggleBtn.classList.add('expanded');
+        }
+        if (pampVisible) {
+          pampContainer.style.display = 'block';
+          togglePampBtn.classList.add('expanded');
+        }
+        if (onboardingVisible) {
+          onboardingContainer.style.display = 'block';
+          toggleOnboardingBtn.classList.add('expanded');
+        }
+      }
+      
+      // Atualiza estado do botão
+      toggleOnboardingNodeConfigBtn.classList.toggle('expanded', onboardingNodeConfigVisible);
+    });
+  }
+
   ipcRenderer.send('load-projects');
+
+  // Função para carregar versão dinamicamente
+  async function loadAppVersion() {
+    try {
+      const version = await ipcRenderer.invoke('get-app-version');
+      console.log('[APP] 📋 Versão carregada:', version);
+      
+      // Atualiza o título principal
+      const titleElement = document.querySelector('.main-title');
+      if (titleElement) {
+        const versionSpan = titleElement.querySelector('span');
+        if (versionSpan) {
+          versionSpan.textContent = `v${version}`;
+        } else {
+          // Se não houver span de versão, adiciona um
+          const newVersionSpan = document.createElement('span');
+          newVersionSpan.style.fontSize = '14px';
+          newVersionSpan.style.color = '#666';
+          newVersionSpan.textContent = `v${version}`;
+          titleElement.insertBefore(newVersionSpan, titleElement.firstChild.nextSibling);
+        }
+      }
+    } catch (error) {
+      console.error('[APP] ❌ Erro ao carregar versão:', error);
+    }
+  }
+
+  // Inicializa contador de onboarding
+  console.log('[ONBOARDING] 🔄 Inicializando contador de onboarding...');
+  const initialOnboardingCount = document.getElementById('onboarding-count');
+  if (initialOnboardingCount) {
+    initialOnboardingCount.textContent = '1'; // mp-site-front
+    console.log('[ONBOARDING] ✅ Contador inicial definido para 1');
+  } else {
+    console.error('[ONBOARDING] ❌ Elemento onboarding-count não encontrado!');
+  }
+
+  // Aguarda DOM estar pronto e inicializa onboarding
+  document.addEventListener('DOMContentLoaded', function() {
+    console.log('[ONBOARDING] 🚀 DOM loaded, verificando elementos...');
+    
+    // Carrega a versão do app dinamicamente
+    loadAppVersion();
+    
+    // Força verificação dos elementos onboarding
+    const onbBtn = document.getElementById('toggle-onboarding-mfes');
+    const onbContainer = document.getElementById('onboarding-mfes');
+    const onbCountEl = document.getElementById('onboarding-count');
+    
+    console.log('[ONBOARDING] Elementos encontrados:');
+    console.log('- toggle-onboarding-mfes:', !!onbBtn);
+    console.log('- onboarding-mfes:', !!onbContainer);
+    console.log('- onboarding-count:', !!onbCountEl);
+    
+    if (onbBtn && onbContainer) {
+      console.log('[ONBOARDING] ✅ Todos os elementos encontrados!');
+      // Garante que o botão seja visível
+      onbBtn.style.display = 'flex';
+      if (onbCountEl) onbCountEl.textContent = '1';
+    } else {
+      console.error('[ONBOARDING] ❌ Elementos não encontrados!');
+    }
+  });
   
   // Handler para resultado do git pull
   ipcRenderer.on('git-pull-result', (event, { projectIndex, projectName, success, output, isPamp }) => {
@@ -1231,6 +2197,8 @@
     });
 
     pampDownloadButton.addEventListener('click', () => {
+      pampDownloadButton.disabled = true;
+      pampDownloadButton.innerText = 'Baixando...';
       pampFolderIcon.classList.add('disabled');
       ipcRenderer.send('download-project', { name: project.name, index: realIndex });
     });
@@ -1390,6 +2358,8 @@
     });
   
     downloadButton.addEventListener('click', () => {
+      downloadButton.disabled = true;
+      downloadButton.innerText = 'Baixando...';
       ipcRenderer.send('download-project', { name: project.name, index: realIndex });
     });
 
@@ -1631,6 +2601,338 @@
   // A atualização dos contadores agora é feita no final do handler 'projects-loaded'
   // para garantir que todos os dados Git estejam processados
 
+  // ===== FUNÇÕES DE ONBOARDING =====
+  
+  /**
+   * Carrega projetos de onboarding
+   */
+  async function loadOnboardingProjects() {
+    console.log('[ONBOARDING] 📡 Carregando projetos de onboarding...');
+    try {
+      const result = await ipcRenderer.invoke('load-onboarding-projects');
+      console.log('[ONBOARDING] 📦 Resultado recebido:', result);
+      
+      if (result.success) {
+        currentOnboardingProjects = result.projects;
+        console.log('[ONBOARDING] ✅ Projetos carregados:', result.projects);
+        
+        // Renderiza projetos diretamente no container
+        renderOnboardingProjects(result.projects);
+        
+        // Atualiza contador
+        const onboardingCount = result.projects.length;
+        const countElement = document.getElementById('onboarding-count');
+        if (countElement) {
+          countElement.textContent = onboardingCount.toString();
+          console.log('[ONBOARDING] 🔢 Contador atualizado para:', onboardingCount);
+        }
+      } else {
+        console.error('[ONBOARDING] ❌ Erro ao carregar projetos onboarding:', result.error);
+      }
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao carregar projetos onboarding:', error);
+    }
+  }
+
+  /**
+   * Renderiza projetos de onboarding seguindo o padrão PAS/PAMP
+   */
+  function renderOnboardingProjects(projects) {
+    const onboardingContainer = document.getElementById('onboarding-content');
+    onboardingContainer.innerHTML = '';
+
+    projects.forEach((project, index) => {
+      const div = document.createElement('div');
+      div.innerHTML = `
+        <div class="project-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <p style="margin: 0;"><strong>${project.name}</strong></p>
+              <span class="toggle-versions-btn" onclick="toggleOnboardingVersionBadges(${index})" title="Mostrar/Esconder badges">›</span>
+              <div class="version-badges-container" id="onb-version-badges-${index}">
+                <span id="onb-react-version-${index}" class="version-badge" style="background: #61dafb; color: #000;">
+                  <span class="version-text">${project.type.toUpperCase()}</span>
+                </span>
+                <span id="onb-port-badge-${index}" class="version-badge" style="background: #28a745; color: white;">
+                  <span class="version-text">Port: ${project.port}</span>
+                </span>
+                ${project.isRunning ? 
+                  sharedServices.createStatusBadge('🚀 Rodando', '#007bff') : 
+                  ''
+                }
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 5px;">
+              <img id="onb-btn-editor-${index}" src="${sharedServices.getCurrentIDEIcon(currentIDE)}" class="editor-icon" 
+                   style="${!project.path ? 'display: none' : ''}" 
+                   title="Abrir projeto no ${currentIDE.name}" 
+                   alt="Editor" 
+                   onclick="openOnboardingProjectInEditor(${index})" />
+              <img id="onb-btn-terminal-${index}" src="${sharedServices.getTerminalIcon()}" 
+                   style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" 
+                   title="Abrir terminal na pasta do projeto" 
+                   alt="Terminal" />
+            </div>
+          </div>
+          
+          <div class="input-with-folder" style="margin-bottom: 10px;">
+            <input id="onb-input-${index}" type="text" value="${project.path || ''}" placeholder="Insira o caminho do projeto" />
+            <img id="onb-folder-icon-${index}" src="pasta.png" class="folder-icon" title="Procurar projeto existente" alt="Procurar pasta" />
+          </div>
+          
+          <button id="onb-btn-download-${index}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">📥 Clonar Projeto</button>
+          <button id="onb-btn-install-${index}" style="margin-right: 10px; ${(!project.path || project.isInstalled) ? 'display: none' : ''}">📦 Instalar</button>
+          <button id="onb-btn-start-${index}" style="margin-right: 10px;" ${(!project.path || !project.isInstalled) ? 'disabled' : ''}>Iniciar</button>
+          <span id="onb-port-${index}" style="display: none; margin-right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer;" 
+                onclick="openOnboardingProject(${index})" 
+                title="Clique para abrir no navegador"></span>
+          <button id="onb-btn-cancel-${index}" style="display: none; margin-right: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
+          <button id="onb-btn-stop-${index}" style="display: none;">Parar</button>
+          <button id="onb-btn-move-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #5a6c7d; color: white;">Mover para...</button>
+          <button id="onb-btn-delete-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #8b5a5a; color: white;">Deletar</button>
+          
+          <div id="onb-log-${index}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
+        </div>
+      `;
+      onboardingContainer.appendChild(div);
+
+      // Adiciona event listeners
+      setupOnboardingEventListeners(project, index);
+    });
+
+    // Atualiza interface baseado no status (após todos os projetos renderizados)
+    updateOnboardingProjectUI();
+  }
+
+  /**
+   * Configura event listeners para projetos onboarding
+   */
+  function setupOnboardingEventListeners(project, index) {
+    const onbInput = document.getElementById(`onb-input-${index}`);
+    const onbDownloadButton = document.getElementById(`onb-btn-download-${index}`);
+    const onbInstallButton = document.getElementById(`onb-btn-install-${index}`);
+    const onbFolderIcon = document.getElementById(`onb-folder-icon-${index}`);
+    const onbStartButton = document.getElementById(`onb-btn-start-${index}`);
+    const onbStopButton = document.getElementById(`onb-btn-stop-${index}`);
+    const onbCancelButton = document.getElementById(`onb-btn-cancel-${index}`);
+    const onbMoveButton = document.getElementById(`onb-btn-move-${index}`);
+    const onbDeleteButton = document.getElementById(`onb-btn-delete-${index}`);
+
+    // Input blur
+    onbInput.addEventListener('blur', () => {
+      handleOnboardingPathChange(project, index, onbInput.value.trim());
+    });
+
+    // Botões
+    onbDownloadButton.addEventListener('click', () => cloneOnboardingProject(project.name, index));
+    onbInstallButton.addEventListener('click', () => installOnboardingDependencies(project.name, index));
+    onbFolderIcon.addEventListener('click', () => selectOnboardingFolder(index));
+    
+    // Botão Mover para... (reutilizando lógica do PAS)
+    onbMoveButton.addEventListener('click', () => {
+      if (onbInput.value.trim()) {
+        if (onbStartButton.innerText === 'Rodando ✓' || currentOnboardingProjects[index].isRunning) {
+          alert('Não é possível mover o projeto enquanto ele estiver rodando. Pare o projeto primeiro.');
+          return;
+        }
+        
+        onbMoveButton.disabled = true;
+        onbMoveButton.innerText = 'Movendo...';
+        ipcRenderer.send('move-onboarding-project', { 
+          index: index, 
+          projectName: project.name,
+          currentPath: onbInput.value.trim()
+        });
+      } else {
+        alert('Projeto precisa ter um caminho válido para ser movido.');
+      }
+    });
+
+    // Botão Deletar (reutilizando lógica do PAS)
+    onbDeleteButton.addEventListener('click', () => {
+      if (confirm(`Tem certeza que deseja deletar o projeto ${project.name}?`)) {
+        onbDeleteButton.disabled = true;
+        ipcRenderer.send('delete-onboarding-project', { 
+          index: index, 
+          projectName: project.name,
+          path: onbInput.value.trim() 
+        });
+      }
+    });
+    
+    // Botão Iniciar (igual ao PAS)
+    onbStartButton.addEventListener('click', (event) => {
+      console.log(`[ONBOARDING] 🖱️ Clique em Iniciar projeto ${project.name}`);
+      onbStartButton.disabled = true;
+      onbStartButton.innerText = 'Executando...';
+      onbCancelButton.style.display = 'inline-block'; // Mostra botão cancelar
+      
+      // Desabilita outros botões durante execução
+      const onbDeleteButton = document.getElementById(`onb-btn-delete-${index}`);
+      const onbMoveButton = document.getElementById(`onb-btn-move-${index}`);
+      if (onbDeleteButton) onbDeleteButton.disabled = true;
+      if (onbMoveButton) onbMoveButton.disabled = true;
+      
+      startOnboardingProject(project.name, index);
+    });
+    
+    // Botão Cancelar (igual ao PAS)
+    onbCancelButton.addEventListener('click', () => {
+      console.log(`[ONBOARDING] 🛑 Clique em Cancelar projeto ${project.name}`);
+      
+      // Cancela o processo de inicialização
+      ipcRenderer.send('cancel-onboarding-project', { 
+        projectName: project.name, 
+        index: index 
+      });
+      
+      // Restaura o estado dos botões imediatamente
+      onbStartButton.disabled = false;
+      onbStartButton.innerText = 'Iniciar';
+      onbCancelButton.style.display = 'none';
+      
+      const onbDeleteButton = document.getElementById(`onb-btn-delete-${index}`);
+      const onbMoveButton = document.getElementById(`onb-btn-move-${index}`);
+      if (onbDeleteButton) onbDeleteButton.disabled = false;
+      if (onbMoveButton) onbMoveButton.disabled = false;
+    });
+    
+    onbStopButton.addEventListener('click', () => stopOnboardingProject(project.name, index));
+    
+    // Botão Terminal (reutilizando lógica do PAS)
+    const onbTerminalButton = document.getElementById(`onb-btn-terminal-${index}`);
+    if (onbTerminalButton) {
+      onbTerminalButton.addEventListener('click', () => {
+        const projectPath = onbInput.value.trim();
+        if (projectPath) {
+          console.log(`[ONBOARDING] 🖥️ Abrindo terminal para: ${projectPath}`);
+          ipcRenderer.send('open-terminal', { projectPath: projectPath });
+        } else {
+          alert('Projeto precisa ter um caminho válido para abrir o terminal.');
+        }
+      });
+    }
+  }
+
+  /**
+   * Gerencia mudança de caminho do projeto (com controle de estado)
+   */
+  async function handleOnboardingPathChange(project, index, path) {
+    const elements = {
+      download: document.getElementById(`onb-btn-download-${index}`),
+      install: document.getElementById(`onb-btn-install-${index}`),
+      move: document.getElementById(`onb-btn-move-${index}`),
+      delete: document.getElementById(`onb-btn-delete-${index}`),
+      editor: document.getElementById(`onb-btn-editor-${index}`),
+      terminal: document.getElementById(`onb-btn-terminal-${index}`)
+    };
+
+    if (path) {
+      elements.download.style.display = 'none';
+      elements.editor.style.display = 'inline-block';
+      elements.terminal.style.display = 'inline-block';
+      
+      // Mover e deletar só aparecem se o projeto não estiver rodando
+      const isRunning = currentOnboardingProjects[index]?.isRunning;
+      if (!isRunning) {
+        elements.move.style.display = 'inline-block';
+        elements.delete.style.display = 'inline-block';
+      } else {
+        elements.move.style.display = 'none';
+        elements.delete.style.display = 'none';
+      }
+      
+      // Atualiza caminho no backend
+      await ipcRenderer.invoke('set-onboarding-project-path', {
+        projectName: project.name,
+        projectPath: path
+      });
+      
+      // Recarrega projetos
+      loadOnboardingProjects();
+    } else {
+      elements.delete.style.display = 'none';
+      elements.move.style.display = 'none';
+      elements.download.style.display = 'inline-block';
+      elements.editor.style.display = 'none';
+      elements.terminal.style.display = 'none';
+    }
+  }
+
+  /**
+   * Atualiza interface do projeto baseado no status (igual ao PAS)
+   */
+  function updateOnboardingProjectUI() {
+    currentOnboardingProjects.forEach((project, index) => {
+      const startButton = document.getElementById(`onb-btn-start-${index}`);
+      const stopButton = document.getElementById(`onb-btn-stop-${index}`);
+      const cancelButton = document.getElementById(`onb-btn-cancel-${index}`);
+      const moveButton = document.getElementById(`onb-btn-move-${index}`);
+      const deleteButton = document.getElementById(`onb-btn-delete-${index}`);
+      const portSpan = document.getElementById(`onb-port-${index}`);
+
+      if (project.isRunning) {
+        // Projeto rodando: mostra botão parar, esconde iniciar e cancelar
+        if (startButton) startButton.style.display = 'none';
+        if (stopButton) stopButton.style.display = 'inline-block';
+        if (cancelButton) cancelButton.style.display = 'none';
+        
+        // Esconde mover e deletar quando rodando
+        if (moveButton) moveButton.style.display = 'none';
+        if (deleteButton) deleteButton.style.display = 'none';
+        
+        // Mostra porta ativa
+        if (portSpan) {
+          portSpan.style.display = 'inline-block';
+          portSpan.style.background = '#28a745';
+          portSpan.style.color = 'white';
+          portSpan.innerText = `:${project.port} 🔗`;
+        }
+      } else {
+        // Projeto parado: mostra botão iniciar, esconde parar e cancelar
+        if (startButton) {
+          startButton.style.display = 'inline-block';
+          startButton.disabled = false;
+          startButton.innerText = 'Iniciar';
+        }
+        if (stopButton) stopButton.style.display = 'none';
+        if (cancelButton) cancelButton.style.display = 'none';
+        
+        // Mostra mover e deletar quando parado (se tem caminho)
+        if (project.path || project.persistedPath) {
+          if (moveButton) moveButton.style.display = 'inline-block';
+          if (deleteButton) deleteButton.style.display = 'inline-block';
+        }
+        
+        // Esconde porta
+        if (portSpan) {
+          portSpan.style.display = 'none';
+        }
+      }
+    });
+  }
+
+  /**
+   * Atualiza IDE no módulo onboarding
+   */
+  function updateOnboardingIDE() {
+    // Como agora é tudo no mesmo documento, não precisa de postMessage
+    console.log('[ONBOARDING] ✅ IDE atualizada para:', currentIDE.name);
+  }
+
+  /**
+   * Atualiza IDE no módulo onboarding
+   */
+  function updateOnboardingIDE() {
+    const iframe = document.getElementById('onboarding-iframe');
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage({
+        type: 'update-ide',
+        ide: currentIDE
+      }, '*');
+    }
+  }
+
   // IPC Listeners globais
   
   // Listener específico para este projeto PAMP
@@ -1643,6 +2945,18 @@
     
     // ⚡ NOVA LÓGICA INTELIGENTE PARA REBUILDS E ERROS ⚡
     const lowerMessage = message.toLowerCase();
+    
+    // Detecta mensagens de download (SEMPRE mostrar)
+    const isDownloadMessage = 
+      lowerMessage.includes('fazendo download') ||
+      lowerMessage.includes('baixando') ||
+      lowerMessage.includes('clonando') ||
+      lowerMessage.includes('cloning') ||
+      lowerMessage.includes('já existe em') ||
+      lowerMessage.includes('projeto baixado') ||
+      lowerMessage.includes('disponível em') ||
+      lowerMessage.includes('erro ao clonar') ||
+      lowerMessage.includes('erro ao criar diretório');
     
     // Detecta rebuilds e recompilações
     const isRebuildMessage = 
@@ -1677,7 +2991,10 @@
     // Detecta warnings (NÃO devem ser tratados como erros críticos)
     const isWarning = 
       lowerMessage.includes('warn') ||
-      lowerMessage.includes('warning');
+      lowerMessage.includes('warning') ||
+      lowerMessage.includes('processing legacy') ||
+      lowerMessage.includes('view engine') ||
+      lowerMessage.includes('encourage the library authors to publish an ivy distribution');
     
     // Detecta erros de compilação (EXCETO warnings)
     const isCompilationError = 
@@ -1700,8 +3017,8 @@
       console.log(`🐛 [DEBUG] error=true recebido | message="${message}" | isWarning=${isWarning} | isTrueError=${isTrueError}`);
     }
 
-    // ⚡ SEMPRE EXIBE REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
-    let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || isTrueError || isWarning;
+    // ⚡ SEMPRE EXIBE DOWNLOADS, REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
+    let shouldShow = isDownloadMessage || isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || isTrueError || isWarning;
     
     // Para outras mensagens, verifica duplicação
     if (!shouldShow && pampLogDiv) {
@@ -1746,32 +3063,24 @@
       pampLogDiv.innerText += `\n${formattedMessage}`;
       pampLogDiv.scrollTop = pampLogDiv.scrollHeight;
       
-      if (message.includes('existe em')) {
-        console.log('Mensagem contém "existe em", tentando extrair caminho');
-        try {
-          const existingPath = path;
-          console.log(`Caminho extraído: ${existingPath}`);
-          
-          const pampInput = document.getElementById(`pamp-input-${index}`);
-          const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
-          const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
-          const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
-          
-          if (pampInput) {
-            pampInput.value = existingPath;
-            console.log(`Input atualizado com caminho: ${existingPath}`);
-            
-            if (pampDownloadButton) pampDownloadButton.style.display = 'none';
-            if (pampStartButton) pampStartButton.disabled = false;
-            if (pampDeleteButton) pampDeleteButton.style.display = 'inline-block';
-            
-            ipcRenderer.send('update-project-path', { index: index, path: existingPath });
-          }
-        } catch (error) {
-          console.error('Erro ao extrair caminho:', error);
+      // Detecta quando download termina (sucesso ou erro) e reabilita botão
+      const isDownloadComplete = 
+        message.includes('Projeto baixado com sucesso') ||
+        message.includes('já existe em') ||
+        message.includes('Erro ao clonar o repositório') ||
+        message.includes('Erro ao criar diretório');
+      
+      if (isDownloadComplete) {
+        const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
+        if (pampDownloadButton) {
+          pampDownloadButton.disabled = false;
+          pampDownloadButton.innerText = 'Baixar';
         }
       }
-
+      
+      // REMOVIDO: Lógica duplicada que causava conflito com update-project
+      // O evento update-project agora cuida de atualizar tudo corretamente
+      
       // Só mostra aviso de erro se a mensagem foi marcada explicitamente como erro
       if (data.error && message.includes('terminou com código') && message.includes('1')) {
         const nodeVersionSpan = document.getElementById('node-version');
@@ -1974,8 +3283,11 @@
         }
       }, 2000);
     } else {
+      // Em caso de erro, reabilita o botão e o ícone da pasta
       const deleteBtn = document.getElementById(`pamp-btn-delete-${index}`) || document.getElementById(`btn-delete-${index}`);
+      const folderIcon = document.getElementById(`pamp-folder-icon-${index}`) || document.getElementById(`folder-icon-${index}`);
       if (deleteBtn) deleteBtn.disabled = false;
+      if (folderIcon) folderIcon.classList.remove('disabled');
     }
     });
 
@@ -2021,6 +3333,52 @@
       } else {
         console.error(`Input PAS não encontrado para índice ${index}`);
       }
+    }
+  });
+
+  // Listeners para logs dos handlers de onboarding
+  ipcRenderer.on('move-onboarding-project-log', (event, { index, message, success }) => {
+    let console = document.getElementById(`onb-log-${index}`);
+    
+    if (console && message) {
+      console.style.display = 'block';
+      console.innerText += `\n${message}`;
+      console.scrollTop = console.scrollHeight;
+    }
+    
+    if (success) {
+      const moveButton = document.getElementById(`onb-btn-move-${index}`);
+      if (moveButton) {
+        moveButton.disabled = false;
+        moveButton.innerText = 'Mover para...';
+      }
+    }
+  });
+
+  ipcRenderer.on('delete-onboarding-project-log', (event, { path, message, success, index }) => {
+    let console = document.getElementById(`onb-log-${index}`);
+    
+    if (console && message) {
+      console.style.display = 'block';
+      console.innerText += `\n${message}`;
+      console.scrollTop = console.scrollHeight;
+    }
+    
+    if (success) {
+      const deleteBtn = document.getElementById(`onb-btn-delete-${index}`);
+      if (deleteBtn) {
+        deleteBtn.disabled = false;
+        deleteBtn.innerText = 'Deletar';
+      }
+    }
+  });
+
+  ipcRenderer.on('update-onboarding-project-path', (event, { index, path }) => {
+    const onbInput = document.getElementById(`onb-input-${index}`);
+    if (onbInput) {
+      onbInput.value = path;
+    } else {
+      console.error(`Input Onboarding não encontrado para índice ${index}`);
     }
   });
 
@@ -2089,6 +3447,18 @@
       // ⚡ NOVA LÓGICA MELHORADA PARA LOGS DE PROJETOS PAS ⚡
       const lowerMessage = message.toLowerCase();
       
+      // Detecta mensagens de download (SEMPRE mostrar)
+      const isDownloadMessage = 
+        lowerMessage.includes('fazendo download') ||
+        lowerMessage.includes('baixando') ||
+        lowerMessage.includes('clonando') ||
+        lowerMessage.includes('cloning') ||
+        lowerMessage.includes('já existe em') ||
+        lowerMessage.includes('projeto baixado') ||
+        lowerMessage.includes('disponível em') ||
+        lowerMessage.includes('erro ao clonar') ||
+        lowerMessage.includes('erro ao criar diretório');
+      
       // Detecta rebuilds e recompilações
       const isRebuildMessage = 
         lowerMessage.includes('file change detected') ||
@@ -2122,7 +3492,10 @@
       // Detecta warnings (NÃO devem ser tratados como erros críticos)
       const isWarning = 
         lowerMessage.includes('warn') ||
-        lowerMessage.includes('warning');
+        lowerMessage.includes('warning') ||
+        lowerMessage.includes('processing legacy') ||
+        lowerMessage.includes('view engine') ||
+        lowerMessage.includes('encourage the library authors to publish an ivy distribution');
       
       // Detecta erros de compilação (EXCETO warnings)
       const isCompilationError = 
@@ -2150,8 +3523,8 @@
         if (project.path === path || message.includes(project.name)) {
             const logDiv = document.getElementById(`log-${index}`);
             if (logDiv) {
-              // ⚡ SEMPRE EXIBE REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
-              let shouldShow = isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || isTrueError || isWarning;
+              // ⚡ SEMPRE EXIBE DOWNLOADS, REBUILDS, ERROS E MENSAGENS IMPORTANTES ⚡
+              let shouldShow = isDownloadMessage || isImportant || isRebuildMessage || isCompilationComplete || isCompilationError || isTrueError || isWarning;
               
               // Para outras mensagens, verifica duplicação
               if (!shouldShow) {
@@ -2193,6 +3566,21 @@
               
               logDiv.innerText += `\n${formattedMessage}`;
               logDiv.scrollTop = logDiv.scrollHeight;
+
+              // Detecta quando download termina (sucesso ou erro) e reabilita botão
+              const isDownloadComplete = 
+                message.includes('Projeto baixado com sucesso') ||
+                message.includes('já existe em') ||
+                message.includes('Erro ao clonar o repositório') ||
+                message.includes('Erro ao criar diretório');
+              
+              if (isDownloadComplete) {
+                const downloadButton = document.getElementById(`btn-download-${index}`);
+                if (downloadButton) {
+                  downloadButton.disabled = false;
+                  downloadButton.innerText = 'Baixar';
+                }
+              }
 
               if (message.includes('Caminho do projeto:')) {
                   const downloadButton = document.getElementById(`btn-download-${index}`);
@@ -2360,35 +3748,110 @@
 
   // Outros handlers IPC necessários
   ipcRenderer.on('update-project', (event, { index, path }) => {
+    console.log(`🔄 [UPDATE-PROJECT] Recebido: index=${index}, path="${path}"`);
+    
     const project = currentProjects[index];
+    console.log(`🔍 [UPDATE-PROJECT] Projeto encontrado:`, project);
+    
     const isPampProject = project && project.name && project.name.startsWith('mp-pamp');
+    console.log(`🔍 [UPDATE-PROJECT] É projeto PAMP? ${isPampProject}`);
+    
+    // Se path está vazio, é uma deleção - limpa tudo
+    const isDeleting = !path || path.trim() === '';
+    console.log(`🔍 [UPDATE-PROJECT] É deleção? ${isDeleting}`);
     
     if(isPampProject) {
       const pampInput = document.getElementById(`pamp-input-${index}`);
       const pampMoveButton = document.getElementById(`pamp-btn-move-${index}`);
       const pampDeleteButton = document.getElementById(`pamp-btn-delete-${index}`);
       const pampDownloadButton = document.getElementById(`pamp-btn-download-${index}`);
+      const pampStartButton = document.getElementById(`pamp-btn-start-${index}`);
       const pampFolderIcon = document.getElementById(`pamp-folder-icon-${index}`);
+      
+      console.log(`🔍 [UPDATE-PROJECT PAMP] Elementos encontrados:`, {
+        input: !!pampInput,
+        move: !!pampMoveButton,
+        delete: !!pampDeleteButton,
+        download: !!pampDownloadButton,
+        start: !!pampStartButton,
+        folder: !!pampFolderIcon
+      });
   
-      if (pampInput) pampInput.value = path;
-      if (pampInput) pampInput.disabled = false;
-      if (pampMoveButton) pampMoveButton.style.display = 'none';
-      if (pampDeleteButton) pampDeleteButton.style.display = 'none';
-      if (pampDownloadButton) pampDownloadButton.style.display = 'inline-block';
-      if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
-    }else {
+      if (pampInput) {
+        console.log(`✅ [UPDATE-PROJECT PAMP] Atualizando input com: "${path}"`);
+        pampInput.value = path;
+        pampInput.disabled = false;
+      } else {
+        console.error(`❌ [UPDATE-PROJECT PAMP] Input não encontrado: pamp-input-${index}`);
+      }
+      
+      if (isDeleting) {
+        // Deleção: mostra botão de download, esconde move/delete
+        if (pampMoveButton) pampMoveButton.style.display = 'none';
+        if (pampDeleteButton) pampDeleteButton.style.display = 'none';
+        if (pampDownloadButton) {
+          pampDownloadButton.style.display = 'inline-block';
+          pampDownloadButton.disabled = false;
+          pampDownloadButton.innerText = 'Baixar';
+        }
+        if (pampStartButton) pampStartButton.disabled = true;
+        if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
+      } else {
+        // Download/Atualização: esconde botão de download, mostra move/delete, habilita start
+        if (pampMoveButton) pampMoveButton.style.display = 'inline-block';
+        if (pampDeleteButton) pampDeleteButton.style.display = 'inline-block';
+        if (pampDownloadButton) {
+          pampDownloadButton.style.display = 'none';
+        }
+        if (pampStartButton) pampStartButton.disabled = false;
+        if (pampFolderIcon) pampFolderIcon.classList.remove('disabled');
+      }
+    } else {
       const input = document.getElementById(`input-${index}`);
       const moveButton = document.getElementById(`btn-move-${index}`);
       const deleteButton = document.getElementById(`btn-delete-${index}`);
       const browseButton = document.getElementById(`btn-browse-${index}`);
       const downloadButton = document.getElementById(`btn-download-${index}`);
+      const startButton = document.getElementById(`btn-start-${index}`);
+      
+      console.log(`🔍 [UPDATE-PROJECT PAS] Elementos encontrados:`, {
+        input: !!input,
+        move: !!moveButton,
+        delete: !!deleteButton,
+        browse: !!browseButton,
+        download: !!downloadButton,
+        start: !!startButton
+      });
     
-      if (input) input.value = path;
-      if (input) input.disabled = false;
-      if (moveButton) moveButton.style.display = 'none';
-      if (deleteButton) deleteButton.style.display = 'none';
-      if (browseButton) browseButton.style.display = 'inline-block';
-      if (downloadButton) downloadButton.style.display = 'inline-block';
+      if (input) {
+        console.log(`✅ [UPDATE-PROJECT PAS] Atualizando input com: "${path}"`);
+        input.value = path;
+        input.disabled = false;
+      } else {
+        console.error(`❌ [UPDATE-PROJECT PAS] Input não encontrado: input-${index}`);
+      }
+      
+      if (isDeleting) {
+        // Deleção: mostra botão de download, esconde move/delete
+        if (moveButton) moveButton.style.display = 'none';
+        if (deleteButton) deleteButton.style.display = 'none';
+        if (browseButton) browseButton.style.display = 'inline-block';
+        if (downloadButton) {
+          downloadButton.style.display = 'inline-block';
+          downloadButton.disabled = false;
+          downloadButton.innerText = 'Baixar';
+        }
+        if (startButton) startButton.disabled = true;
+      } else {
+        // Download/Atualização: esconde botão de download, mostra move/delete, habilita start
+        if (moveButton) moveButton.style.display = 'inline-block';
+        if (deleteButton) deleteButton.style.display = 'inline-block';
+        if (browseButton) browseButton.style.display = 'inline-block';
+        if (downloadButton) {
+          downloadButton.style.display = 'none';
+        }
+        if (startButton) startButton.disabled = false;
+      }
     }
   });
   
@@ -2749,6 +4212,156 @@
   ipcRenderer.on('node-versions-updated', () => {
     console.log('🔄 Configurações de versão atualizadas, recarregando badges...');
     updateAllProjectVersionBadges();
+  });
+
+  // ===== HANDLERS DE EVENTOS ONBOARDING =====
+  
+  // Handler para progresso de clone
+  ipcRenderer.on('onboarding-clone-progress', (event, { projectName, progress }) => {
+    const projectIndex = currentOnboardingProjects.findIndex(p => p.name === projectName);
+    if (projectIndex >= 0) {
+      const logDiv = document.getElementById(`onb-log-${projectIndex}`);
+      if (logDiv) {
+        logDiv.innerHTML += `<div>${progress}</div>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+    }
+  });
+
+  // Handler para erro de clone
+  ipcRenderer.on('onboarding-clone-error', (event, { projectName, error }) => {
+    const projectIndex = currentOnboardingProjects.findIndex(p => p.name === projectName);
+    if (projectIndex >= 0) {
+      const logDiv = document.getElementById(`onb-log-${projectIndex}`);
+      if (logDiv) {
+        logDiv.innerHTML += `<div style="color: #ff6b35;">❌ ${error}</div>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+    }
+  });
+
+  // Handler para progresso de instalação
+  ipcRenderer.on('onboarding-install-progress', (event, { projectName, progress }) => {
+    const projectIndex = currentOnboardingProjects.findIndex(p => p.name === projectName);
+    if (projectIndex >= 0) {
+      const logDiv = document.getElementById(`onb-log-${projectIndex}`);
+      if (logDiv) {
+        logDiv.innerHTML += `<div>${progress}</div>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+    }
+  });
+
+  // Handler para erro de instalação
+  ipcRenderer.on('onboarding-install-error', (event, { projectName, error }) => {
+    const projectIndex = currentOnboardingProjects.findIndex(p => p.name === projectName);
+    if (projectIndex >= 0) {
+      const logDiv = document.getElementById(`onb-log-${projectIndex}`);
+      if (logDiv) {
+        logDiv.innerHTML += `<div style="color: #ff6b35;">❌ ${error}</div>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+    }
+  });
+
+  // Handler para output do projeto
+  ipcRenderer.on('onboarding-output', (event, { projectName, output }) => {
+    const projectIndex = currentOnboardingProjects.findIndex(p => p.name === projectName);
+    if (projectIndex >= 0) {
+      const logDiv = document.getElementById(`onb-log-${projectIndex}`);
+      if (logDiv) {
+        logDiv.innerHTML += `<div>${output}</div>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+    }
+  });
+
+  // Handler para erro do projeto
+  ipcRenderer.on('onboarding-error', (event, { projectName, error }) => {
+    const projectIndex = currentOnboardingProjects.findIndex(p => p.name === projectName);
+    if (projectIndex >= 0) {
+      const logDiv = document.getElementById(`onb-log-${projectIndex}`);
+      if (logDiv) {
+        logDiv.innerHTML += `<div style="color: #ff6b35;">❌ ${error}</div>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+    }
+  });
+
+  // Handler para projeto iniciado
+  ipcRenderer.on('onboarding-started', (event, { projectName }) => {
+    const projectIndex = currentOnboardingProjects.findIndex(p => p.name === projectName);
+    if (projectIndex >= 0) {
+      // Atualizar status do projeto
+      currentOnboardingProjects[projectIndex].isRunning = true;
+      
+      // Atualizar UI para mostrar botão de parar
+      updateOnboardingProjectUI();
+      
+      const logDiv = document.getElementById(`onb-log-${projectIndex}`);
+      if (logDiv) {
+        logDiv.innerHTML += `<div style="color: #00ff00;">🚀 Projeto ${projectName} iniciado com sucesso!</div>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+    }
+  });
+
+  // Handler para projeto parado
+  ipcRenderer.on('onboarding-stopped', (event, { projectName }) => {
+    const projectIndex = currentOnboardingProjects.findIndex(p => p.name === projectName);
+    if (projectIndex >= 0) {
+      // Atualizar status do projeto
+      currentOnboardingProjects[projectIndex].isRunning = false;
+      
+      // Atualizar UI para mostrar botão de iniciar
+      updateOnboardingProjectUI();
+      
+      const logDiv = document.getElementById(`onb-log-${projectIndex}`);
+      if (logDiv) {
+        logDiv.innerHTML += `<div style="color: #ff9500;">⏹️ Projeto ${projectName} parado!</div>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+    }
+  });
+
+  // Handler para projeto cancelado (igual ao PAS)
+  ipcRenderer.on('onboarding-canceled', (event, { projectName, index, message }) => {
+    console.log(`[ONBOARDING] 🛑 Projeto ${projectName} cancelado`);
+    
+    const projectIndex = currentOnboardingProjects.findIndex(p => p.name === projectName);
+    if (projectIndex >= 0) {
+      // Atualizar status do projeto
+      currentOnboardingProjects[projectIndex].isRunning = false;
+      
+      // Atualizar UI
+      updateOnboardingProjectUI();
+      
+      const logDiv = document.getElementById(`onb-log-${projectIndex}`);
+      if (logDiv) {
+        logDiv.innerHTML += `<div style="color: #dc3545;">${message}</div>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+    }
+  });
+
+  // Handler para abrir configuração do Onboarding Node.js (via menu)
+  ipcRenderer.on('open-onboarding-node-config', () => {
+    console.log('[ONBOARDING] 📧 Recebido comando para abrir configuração Node.js');
+    
+    // Esconde todos os containers
+    hideAllContainers();
+    
+    // Mostra o container do onboarding
+    const onboardingContainer = document.getElementById('onboarding-node-config');
+    if (onboardingContainer) {
+      onboardingContainer.style.display = 'block';
+      console.log('[ONBOARDING] ✅ Container onboarding-node-config exibido');
+      
+      // Carrega a configuração do onboarding
+      loadOnboardingNodeConfig();
+    } else {
+      console.error('[ONBOARDING] ❌ Container onboarding-node-config não encontrado');
+    }
   });
 </script>
 </body>

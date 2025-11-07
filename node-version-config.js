@@ -5,7 +5,8 @@ const { app } = require('electron');
 /**
  * Determina o diretório base para instalação do Node.js portátil
  * Em desenvolvimento: usa pasta dentro do projeto
- * Em produção: usa pasta na raiz da instalação (mesma pasta do .exe)
+ * Em produção Windows: usa pasta na raiz da instalação (mesma pasta do .exe)
+ * Em produção Linux: usa pasta userData do usuário para evitar problemas de permissão
  */
 function getNodesBasePath() {
   // Em desenvolvimento: usa pasta dentro do projeto
@@ -13,9 +14,16 @@ function getNodesBasePath() {
     return path.join(__dirname, 'nodes');
   }
   
-  // Em produção: usa pasta na raiz da instalação (mesma pasta do .exe)
-  // Isso permite leitura/escrita mesmo após compilado
-  return path.join(path.dirname(app.getPath('exe')), 'nodes');
+  // Em produção: determina baseado no SO
+  const platform = os.platform();
+  
+  if (platform === 'win32') {
+    // Windows: usa pasta na raiz da instalação (mesma pasta do .exe)
+    return path.join(path.dirname(app.getPath('exe')), 'nodes');
+  } else {
+    // Linux/Mac: usa pasta userData do usuário para evitar problemas de permissão
+    return path.join(app.getPath('userData'), 'nodes');
+  }
 }
 
 /**

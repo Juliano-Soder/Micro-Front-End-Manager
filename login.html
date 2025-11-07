@@ -43,6 +43,7 @@
       border-radius: 5px;
       margin: 0;
       font-family: 'Courier New', monospace;
+      font-size: 12px;
       cursor: text;
       box-sizing: border-box;
     }
@@ -128,11 +129,21 @@
       const closeButton = document.getElementById('close');
       const inputIndicator = document.getElementById('inputIndicator');
 
+      // Remove apenas o listener de command-output para evitar duplicação
+      ipcRenderer.removeAllListeners('command-output');
+
       // Foca no terminal para capturar eventos de teclado
       terminal.focus();
 
+      // Determina qual tipo de login está sendo feito
+      const isNexusLogin = registry && registry.includes('nexus.viavarejo.com.br');
+      const registryName = isNexusLogin ? 'Nexus (privado)' : 'npmjs.org (público)';
+      
+      // Limpa terminal completamente
+      terminal.innerText = '';
+      
       // Inicializa o terminal com os dois primeiros comandos
-      terminal.innerText = `🚀 Iniciando login no Nexus...\n\n`;
+      terminal.innerText = `🚀 Iniciando login no ${registryName}...\n\n`;
       terminal.innerText += `📁 Navegando para: ${projectPath}\n`;
       terminal.innerText += `🌐 Conectando ao registry: ${registry}\n\n`;
       terminal.innerText += `cd ${projectPath}\n`;
@@ -161,20 +172,29 @@
           const inputToSend = isPasswordInput ? hiddenPassword : currentInput;
           
           if (inputToSend) {
-            // Captura as credenciais
-            const terminalText = terminal.innerText.toLowerCase();
-            const lastLines = terminalText.split('\n').slice(-5).join('\n');
-            
-            if (lastLines.includes('username:')) {
-              capturedUsername = inputToSend;
-              console.log('📝 Username capturado');
-            } else if (lastLines.includes('password:')) {
+            // Captura as credenciais baseado no estado atual (isPasswordInput)
+            if (isPasswordInput) {
+              // Se estava em modo password, o que foi digitado é a senha
               capturedPassword = inputToSend;
-              console.log('📝 Password capturado');
-            } else if (lastLines.includes('email:')) {
-              capturedEmail = inputToSend;
-              console.log('📝 Email capturado');
+              console.log('📝 Password capturado: [OCULTO - tamanho:', capturedPassword.length, ']');
+            } else {
+              // Se não estava em modo password, verifica se é username ou email
+              const terminalText = terminal.innerText.toLowerCase();
+              const lastLines = terminalText.split('\n').slice(-3).join('\n');
+              
+              if (lastLines.includes('email:')) {
+                capturedEmail = inputToSend;
+                console.log('📝 Email capturado:', capturedEmail);
+              } else if (lastLines.includes('username:')) {
+                capturedUsername = inputToSend;
+                console.log('📝 Username capturado:', capturedUsername);
+              }
             }
+            
+            console.log('📊 Estado atual das credenciais:');
+            console.log('  - Username:', capturedUsername ? 'OK' : 'VAZIO');
+            console.log('  - Password:', capturedPassword ? 'OK' : 'VAZIO');
+            console.log('  - Email:', capturedEmail ? 'OK' : 'VAZIO');
             
             // Adiciona quebra de linha ao final do input
             if (isPasswordInput) {
@@ -289,19 +309,36 @@
         // Remove a última linha e adiciona asteriscos
         const lines = terminal.innerText.split('\n');
         
-        // Encontra a última linha que contém um prompt
+        // Encontra a última linha que contém um prompt de password
         for (let i = lines.length - 1; i >= 0; i--) {
-          if (lines[i].toLowerCase().includes('password:')) {
-            const promptMatch = lines[i].match(/^(.+password:\s*)/i);
+          const lowerLine = lines[i].toLowerCase();
+          
+          if (lowerLine.includes('password:')) {
+            // Regex mais flexível - aceita qualquer coisa antes de "password:" ou apenas "password:"
+            const promptMatch = lines[i].match(/^(.*[Pp]assword:\s*)/i);
             if (promptMatch) {
               const prompt = promptMatch[1];
-              lines[i] = prompt + '*'.repeat(hiddenPassword.length);
+              // Adiciona asteriscos + cursor piscante
+              lines[i] = prompt + '*'.repeat(hiddenPassword.length) + '█';
               terminal.innerText = lines.join('\n');
+              console.log('🔒 Asteriscos atualizados:', '*'.repeat(hiddenPassword.length));
               break;
             }
           }
         }
         terminal.scrollTop = terminal.scrollHeight;
+        
+        // Remove cursor após 500ms para criar efeito de digitação
+        setTimeout(() => {
+          const lines = terminal.innerText.split('\n');
+          for (let i = lines.length - 1; i >= 0; i--) {
+            if (lines[i].includes('█')) {
+              lines[i] = lines[i].replace('█', '');
+              terminal.innerText = lines.join('\n');
+              break;
+            }
+          }
+        }, 300);
       }
 
       function updateInputDisplay() {
@@ -315,18 +352,31 @@
             const promptMatch = line.match(/^(.+:\s*)/);
             if (promptMatch) {
               const prompt = promptMatch[1];
-              lines[i] = prompt + currentInput;
+              // Adiciona input + cursor piscante
+              lines[i] = prompt + currentInput + '█';
               terminal.innerText = lines.join('\n');
               break;
             }
           } else if (i === lines.length - 1 && !line.includes(':')) {
             // Se a última linha não contém prompt, substitui toda a linha
-            lines[i] = currentInput;
+            lines[i] = currentInput + '█';
             terminal.innerText = lines.join('\n');
             break;
           }
         }
         terminal.scrollTop = terminal.scrollHeight;
+        
+        // Remove cursor após 300ms para criar efeito de digitação
+        setTimeout(() => {
+          const lines = terminal.innerText.split('\n');
+          for (let i = lines.length - 1; i >= 0; i--) {
+            if (lines[i].includes('█')) {
+              lines[i] = lines[i].replace('█', '');
+              terminal.innerText = lines.join('\n');
+              break;
+            }
+          }
+        }, 300);
       }
 
       // Fecha a janela ao clicar no botão "Fechar"
@@ -382,6 +432,13 @@
 
           // Detecta login bem-sucedido
           if (lowerOutput.includes('logged in')) {
+            console.log('✅ Detectado: Login bem-sucedido!');
+            console.log('📤 Preparando para enviar npm-login-complete...');
+            console.log('📦 Credenciais a serem enviadas:');
+            console.log('  - username:', capturedUsername ? 'OK' : 'VAZIO');
+            console.log('  - password:', capturedPassword ? 'OK' : 'VAZIO');
+            console.log('  - email:', capturedEmail ? 'OK' : 'VAZIO');
+            
             if (inputIndicator) {
               inputIndicator.textContent = '✅ Login realizado com sucesso!';
               inputIndicator.style.backgroundColor = 'rgba(40, 167, 69, 0.3)';
@@ -391,6 +448,7 @@
             
             ipcRenderer.send('login-success');
             setTimeout(() => {
+              console.log('📤 ENVIANDO npm-login-complete agora!');
               // Envia credenciais junto com o evento de sucesso
               ipcRenderer.send('npm-login-complete', { 
                 success: true, 
@@ -401,27 +459,176 @@
                   email: capturedEmail
                 }
               });
+              console.log('✅ npm-login-complete ENVIADO!');
             }, 1000);
           }
 
           // Detecta erro de login
-          if (lowerOutput.includes('unauthorized') || lowerOutput.includes('login failed') || lowerOutput.includes('incorrect username or password')) {
+          if (lowerOutput.includes('unauthorized') || 
+              lowerOutput.includes('login failed') || 
+              lowerOutput.includes('unable to authenticate') ||
+              lowerOutput.includes('incorrect username or password')) {
             if (inputIndicator) {
               inputIndicator.textContent = '❌ Falha no login - verifique suas credenciais';
               inputIndicator.style.backgroundColor = 'rgba(220, 53, 69, 0.3)';
               inputIndicator.style.color = '#dc3545';
             }
+            
+            // Limpa credenciais capturadas
+            capturedUsername = '';
+            capturedPassword = '';
+            capturedEmail = '';
+            currentInput = '';
+            hiddenPassword = '';
+            
+            // Reabilita input para tentar novamente
+            isReadyForInput = true;
+            
+            terminal.innerText += '\n⚠️ Senha incorreta! Tente novamente.\n';
+            terminal.innerText += 'npm login --registry=' + (registry || 'http://nexus.viavarejo.com.br/repository/npm-marketplace/') + '\n';
+            terminal.scrollTop = terminal.scrollHeight;
+            
+            // Reenvia comando de login para tentar novamente
+            setTimeout(() => {
+              ipcRenderer.send('execute-command', 'npm login --registry=' + (registry || 'http://nexus.viavarejo.com.br/repository/npm-marketplace/'));
+            }, 1000);
+          }
+          
+          // Detecta erro de comando não encontrado
+          if (lowerOutput.includes('not recognized') || 
+              lowerOutput.includes('não é reconhecido') ||
+              lowerOutput.includes('command not found') ||
+              lowerOutput.includes('npm não encontrado')) {
+            if (inputIndicator) {
+              inputIndicator.textContent = '❌ Erro: npm não encontrado no sistema';
+              inputIndicator.style.backgroundColor = 'rgba(220, 53, 69, 0.3)';
+              inputIndicator.style.color = '#dc3545';
+            }
             isReadyForInput = false;
             
+            console.error('❌ npm não encontrado - login não pode continuar');
+            // Aguarda um pouco para o usuário ler a mensagem completa
             setTimeout(() => {
-              ipcRenderer.send('npm-login-complete', { success: false, message: 'Falha no login. Verifique suas credenciais.' });
-            }, 2000);
+              ipcRenderer.send('npm-login-complete', { 
+                success: false, 
+                message: 'npm não encontrado. Instale uma versão do Node.js portátil primeiro.' 
+              });
+            }, 3000);
           }
         } catch (error) {
           console.error('❌ Erro ao processar command-output:', error);
           // Continua funcionando mesmo com erro
         }
       });
+    });
+
+    // Handler para segundo login automático (npmjs.org) - APENAS detecta browser login
+    ipcRenderer.on('start-second-npm-login', (event, { projectPath, registry, username, password, email }) => {
+      console.log('� EVENTO start-second-npm-login RECEBIDO!');
+      console.log('projectPath:', projectPath);
+      console.log('registry:', registry);
+      console.log('username:', username ? 'OK' : 'VAZIO');
+      console.log('password:', password ? 'OK' : 'VAZIO');
+      console.log('email:', email ? 'OK' : 'VAZIO');
+      
+      const terminal = document.getElementById('terminal');
+      const inputIndicator = document.getElementById('inputIndicator');
+      
+      // Adiciona mensagem visual
+      terminal.innerText += `\n\n`;
+      terminal.innerText += `✅ Login no Nexus completo!\n`;
+      terminal.innerText += `🌐 Agora fazendo login no npmjs.org...\n\n`;
+      terminal.innerText += `npm login --registry=${registry}\n`;
+      terminal.scrollTop = terminal.scrollHeight;
+      
+      // Desabilita input do usuário
+      isReadyForInput = false;
+      if (inputIndicator) {
+        inputIndicator.textContent = '🔍 Detectando tipo de autenticação...';
+        inputIndicator.style.backgroundColor = 'rgba(0, 123, 255, 0.3)';
+      }
+      
+      // Envia comando de login
+      ipcRenderer.send('execute-command', `npm login --registry=${registry}`);
+      
+      // Flag para garantir que só processa uma vez
+      let alreadyProcessed = false;
+      
+      // Handler para monitorar resposta
+      const browserLoginHandler = (event, output) => {
+        if (alreadyProcessed) return;
+        
+        const lowerOutput = output.toLowerCase();
+        
+        // Detecta login via browser (método novo do npmjs.org)
+        if (lowerOutput.includes('login at:') || lowerOutput.includes('https://www.npmjs.com/login')) {
+          alreadyProcessed = true;
+          
+          terminal.innerText += `\n⚠️ npmjs.org requer autenticação via navegador!\n`;
+          terminal.innerText += `🌐 Abrindo navegador automaticamente...\n`;
+          terminal.scrollTop = terminal.scrollHeight;
+          
+          if (inputIndicator) {
+            inputIndicator.textContent = '🌐 Aguardando login no navegador...';
+            inputIndicator.style.backgroundColor = 'rgba(255, 193, 7, 0.3)';
+          }
+          
+          // Extrai a URL do output
+          const urlMatch = output.match(/https:\/\/www\.npmjs\.com\/login[^\s]*/);
+          if (urlMatch) {
+            const loginUrl = urlMatch[0];
+            console.log('🔗 Abrindo URL:', loginUrl);
+            
+            // Envia para o main process abrir no navegador
+            ipcRenderer.send('open-browser-login', { url: loginUrl });
+          }
+        }
+        
+        // Detecta sucesso no login via browser
+        if (lowerOutput.includes('logged in on https://registry.npmjs.org') || 
+            lowerOutput.includes('logged in as')) {
+          alreadyProcessed = true;
+          
+          terminal.innerText += `\n✅ Login no npmjs.org completado com sucesso!\n`;
+          terminal.scrollTop = terminal.scrollHeight;
+          
+          if (inputIndicator) {
+            inputIndicator.textContent = '✅ Autenticação completa em ambos os registries!';
+            inputIndicator.style.backgroundColor = 'rgba(40, 167, 69, 0.3)';
+          }
+          
+          // Remove listener
+          ipcRenderer.removeListener('command-output', browserLoginHandler);
+          
+          // Notifica sucesso
+          setTimeout(() => {
+            ipcRenderer.send('npm-login-complete', { 
+              success: true, 
+              message: 'Login completo em Nexus e npmjs.org!'
+            });
+          }, 2000);
+        }
+      };
+      
+      // Adiciona listener
+      ipcRenderer.on('command-output', browserLoginHandler);
+      
+      // Timeout de segurança (5 minutos)
+      setTimeout(() => {
+        if (!alreadyProcessed) {
+          terminal.innerText += `\n⏰ Timeout - fechando janela...\n`;
+          terminal.scrollTop = terminal.scrollHeight;
+          
+          ipcRenderer.removeListener('command-output', browserLoginHandler);
+          
+          setTimeout(() => {
+            ipcRenderer.send('npm-login-complete', { 
+              success: false, 
+              message: 'Timeout no login via browser' 
+            });
+          }, 2000);
+        }
+      }, 5 * 60 * 1000);
     });
   </script>
 </body>

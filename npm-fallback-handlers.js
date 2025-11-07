@@ -12,6 +12,74 @@ class NpmFallbackHandlers {
   }
 
   /**
+   * Obtém o caminho do npm portátil instalado
+   */
+  getPortableNpmPath() {
+    try {
+      const nodeVersionConfig = require('./node-version-config');
+      const currentOS = nodeVersionConfig.getCurrentOS();
+      const nodesBasePath = nodeVersionConfig.getNodesBasePath();
+      
+      const osFolderMap = {
+        'windows': 'windows',
+        'linux': 'linux',
+        'mac': 'mac',
+        'mac-arm64': 'mac'
+      };
+      
+      const osFolder = osFolderMap[currentOS] || 'windows';
+      const nodesFolderPath = path.join(nodesBasePath, osFolder);
+      
+      if (!fs.existsSync(nodesFolderPath)) {
+        console.error(`❌ Pasta de nodes não encontrada: ${nodesFolderPath}`);
+        return null;
+      }
+      
+      const folders = fs.readdirSync(nodesFolderPath);
+      
+      for (const folder of folders) {
+        const folderPath = path.join(nodesFolderPath, folder);
+        
+        if (!fs.statSync(folderPath).isDirectory()) {
+          continue;
+        }
+        
+        if (currentOS === 'windows') {
+          let npmPath = path.join(folderPath, 'npm.cmd');
+          if (fs.existsSync(npmPath)) {
+            console.log(`✅ npm portátil encontrado: ${npmPath}`);
+            return npmPath;
+          }
+          
+          const subfolders = fs.readdirSync(folderPath);
+          for (const subfolder of subfolders) {
+            const subfolderPath = path.join(folderPath, subfolder);
+            if (fs.statSync(subfolderPath).isDirectory()) {
+              npmPath = path.join(subfolderPath, 'npm.cmd');
+              if (fs.existsSync(npmPath)) {
+                console.log(`✅ npm portátil encontrado: ${npmPath}`);
+                return npmPath;
+              }
+            }
+          }
+        } else {
+          const npmPath = path.join(folderPath, 'bin', 'npm');
+          if (fs.existsSync(npmPath)) {
+            console.log(`✅ npm portátil encontrado: ${npmPath}`);
+            return npmPath;
+          }
+        }
+      }
+      
+      console.error(`❌ Nenhum npm portátil encontrado`);
+      return null;
+    } catch (error) {
+      console.error(`❌ Erro ao procurar npm portátil:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Codifica credenciais em base64
    */
   encodeCredentials(username, password, email) {
@@ -102,13 +170,32 @@ class NpmFallbackHandlers {
     return new Promise((resolve) => {
       console.log(`🔍 Verificando login no Nexus para ${projectPath}`);
       
-      exec(`npm whoami --registry=${registry}`, { cwd: projectPath, timeout: 10000 }, (error, stdout, stderr) => {
+      const npmPath = this.getPortableNpmPath();
+      
+      if (!npmPath) {
+        console.error('❌ npm portátil não encontrado para verificação de login');
+        resolve({ isLoggedIn: false, username: null });
+        return;
+      }
+      
+      // Para Windows, precisa usar cmd /c para executar .cmd files corretamente
+      const nodeVersionConfig = require('./node-version-config');
+      const currentOS = nodeVersionConfig.getCurrentOS();
+      const whoamiCommand = currentOS === 'windows' 
+        ? `cmd /c "${npmPath}" whoami --registry=${registry}`
+        : `"${npmPath}" whoami --registry=${registry}`;
+      
+      console.log(`🔍 Executando comando: ${whoamiCommand}`);
+      
+      exec(whoamiCommand, { cwd: projectPath, timeout: 30000 }, (error, stdout, stderr) => {
         if (!error && stdout && stdout.trim()) {
           const username = stdout.trim();
           console.log(`✅ Logado no Nexus como: ${username}`);
           resolve({ isLoggedIn: true, username });
         } else {
           console.log('❌ Não está logado no Nexus');
+          console.log('Erro:', error?.message);
+          console.log('stderr:', stderr);
           resolve({ isLoggedIn: false, username: null });
         }
       });
@@ -128,7 +215,33 @@ class NpmFallbackHandlers {
 
     console.log(`🔐 Tentando login silencioso no Nexus...`);
     
+    const npmPath = this.getPortableNpmPath();
+    
+    if (!npmPath) {
+      console.error('❌ npm portátil não encontrado para login silencioso');
+      return { success: false, reason: 'npm-not-found' };
+    }
+    
+    console.log(`✅ Usando npm portátil para login: ${npmPath}`);
+    
     return new Promise((resolve) => {
+      // Timeout de segurança
+      const loginTimeout = setTimeout(() => {
+        console.error('⏰ Timeout no login silencioso (60s)');
+        
+        // Tenta limpar o script temporário
+        try {
+          const tempScriptPath = path.join(projectPath, '.npm-login-temp.js');
+          if (fs.existsSync(tempScriptPath)) {
+            fs.unlinkSync(tempScriptPath);
+          }
+        } catch (e) {
+          console.error('⚠️ Erro ao limpar script após timeout:', e);
+        }
+        
+        resolve({ success: false, reason: 'timeout', error: 'Login silencioso excedeu 60 segundos' });
+      }, 60000); // 60 segundos
+      
       // Cria um script temporário para fazer login automático
       const loginScript = `
         const { spawn } = require('child_process');
@@ -136,8 +249,9 @@ class NpmFallbackHandlers {
         const username = '${credentials.username}';
         const password = '${credentials.password}';
         const email = '${credentials.email}';
+        const npmPath = '${npmPath.replace(/\\/g, '\\\\')}';
         
-        const npmLogin = spawn('npm', ['login', '--registry=' + registry], {
+        const npmLogin = spawn(npmPath, ['login', '--registry=' + registry], {
           cwd: '${projectPath.replace(/\\/g, '\\\\')}',
           stdio: ['pipe', 'pipe', 'pipe']
         });
@@ -172,7 +286,10 @@ class NpmFallbackHandlers {
       const tempScriptPath = path.join(projectPath, '.npm-login-temp.js');
       fs.writeFileSync(tempScriptPath, loginScript, 'utf8');
 
-      exec(`node "${tempScriptPath}"`, { cwd: projectPath, timeout: 30000 }, (error, stdout, stderr) => {
+      exec(`node "${tempScriptPath}"`, { cwd: projectPath, timeout: 60000 }, (error, stdout, stderr) => {
+        // Limpa o timeout
+        clearTimeout(loginTimeout);
+        
         // Remove script temporário
         try {
           fs.unlinkSync(tempScriptPath);
@@ -198,12 +315,30 @@ class NpmFallbackHandlers {
     return new Promise((resolve) => {
       console.log(`🔧 Configurando registry: ${registry}`);
       
-      exec(`npm config set registry ${registry}`, { cwd: projectPath }, (error, stdout, stderr) => {
+      const npmPath = this.getPortableNpmPath();
+      
+      if (!npmPath) {
+        console.error('❌ npm portátil não encontrado para configurar registry');
+        resolve({ success: false, error: 'npm não encontrado' });
+        return;
+      }
+      
+      // Para Windows, precisa usar cmd /c para executar .cmd files corretamente
+      const nodeVersionConfig = require('./node-version-config');
+      const currentOS = nodeVersionConfig.getCurrentOS();
+      const configCommand = currentOS === 'windows' 
+        ? `cmd /c "${npmPath}" config set registry ${registry}`
+        : `"${npmPath}" config set registry ${registry}`;
+      
+      console.log(`🔧 Executando comando: ${configCommand}`);
+      
+      exec(configCommand, { cwd: projectPath }, (error, stdout, stderr) => {
         if (!error) {
           console.log(`✅ Registry configurado: ${registry}`);
           resolve({ success: true });
         } else {
           console.error(`❌ Erro ao configurar registry:`, error.message);
+          console.error('stderr:', stderr);
           resolve({ success: false, error: error.message });
         }
       });
@@ -310,8 +445,33 @@ class NpmFallbackHandlers {
 
       // Passo 4: Executar npm install
       log('📋 Passo 4: Instalando dependências...');
+      
+      // Obtém o caminho do npm portátil
+      const npmPath = this.getPortableNpmPath();
+      
+      if (!npmPath) {
+        log('❌ npm portátil não encontrado para instalação');
+        return { 
+          success: false, 
+          reason: 'npm-not-found', 
+          steps,
+          message: 'npm portátil não encontrado'
+        };
+      }
+      
+      log(`✅ Usando npm portátil: ${npmPath}`);
+      
+      // Para Windows, precisa usar cmd /c para executar .cmd files corretamente
+      const nodeVersionConfig = require('./node-version-config');
+      const currentOS = nodeVersionConfig.getCurrentOS();
+      const installCommand = currentOS === 'windows' 
+        ? `cmd /c "${npmPath}" install --verbose`
+        : `"${npmPath}" install --verbose`;
+      
+      log(`🔧 Executando: ${installCommand}`);
+      
       const installResult = await new Promise((resolve) => {
-        exec('npm install --verbose', { 
+        exec(installCommand, { 
           cwd: projectPath, 
           maxBuffer: 1024 * 1024 * 50,
           timeout: 600000 // 10 minutos
