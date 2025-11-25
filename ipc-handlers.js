@@ -87,6 +87,22 @@ try {
     await installer.installCustomVersion(customVersion);
     
     console.log(`[CUSTOM-CLI] ✅ Instalação concluída com sucesso!`);
+    
+    // 🔔 NOTIFICA A JANELA PRINCIPAL PARA ATUALIZAR LISTA DE VERSÕES DISPONÍVEIS
+    try {
+      const { BrowserWindow } = require('electron');
+      const mainWindow = BrowserWindow.getAllWindows()[0];
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        console.log(`[CUSTOM-CLI] 📢 Notificando mainWindow para atualizar lista de nodes...`);
+        mainWindow.webContents.send('node-versions-updated', {
+          newVersion: nodeVersion,
+          message: 'Nova versão do Node.js instalada com sucesso!'
+        });
+      }
+    } catch (notifyError) {
+      console.error(`[CUSTOM-CLI] ⚠️ Erro ao notificar mainWindow:`, notifyError);
+    }
+    
     return {
       success: true,
       message: `Node.js ${nodeVersion} e Angular CLI instalados com sucesso!`

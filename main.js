@@ -1889,10 +1889,7 @@ function handleNpmLogin() {
       resolve();
     }).catch((error) => {
       console.error('Erro ao verificar status de login:', error);
-      mainWindow.webContents.send('log', { message: `Erro ao verificar login: ${error.message}. Prosseguindo com login...` });
-      
-      // Em caso de erro na verificação, procede com login usando lógica antiga
-      performNpmLoginFallback();
+      mainWindow.webContents.send('log', { message: `Erro ao verificar login: ${error.message}. Tente fazer login manualmente.` });
       resolve();
     });
   });
@@ -2126,43 +2123,7 @@ function performNpmLoginWithPath(projectPath, registry) {
   });
 }
 
-function performNpmLoginFallback() {
-  // Lógica de fallback usando a implementação original
-  const mfePaths = projects
-    .filter(
-      (project) =>
-        typeof project.path === 'string' &&
-        project.path.trim() !== "" &&
-        fs.existsSync(project.path) &&
-        fs.existsSync(path.join(project.path, '.npmrc'))
-    )
-    .map((project) => project.path);
-
-  if (mfePaths.length === 0) {
-    console.error('Nenhum projeto com arquivo .npmrc encontrado para login no npm.');
-    mainWindow.webContents.send('log', { message: 'Erro: Nenhum projeto com arquivo .npmrc encontrado para login no npm.' });
-
-    dialog.showMessageBox(mainWindow, {
-      type: 'warning',
-      title: 'Atenção',
-      message: 'Você precisa ter pelo menos um projeto salvo e o caminho configurado corretamente antes de fazer login no npm.',
-      buttons: ['OK']
-    });
-    return;
-  }
-
-  const projectPath = mfePaths[0];
-  const npmrcPath = path.join(projectPath, '.npmrc');
-  let registry = 'https://nexus.viavarejo.com.br/repository/npm-marketplace/';
-  if (fs.existsSync(npmrcPath)) {
-    const npmrcContent = fs.readFileSync(npmrcPath, 'utf-8');
-    if (npmrcContent.includes('http://')) {
-      registry = 'http://nexus.viavarejo.com.br/repository/npm-marketplace/';
-    }
-  }
-
-  performNpmLogin(registry);
-}
+// Função performNpmLoginFallback() removida - sistema de fallback desabilitado conforme solicitado
 
 // Função para abrir a janela de configurações
 let configWindow = null;

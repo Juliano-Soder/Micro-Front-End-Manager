@@ -659,6 +659,18 @@
             console.log('Tema aplicado:', isDarkMode ? 'escuro' : 'claro');
         });
 
+        // 🔔 RECEBE NOTIFICAÇÃO DE NOVA VERSÃO DO NODE.JS INSTALADA
+        ipcRenderer.on('node-versions-updated', (event, { newVersion, message }) => {
+            console.log(`[NODE-UPDATE] 📢 Nova versão instalada: ${newVersion}`);
+            console.log(`[NODE-UPDATE] 🔄 Recarregando lista de versões disponíveis...`);
+            
+            // Solicita novamente as versões disponíveis do Node.js
+            ipcRenderer.send('get-available-node-versions');
+            
+            // Mostra mensagem para o usuário (opcional)
+            console.log(`[NODE-UPDATE] ✅ ${message}`);
+        });
+
         // Aplica tema inicial e aguarda dados automáticos
         window.addEventListener('DOMContentLoaded', () => {
             console.log('[DEBUG] DOM carregado, aguardando dados automáticos...');
