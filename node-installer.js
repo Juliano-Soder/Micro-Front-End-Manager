@@ -214,8 +214,8 @@ class NodeInstaller {
           // Extração ZIP (Windows)
           const zip = new AdmZip(archivePath);
           zip.extractAllTo(extractPath, true);
-          this.sendLog(`✅ Extração completa`);
-          this.sendProgress(100, 'Extração completa');
+          this.sendLog(`✅ Extração completa - Finalizando instalação...`);
+          this.sendProgress(100, 'Extração completa - Finalizando instalação...');
           resolve();
         } else if (fileName.endsWith('.tar.xz') || fileName.endsWith('.tar.gz')) {
           // Extração TAR (Linux/Mac)
@@ -224,8 +224,8 @@ class NodeInstaller {
             cwd: extractPath,
             strip: 1 // Remove o diretório raiz do tar
           }).then(() => {
-            this.sendLog(`✅ Extração completa`);
-            this.sendProgress(100, 'Extração completa');
+            this.sendLog(`✅ Extração completa - Finalizando instalação...`);
+            this.sendProgress(100, 'Extração completa - Finalizando instalação...');
             resolve();
           }).catch(reject);
         } else {

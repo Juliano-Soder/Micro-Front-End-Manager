@@ -20,7 +20,6 @@ console.log('[MAIN] INÍCIO: Preparando para registrar handler start-node-instal
 // Imports para gerenciamento de Node.js portátil
 const NodeInstaller = require('./node-installer');
 const ProjectConfigManager = require('./project-config-manager');
-const NpmFallbackHandlers = require('./npm-fallback-handlers');
 const OnboardingManager = require('./onboarding-manager');
 const SplashManager = require('./splash-manager');
 
@@ -186,7 +185,6 @@ function safeReadConfigFile(filename) {
 // Instâncias globais
 let nodeInstaller = null;
 let projectConfigManager = null;
-let npmFallbackHandlers = null;
 let installerWindow = null;
 let projectConfigsWindow = null;
 let newCLIsWindow = null;
@@ -489,10 +487,6 @@ ipcMain.on('get-project-configs', (event) => {
   
   if (!projectConfigManager) {
     projectConfigManager = new ProjectConfigManager();
-  }
-  
-  if (!npmFallbackHandlers) {
-    npmFallbackHandlers = new NpmFallbackHandlers();
   }
   
   const configs = projectConfigManager.getAllConfigs();
@@ -1964,9 +1958,6 @@ function performNpmLoginWithPath(projectPath, registry) {
 
   loginWindow.loadFile(path.join(__dirname, 'login.html'));
   
-  // Abre DevTools automaticamente para debug
-  loginWindow.webContents.openDevTools();
-
   // Event handlers para cleanup quando a janela for fechada
   loginWindow.on('closed', () => {
     console.log('🔴 Janela de login foi fechada pelo usuário');
@@ -2025,27 +2016,7 @@ function performNpmLoginWithPath(projectPath, registry) {
       // Verifica se este foi um login do Nexus ou do registry público
       const isNexusLogin = registry && registry.includes('nexus.viavarejo.com.br');
       
-      // Salva credenciais em base64 se fornecidas
-      if (credentials && credentials.username && credentials.password && credentials.email) {
-        if (!npmFallbackHandlers) {
-          npmFallbackHandlers = new NpmFallbackHandlers();
-        }
-        
-        const saved = npmFallbackHandlers.saveCredentials(
-          credentials.username,
-          credentials.password,
-          credentials.email
-        );
-        
-        if (saved) {
-          console.log('✅ Credenciais salvas em base64 com sucesso');
-          mainWindow.webContents.send('log', { message: '🔐 Credenciais salvas para futuros logins' });
-        } else {
-          console.error('❌ Erro ao salvar credenciais');
-        }
-      } else {
-        console.log('⚠️ Credenciais não fornecidas ou incompletas, não será possível fazer login silencioso');
-      }
+      console.log('✅ Login completado - sistema de fallback removido conforme solicitado');
       
       if (isNexusLogin) {
         // Login no Nexus completado - agora configura o registry para npm-group
@@ -4500,161 +4471,23 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
    * Função auxiliar para executar npm install com tratamento de erros
    */
   function executeNpmInstall(event, projectPath, projectName, projectIndex, isPampProject, npmCmd, nodePaths, command, port) {
-    console.log(`[INSTALL] Iniciando npm install para ${projectName}`);
-    
-    // Verifica se é projeto problemático que precisa de tratamento especial
-    const problematicProjects = ['mp-pas-catalogo', 'mp-pas-financeiro', 'mp-pas-vendas'];
-    const isProblematicProject = problematicProjects.includes(projectName);
-    
-    if (isProblematicProject) {
-      console.log(`🎯 Detectado projeto problemático: ${projectName}, usando tratamento especial...`);
-      const specialMsg = `🎯 Usando procedimento especial para ${projectName}...`;
-      if (isPampProject) {
-        event.reply('pamp-log', { 
-          path: projectPath, 
-          message: specialMsg,
-          index: projectIndex,
-          name: projectName
-        });
-      } else {
-        event.reply('log', { path: projectPath, message: specialMsg });
-      }
-      
-      // Usa o handler especial para mp-pas-atendimento
-      if (!npmFallbackHandlers) {
-        npmFallbackHandlers = new NpmFallbackHandlers();
-      }
-      
-      // Cria um objeto event emitter para enviar logs
-      const eventEmitter = {
-        send: (eventName, data) => {
-          if (eventName === 'log') {
-            if (isPampProject) {
-              event.reply('pamp-log', { 
-                path: projectPath, 
-                message: data.message,
-                index: projectIndex,
-                name: projectName
-              });
-            } else {
-              event.reply('log', data);
-            }
-          }
-        }
-      };
-      
-      npmFallbackHandlers.handleMpPasAtendimentoInstall(projectPath, eventEmitter).then((result) => {
-        if (result.success) {
-          console.log(`✅ ${projectName} instalado com sucesso`);
-          const successMsg = `✅ Dependências instaladas com sucesso (${projectName})`;
-          if (isPampProject) {
-            event.reply('pamp-log', { 
-              path: projectPath, 
-              message: successMsg,
-              index: projectIndex,
-              name: projectName
-            });
-          } else {
-            event.reply('log', { path: projectPath, message: successMsg });
-          }
-          
-          // Inicia o projeto
-          executeStartCommand(event, projectPath, command, port);
-        } else {
-          console.error(`❌ Falha ao instalar ${projectName}:`, result.message);
-          const errorMsg = `❌ Erro: ${result.message}`;
-          
-          if (result.reason === 'login-required') {
-            // Solicita login manual
-            dialog.showMessageBox(mainWindow, {
-              type: 'warning',
-              title: 'Login Necessário',
-              message: `É necessário fazer login no Nexus para instalar dependências do ${projectName}.`,
-              detail: 'Clique em OK para abrir a janela de login.',
-              buttons: ['OK', 'Cancelar']
-            }).then((dialogResult) => {
-              if (dialogResult.response === 0) {
-                handleNpmLogin().then(() => {
-                  setTimeout(() => {
-                    startProject(event, projectPath, port);
-                  }, 2000);
-                });
-              } else {
-                if (isPampProject) {
-                  event.reply('pamp-log', { 
-                    path: projectPath, 
-                    message: errorMsg,
-                    index: projectIndex,
-                    name: projectName,
-                    error: true
-                  });
-                  event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
-                } else {
-                  event.reply('log', { path: projectPath, message: errorMsg, error: true });
-                  event.reply('process-error', { path: projectPath });
-                }
-              }
-            });
-          } else {
-            if (isPampProject) {
-              event.reply('pamp-log', { 
-                path: projectPath, 
-                message: errorMsg,
-                index: projectIndex,
-                name: projectName,
-                error: true
-              });
-              event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
-            } else {
-              event.reply('log', { path: projectPath, message: errorMsg, error: true });
-              event.reply('process-error', { path: projectPath });
-            }
-          }
-        }
-      }).catch((error) => {
-        console.error(`❌ Erro inesperado ao instalar ${projectName}:`, error);
-        const errorMsg = `❌ Erro inesperado: ${error.message}`;
-        if (isPampProject) {
-          event.reply('pamp-log', { 
-            path: projectPath, 
-            message: errorMsg,
-            index: projectIndex,
-            name: projectName,
-            error: true
-          });
-          event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
-        } else {
-          event.reply('log', { path: projectPath, message: errorMsg, error: true });
-          event.reply('process-error', { path: projectPath });
-        }
-      });
-      
-      return; // Sai da função, o handler especial cuida do resto
-    }
+    console.log(`[INSTALL] Iniciando npm install simples para ${projectName}`);
 
-    // Executa npm install normal para outros projetos
-    // 🎯 NÃO força registry - deixa o npm usar o .npmrc do projeto + fallback público
-    const installCommand = `${npmCmd} install --progress=true --verbose`;
-    console.log(`[DEBUG] Executando: ${installCommand}`);
+    // Executa npm install SIMPLES - SEM fallback, SEM login automático, SEM complicação
+    const installCommand = `${npmCmd} install --progress=true`;
+    console.log(`[DEBUG] Executando comando simples: ${installCommand}`);
     
-    // 🎯 GARANTE QUE NODE.JS PORTÁTIL SEJA USADO NO NPM INSTALL (se aplicável)
+    // Configura ambiente com Node.js portátil se disponível
     let installEnv;
     if (nodePaths) {
-      // Sistema portátil: adiciona Node.js portátil ao PATH
       installEnv = { 
         ...process.env,
-        PATH: `${nodePaths.nodeDir}${path.delimiter}${process.env.PATH}`, // Node.js portátil primeiro!
-        NODE_PATH: path.join(nodePaths.nodeDir, 'node_modules'),
-        npm_config_progress: 'true',
-        npm_config_loglevel: 'info' // Mais logs detalhados
+        PATH: `${nodePaths.nodeDir}${path.delimiter}${process.env.PATH}`
       };
+      console.log(`[DEBUG] Usando Node.js portátil: ${nodePaths.nodeDir}`);
     } else {
-      // Sistema global: usa PATH padrão do sistema
-      installEnv = {
-        ...process.env,
-        npm_config_progress: 'true',
-        npm_config_loglevel: 'info'
-      };
+      installEnv = { ...process.env };
+      console.log(`[DEBUG] Usando Node.js global do sistema`);
     }
     
     const installProcess = exec(installCommand, { 
@@ -4748,65 +4581,28 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       } else {
         console.error(`Erro ao instalar dependências em ${projectPath}. Código: ${code}`);
         
-        // Verifica se é o erro específico do ajv mencionado
-        if (!npmFallbackHandlers) {
-          npmFallbackHandlers = new NpmFallbackHandlers();
-        }
+        // Erro real na instalação - SEM tentar login automático
+        const errorMessage = `❌ [ERRO] Erro ao instalar dependências. Código: ${code}`;
         
-        const isAjvError = npmFallbackHandlers.isAjvError(errorOutput);
-        const hasNodeModules = npmFallbackHandlers.hasNodeModules(projectPath);
-        const isAuthError = errorOutput.includes('401') || 
-                           errorOutput.includes('Unable to authenticate') || 
-                           errorOutput.includes('BASIC realm');
-        
-        console.log(`[FALLBACK] Análise de erro: isAjvError=${isAjvError}, hasNodeModules=${hasNodeModules}, isAuthError=${isAuthError}`);
-        
-        // Se detectou o erro do ajv mas node_modules existe, tenta continuar mesmo assim
-        if (isAjvError && hasNodeModules) {
-          console.log('⚠️ Erro do ajv detectado, mas node_modules existe. Tentando continuar...');
-          const warningMsg = '⚠️ Aviso: Houve avisos na instalação, mas node_modules foi criado. Tentando iniciar...';
-          
-          if (isPampProject) {
-            event.reply('pamp-log', { 
-              path: projectPath, 
-              message: warningMsg,
-              index: projectIndex,
-              name: projectName
-            });
-          } else {
-            event.reply('log', { path: projectPath, message: warningMsg });
-          }
-          
-          // Tenta iniciar mesmo com o aviso
-          executeStartCommand(event, projectPath, command, port);
+        if (isPampProject) {
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: errorMessage,
+            index: projectIndex,
+            name: projectName,
+            error: true
+          });
+          event.reply('pamp-process-error', { 
+            path: projectPath,
+            index: projectIndex 
+          });
         } else {
-          // Erro real na instalação
-          const errorMessage = `❌ [ERRO] Erro ao instalar dependências. Código: ${code}`;
-          
-          if (isPampProject) {
-            event.reply('pamp-log', { 
-              path: projectPath, 
-              message: errorMessage,
-              index: projectIndex,
-              name: projectName,
-              error: true
-            });
-            
-            // Resetar botões do projeto PAMP
-            event.reply('pamp-process-error', { 
-              path: projectPath,
-              index: projectIndex 
-            });
-          } else {
-            event.reply('log', { 
-              path: projectPath, 
-              message: errorMessage,
-              error: true
-            });
-            
-            // Resetar botões do projeto PAS
-            event.reply('process-error', { path: projectPath });
-          }
+          event.reply('log', { 
+            path: projectPath, 
+            message: errorMessage,
+            error: true
+          });
+          event.reply('process-error', { path: projectPath });
         }
       }
     });
