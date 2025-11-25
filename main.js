@@ -545,24 +545,72 @@ ipcMain.on('get-available-node-versions', (event) => {
       return;
     }
     
+    console.log(`[DEBUG] 🔍 Verificando pasta: ${entry.name}`);
+    
     const folderPath = path.join(osPath, entry.name);
     
-    // Detecta se tem node.exe ou node (para Linux/Mac)
-    const nodeExePath = currentOS === 'windows' 
-      ? path.join(folderPath, 'node.exe')
-      : path.join(folderPath, 'bin', 'node');
+    // 🔍 PROCURA node.exe E npm.cmd (DIRETAMENTE OU EM SUBPASTAS)
+    let nodeExePath = null;
+    let npmPath = null;
+    let actualFolderPath = folderPath;
     
-    const npmPath = currentOS === 'windows'
-      ? path.join(folderPath, 'npm.cmd')
-      : path.join(folderPath, 'bin', 'npm');
+    if (currentOS === 'windows') {
+      // Tenta primeiro diretamente na pasta
+      nodeExePath = path.join(folderPath, 'node.exe');
+      npmPath = path.join(folderPath, 'npm.cmd');
+      
+      console.log(`[DEBUG]   Verificando diretamente: ${nodeExePath}`);
+      console.log(`[DEBUG]   Existe node.exe? ${fs.existsSync(nodeExePath)}`);
+      console.log(`[DEBUG]   Existe npm.cmd? ${fs.existsSync(npmPath)}`);
+      
+      // Se não encontrar, procura em subpastas (para estruturas como node-v22.12.0/node-v22.12.0-win-x64/)
+      if (!fs.existsSync(nodeExePath) || !fs.existsSync(npmPath)) {
+        console.log(`[DEBUG]   ⚠️ Não encontrado diretamente, procurando em subpastas...`);
+        
+        try {
+          const subfolders = fs.readdirSync(folderPath, { withFileTypes: true })
+            .filter(item => item.isDirectory());
+          
+          console.log(`[DEBUG]   Subpastas encontradas: ${subfolders.map(s => s.name).join(', ')}`);
+          
+          for (const subfolder of subfolders) {
+            const subfolderPath = path.join(folderPath, subfolder.name);
+            const subNodeExe = path.join(subfolderPath, 'node.exe');
+            const subNpmCmd = path.join(subfolderPath, 'npm.cmd');
+            
+            console.log(`[DEBUG]     Verificando subpasta ${subfolder.name}...`);
+            console.log(`[DEBUG]     Existe node.exe? ${fs.existsSync(subNodeExe)}`);
+            console.log(`[DEBUG]     Existe npm.cmd? ${fs.existsSync(subNpmCmd)}`);
+            
+            if (fs.existsSync(subNodeExe) && fs.existsSync(subNpmCmd)) {
+              nodeExePath = subNodeExe;
+              npmPath = subNpmCmd;
+              actualFolderPath = subfolderPath;
+              console.log(`[DEBUG] ✅ Node.js encontrado em subpasta: ${subfolder.name}`);
+              break;
+            }
+          }
+        } catch (err) {
+          console.log(`[DEBUG]   ❌ Erro ao ler subpastas: ${err.message}`);
+        }
+      }
+    } else {
+      // Linux/Mac: procura em bin/
+      nodeExePath = path.join(folderPath, 'bin', 'node');
+      npmPath = path.join(folderPath, 'bin', 'npm');
+    }
     
     // Verifica se é uma instalação válida do Node.js
-    const isValidNodeInstall = fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
+    const isValidNodeInstall = nodeExePath && npmPath && fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
+    
+    console.log(`[DEBUG]   Instalação válida? ${isValidNodeInstall}`);
     
     if (isValidNodeInstall) {
       // Extrai a versão do nome da pasta
-      // Formato esperado: node-v16.10.0-win-x64 ou node-v18.20.4
+      // Formato esperado: node-v16.10.0-win-x64 ou node-v18.20.4 ou node-v22.12.0
       const versionMatch = entry.name.match(/node-v([\d.]+)/i);
+      
+      console.log(`[DEBUG]   Regex match resultado: ${versionMatch ? versionMatch[1] : 'NENHUM'}`);
       
       if (versionMatch) {
         const version = versionMatch[1];
@@ -574,7 +622,7 @@ ipcMain.on('get-available-node-versions', (event) => {
           folderName: entry.name,
           label: `Node ${version}`,
           installed: true,
-          path: folderPath
+          path: actualFolderPath // USA O CAMINHO REAL (pode ser subpasta)
         };
       } else {
         console.log(`[DEBUG] ⚠️ Pasta ignorada (formato não reconhecido): ${entry.name}`);
@@ -2332,7 +2380,7 @@ function openProjectConfigsWindow() {
         configs: configs
       });
       
-      // Envia versões disponíveis do Node.js
+      // Envia versões disponíveis do Node.js (DETECÇÃO DINÂMICA)
       setTimeout(() => {
         console.log('[AUTO-SEND] Enviando versões disponíveis...');
         const { NODE_VERSIONS } = require('./node-version-config');
@@ -2344,27 +2392,76 @@ function openProjectConfigsWindow() {
         const currentOS = getCurrentOS();
         const osPath = path.join(nodesBasePath, currentOS);
         
-        Object.keys(NODE_VERSIONS).forEach(version => {
-          const versionConfig = NODE_VERSIONS[version];
-          const folderName = typeof versionConfig.folderName === 'object' 
-            ? versionConfig.folderName[currentOS] 
-            : versionConfig.folderName;
-          
-          const nodeDir = path.join(osPath, folderName);
-          const nodeExePath = path.join(nodeDir, currentOS === 'windows' ? 'node.exe' : 'bin/node');
-          const npmPath = path.join(nodeDir, currentOS === 'windows' ? 'npm.cmd' : 'bin/npm');
-          
-          const isInstalled = fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
-          
-          availableVersions[version] = {
-            version: version,
-            label: versionConfig.nodeLabel || `Node ${version}`,
-            installed: isInstalled,
-            angularVersion: versionConfig.angularVersion,
-            angularPackage: versionConfig.angularPackage
-          };
-        });
+        console.log('[AUTO-SEND] 🔍 Detectando versões em:', osPath);
         
+        // DETECÇÃO DINÂMICA - escaneia filesystem em vez de usar NODE_VERSIONS hardcoded
+        if (fs.existsSync(osPath)) {
+          const folders = fs.readdirSync(osPath, { withFileTypes: true })
+            .filter(dirent => dirent.isDirectory())
+            .map(dirent => dirent.name);
+          
+          console.log('[AUTO-SEND] 📁 Pastas encontradas:', folders.length);
+          
+          folders.forEach(folder => {
+            console.log(`[AUTO-SEND] 🔎 Verificando: ${folder}`);
+            const folderPath = path.join(osPath, folder);
+            
+            // Verifica se tem node.exe diretamente
+            let nodeExePath = path.join(folderPath, currentOS === 'windows' ? 'node.exe' : 'bin/node');
+            let npmPath = path.join(folderPath, currentOS === 'windows' ? 'npm.cmd' : 'bin/npm');
+            let actualPath = folderPath;
+            
+            // Se não encontrar, procura em subpastas
+            if (!fs.existsSync(nodeExePath) || !fs.existsSync(npmPath)) {
+              console.log(`[AUTO-SEND]   ⚠️ Não encontrado diretamente, procurando em subpastas...`);
+              const subfolders = fs.readdirSync(folderPath, { withFileTypes: true })
+                .filter(dirent => dirent.isDirectory())
+                .map(dirent => dirent.name);
+              
+              for (const subfolder of subfolders) {
+                const subfolderPath = path.join(folderPath, subfolder);
+                const subNodeExe = path.join(subfolderPath, currentOS === 'windows' ? 'node.exe' : 'bin/node');
+                const subNpmPath = path.join(subfolderPath, currentOS === 'windows' ? 'npm.cmd' : 'bin/npm');
+                
+                if (fs.existsSync(subNodeExe) && fs.existsSync(subNpmPath)) {
+                  console.log(`[AUTO-SEND]   ✅ Encontrado em subpasta: ${subfolder}`);
+                  nodeExePath = subNodeExe;
+                  npmPath = subNpmPath;
+                  actualPath = subfolderPath;
+                  break;
+                }
+              }
+            }
+            
+            const isInstalled = fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
+            
+            if (isInstalled) {
+              // Extrai versão do nome da pasta
+              const versionMatch = folder.match(/node-v([\d.]+)/);
+              if (versionMatch) {
+                const version = versionMatch[1];
+                console.log(`[AUTO-SEND]   ✅ Versão detectada: ${version}`);
+                
+                // Tenta pegar configuração do NODE_VERSIONS, senão usa defaults
+                const versionConfig = NODE_VERSIONS[version] || {
+                  nodeLabel: `Node ${version}`,
+                  angularVersion: 'Unknown',
+                  angularPackage: '@angular/cli@latest'
+                };
+                
+                availableVersions[version] = {
+                  version: version,
+                  label: versionConfig.nodeLabel || `Node ${version}`,
+                  installed: true,
+                  angularVersion: versionConfig.angularVersion,
+                  angularPackage: versionConfig.angularPackage
+                };
+              }
+            }
+          });
+        }
+        
+        console.log('[AUTO-SEND] 📋 Total de versões detectadas:', Object.keys(availableVersions).length);
         console.log('[AUTO-SEND] Versões disponíveis:', availableVersions);
         projectConfigsWindow.webContents.send('available-node-versions', availableVersions);
       }, 200);

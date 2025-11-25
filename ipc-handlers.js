@@ -88,19 +88,23 @@ try {
     
     console.log(`[CUSTOM-CLI] ✅ Instalação concluída com sucesso!`);
     
-    // 🔔 NOTIFICA A JANELA PRINCIPAL PARA ATUALIZAR LISTA DE VERSÕES DISPONÍVEIS
+    // 🔔 NOTIFICA TODAS AS JANELAS ABERTAS PARA ATUALIZAR LISTA DE VERSÕES DISPONÍVEIS
     try {
       const { BrowserWindow } = require('electron');
-      const mainWindow = BrowserWindow.getAllWindows()[0];
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        console.log(`[CUSTOM-CLI] 📢 Notificando mainWindow para atualizar lista de nodes...`);
-        mainWindow.webContents.send('node-versions-updated', {
-          newVersion: nodeVersion,
-          message: 'Nova versão do Node.js instalada com sucesso!'
-        });
-      }
+      const allWindows = BrowserWindow.getAllWindows();
+      console.log(`[CUSTOM-CLI] 📢 Notificando ${allWindows.length} janela(s) para atualizar lista de nodes...`);
+      
+      allWindows.forEach((window, index) => {
+        if (window && !window.isDestroyed()) {
+          console.log(`[CUSTOM-CLI] 📤 Enviando notificação para janela ${index + 1}...`);
+          window.webContents.send('node-versions-updated', {
+            newVersion: nodeVersion,
+            message: 'Nova versão do Node.js instalada com sucesso!'
+          });
+        }
+      });
     } catch (notifyError) {
-      console.error(`[CUSTOM-CLI] ⚠️ Erro ao notificar mainWindow:`, notifyError);
+      console.error(`[CUSTOM-CLI] ⚠️ Erro ao notificar janelas:`, notifyError);
     }
     
     return {
@@ -410,11 +414,8 @@ try {
   ipcMain.handle('get-available-node-versions', async () => {
     try {
       console.log('[ONBOARDING] 📦 Obtendo versões disponíveis do Node.js...');
-      const NodeInstaller = require('./node-installer');
-      const nodeInstaller = new NodeInstaller(null);
       
-      // Usa o mesmo sistema do project-configs para obter versões
-      const { NODE_VERSIONS, getNodesBasePath, getCurrentOS } = require('./node-version-config');
+      const { getNodesBasePath, getCurrentOS } = require('./node-version-config');
       const path = require('path');
       const fs = require('fs');
       
@@ -423,25 +424,95 @@ try {
       const currentOS = getCurrentOS();
       const osPath = path.join(nodesBasePath, currentOS);
       
-      Object.keys(NODE_VERSIONS).forEach(version => {
-        const versionConfig = NODE_VERSIONS[version];
-        const folderName = typeof versionConfig.folderName === 'object' 
-          ? versionConfig.folderName[currentOS] 
-          : versionConfig.folderName;
+      console.log(`[ONBOARDING] 🔍 Detectando versões em: ${osPath}`);
+      
+      // Verifica se o diretório existe
+      if (!fs.existsSync(osPath)) {
+        console.log('[ONBOARDING] ⚠️ Diretório de nodes não existe ainda');
+        return availableVersions;
+      }
+      
+      // Lista todos os diretórios no path do OS
+      const entries = fs.readdirSync(osPath, { withFileTypes: true });
+      
+      entries.forEach(entry => {
+        // Ignora arquivos e diretórios que não parecem ser do Node.js
+        if (!entry.isDirectory() || entry.name === '.gitkeep') {
+          return;
+        }
         
-        const nodeDir = path.join(osPath, folderName);
-        const nodeExePath = path.join(nodeDir, currentOS === 'windows' ? 'node.exe' : 'bin/node');
-        const npmPath = path.join(nodeDir, currentOS === 'windows' ? 'npm.cmd' : 'bin/npm');
+        console.log(`[ONBOARDING] 🔍 Verificando pasta: ${entry.name}`);
         
-        const isInstalled = fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
+        const folderPath = path.join(osPath, entry.name);
         
-        availableVersions[version] = {
-          version: version,
-          installed: isInstalled,
-          folderName: folderName,
-          path: nodeDir
-        };
+        // 🔍 PROCURA node.exe E npm.cmd (DIRETAMENTE OU EM SUBPASTAS)
+        let nodeExePath = null;
+        let npmPath = null;
+        let actualFolderPath = folderPath;
+        
+        if (currentOS === 'windows') {
+          // Tenta primeiro diretamente na pasta
+          nodeExePath = path.join(folderPath, 'node.exe');
+          npmPath = path.join(folderPath, 'npm.cmd');
+          
+          // Se não encontrar, procura em subpastas (para estruturas como node-v22.12.0/node-v22.12.0-win-x64/)
+          if (!fs.existsSync(nodeExePath) || !fs.existsSync(npmPath)) {
+            console.log(`[ONBOARDING]   ⚠️ Não encontrado diretamente, procurando em subpastas...`);
+            
+            try {
+              const subfolders = fs.readdirSync(folderPath, { withFileTypes: true })
+                .filter(item => item.isDirectory());
+              
+              for (const subfolder of subfolders) {
+                const subfolderPath = path.join(folderPath, subfolder.name);
+                const subNodeExe = path.join(subfolderPath, 'node.exe');
+                const subNpmCmd = path.join(subfolderPath, 'npm.cmd');
+                
+                if (fs.existsSync(subNodeExe) && fs.existsSync(subNpmCmd)) {
+                  nodeExePath = subNodeExe;
+                  npmPath = subNpmCmd;
+                  actualFolderPath = subfolderPath;
+                  console.log(`[ONBOARDING] ✅ Node.js encontrado em subpasta: ${subfolder.name}`);
+                  break;
+                }
+              }
+            } catch (err) {
+              console.log(`[ONBOARDING]   ❌ Erro ao ler subpastas: ${err.message}`);
+            }
+          }
+        } else {
+          // Linux/Mac: procura em bin/
+          nodeExePath = path.join(folderPath, 'bin', 'node');
+          npmPath = path.join(folderPath, 'bin', 'npm');
+        }
+        
+        // Verifica se é uma instalação válida do Node.js
+        const isValidNodeInstall = nodeExePath && npmPath && fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
+        
+        if (isValidNodeInstall) {
+          // Extrai a versão do nome da pasta
+          const versionMatch = entry.name.match(/node-v([\d.]+)/i);
+          
+          if (versionMatch) {
+            const version = versionMatch[1];
+            
+            console.log(`[ONBOARDING] ✅ Versão detectada: ${version} (pasta: ${entry.name})`);
+            
+            availableVersions[version] = {
+              version: version,
+              folderName: entry.name,
+              label: `Node ${version}`,
+              installed: true,
+              path: actualFolderPath
+            };
+          }
+        } else {
+          console.log(`[ONBOARDING] ⚠️ Pasta ignorada (não tem node.exe/npm): ${entry.name}`);
+        }
       });
+      
+      console.log(`[ONBOARDING] 📊 Total de versões detectadas: ${Object.keys(availableVersions).length}`);
+      console.log('[ONBOARDING] 📋 Versões disponíveis:', Object.keys(availableVersions));
       
       return availableVersions;
     } catch (error) {

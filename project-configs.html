@@ -661,14 +661,15 @@
 
         // 🔔 RECEBE NOTIFICAÇÃO DE NOVA VERSÃO DO NODE.JS INSTALADA
         ipcRenderer.on('node-versions-updated', (event, { newVersion, message }) => {
-            console.log(`[NODE-UPDATE] 📢 Nova versão instalada: ${newVersion}`);
+            console.log(`[NODE-UPDATE] =============================================`);
+            console.log(`[NODE-UPDATE] 📢 NOTIFICAÇÃO RECEBIDA!`);
+            console.log(`[NODE-UPDATE] Nova versão instalada: ${newVersion}`);
+            console.log(`[NODE-UPDATE] Mensagem: ${message}`);
             console.log(`[NODE-UPDATE] 🔄 Recarregando lista de versões disponíveis...`);
+            console.log(`[NODE-UPDATE] =============================================`);
             
             // Solicita novamente as versões disponíveis do Node.js
             ipcRenderer.send('get-available-node-versions');
-            
-            // Mostra mensagem para o usuário (opcional)
-            console.log(`[NODE-UPDATE] ✅ ${message}`);
         });
 
         // Aplica tema inicial e aguarda dados automáticos
@@ -698,11 +699,19 @@
 
         // Recebe versões disponíveis do Node.js
         ipcRenderer.on('available-node-versions', (event, versions) => {
-            console.log('[DEBUG] Versões disponíveis:', versions);
+            console.log('[VERSIONS] =============================================');
+            console.log('[VERSIONS] 📦 VERSÕES DISPONÍVEIS RECEBIDAS!');
+            console.log('[VERSIONS] Total de versões:', Object.keys(versions).length);
+            console.log('[VERSIONS] Versões:', Object.keys(versions));
+            console.log('[VERSIONS] Detalhes completos:', versions);
+            console.log('[VERSIONS] =============================================');
+            
             availableNodeVersions = versions;
+            
             // Atualiza compatibilidade com versões dinâmicas
             Object.keys(versions).forEach(version => {
                 if (!ANGULAR_COMPATIBILITY[version]) {
+                    console.log(`[VERSIONS] ➕ Adicionando compatibilidade para versão não configurada: ${version}`);
                     // Adiciona versões não configuradas com padrões sensatos
                     ANGULAR_COMPATIBILITY[version] = {
                         nodeLabel: `Node ${version}`,
@@ -711,9 +720,13 @@
                     };
                 }
             });
+            
             // Renderiza após receber versões disponíveis
             if (projects.length > 0) {
+                console.log('[VERSIONS] 🔄 Renderizando projetos com novas versões...');
                 renderProjects();
+            } else {
+                console.log('[VERSIONS] ⚠️ Nenhum projeto carregado ainda, aguardando...');
             }
         });
 
