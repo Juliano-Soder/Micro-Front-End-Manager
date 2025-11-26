@@ -1,23 +1,42 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Front-end Manager</title>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>
-    /* Aplica a fonte Fira Code em todo o app */
-    body {
-      font-family: 'Fira Code', monospace;
-      margin: 0;
-      padding: 20px;
-      background-color: #f4f4f4;
-      color: #333;
-      max-width: 1200px;
-      margin: 0 auto;
-      transition: background-color 0.3s ease, color 0.3s ease;
-    }
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Front-end Manager</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+      /* Aplica a fonte Fira Code em todo o app */
+      body {
+        font-family: 'Fira Code', monospace;
+        margin: 0;
+        padding: 20px;
+        background-color: #f4f4f4;
+        color: #333;
+        max-width: 80vw;
+        margin: 0 auto;
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
 
+      #onboarding-mfes #onboarding-content {
+        width: 100% !important;
+      }
+
+      @media screen and (max-width: 801px) {
+        body {
+          min-width: 95vw;
+        }
+      }
+
+      @media screen and (min-width: 1600px) {
+        body {
+          min-width: 70vw;
+        }
+        .project-card {
+          width: 47% !important;
+        }
+      }
+      
     /* Modo Escuro */
     body.dark-mode {
       background-color: #1e1e1e;
@@ -81,13 +100,19 @@
 
     /* Estilos para MFEs containers */
     #pamp-mfes, #projects {
+      min-width: 80vw;
       margin-top: 15px;
+      justify-content: space-evenly;
+      display: flex;
+      flex-direction: row;
+      flex-wrap: wrap;
     }
 
     /* Estilos para os cards de projeto */
     .project-card {
+      width: 700px;
+      margin-bottom: 10px;
       position: relative;
-      margin-bottom: 20px;
       border: 1px solid #ccc;
       padding: 15px;
       border-radius: 5px;
@@ -95,6 +120,7 @@
       box-shadow: 0 2px 4px rgba(0,0,0,0.05);
       transition: background-color 0.3s ease, border-color 0.3s ease;
     }
+
 
     body.dark-mode .project-card {
       background-color: #2d2d2d;
@@ -341,12 +367,6 @@
       display: flex !important;
       visibility: visible !important;
       opacity: 1 !important;
-    }
-
-    /* Conteúdo das abas */
-    #pamp-mfes, #projects, #onboarding-mfes {
-      padding: 20px 0;
-      min-height: 200px;
     }
 
     /* Version info */
@@ -1779,7 +1799,7 @@
   
   togglePampBtn.addEventListener('click', () => {
     pampVisible = !pampVisible;
-    pampContainer.style.display = pampVisible ? 'block' : 'none';
+    pampContainer.style.display = pampVisible ? 'flex' : 'none';
     
     // Conta projetos PAMP visíveis
     const pampCount = pampContainer.querySelectorAll('.project-card').length;
@@ -1793,7 +1813,7 @@
   
   toggleBtn.addEventListener('click', () => {
     mfesVisible = !mfesVisible;
-    projectsContainer.style.display = mfesVisible ? 'block' : 'none';
+    projectsContainer.style.display = mfesVisible ? 'flex' : 'none';
     
     // Conta projetos PAS visíveis
     const pasCount = projectsContainer.querySelectorAll('.project-card').length;
@@ -1823,7 +1843,7 @@
   toggleOnboardingBtn.addEventListener('click', () => {
     console.log('[ONBOARDING] 🖱️ Botão clicado! onboardingVisible:', onboardingVisible);
     onboardingVisible = !onboardingVisible;
-    onboardingContainer.style.display = onboardingVisible ? 'block' : 'none';
+    onboardingContainer.style.display = onboardingVisible ? 'flex' : 'none';
     
     if (onboardingVisible) {
       console.log('[ONBOARDING] 👁️ Mostrando Onboarding, escondendo PAS e PAMP');
@@ -1840,8 +1860,8 @@
     } else {
       console.log('[ONBOARDING] 👁️ Escondendo Onboarding, restaurando PAS e PAMP');
       // Restaura visibilidade anterior dos painéis PAS e PAMP
-      projectsContainer.style.display = mfesVisible ? 'block' : 'none';
-      pampContainer.style.display = pampVisible ? 'block' : 'none';
+      projectsContainer.style.display = mfesVisible ? 'flex' : 'none';
+      pampContainer.style.display = pampVisible ? 'flex' : 'none';
       
       // Restaura estado dos botões
       if (mfesVisible) toggleBtn.classList.add('expanded');
@@ -1861,7 +1881,7 @@
     toggleOnboardingNodeConfigBtn.addEventListener('click', () => {
       console.log('[ONBOARDING-NODE] 🖱️ Botão de configuração Node clicado!');
       onboardingNodeConfigVisible = !onboardingNodeConfigVisible;
-      onboardingNodeConfigContainer.style.display = onboardingNodeConfigVisible ? 'block' : 'none';
+      onboardingNodeConfigContainer.style.display = onboardingNodeConfigVisible ? 'flex' : 'none';
       
       if (onboardingNodeConfigVisible) {
         // Esconde todos os outros painéis
@@ -2114,8 +2134,8 @@
       // Descubra o índice real no array projects
     const realIndex = projects.findIndex(p => p.name === project.name);
     const div = document.createElement('div');
+    div.className = "project-card";
     div.innerHTML = `
-       <div class="project-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <p style="margin: 0;"><strong>${project.name}</strong></p>
@@ -2159,8 +2179,8 @@
         <button id="pamp-btn-stop-${realIndex}" style="display: none;">Parar</button>
         <button id="pamp-btn-move-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #5a6c7d; color: white;">Mover para...</button>
         <button id="pamp-btn-delete-${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #8b5a5a; color: white;">Deletar</button>
-        <div id="pamp-log-${realIndex}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
-      </div>
+        <div id="pamp-log-${realIndex}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;">
+        </div>
     `;
     pampContainer.appendChild(div);
 
@@ -2292,8 +2312,8 @@
   pasProjects.forEach((project, pasIndex) => {
     const realIndex = projects.findIndex(p => p.name === project.name);
     const div = document.createElement('div');
+    div.className = "project-card";
     div.innerHTML = `
-      <div class="project-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <p style="margin: 0;"><strong>${project.name}</strong></p>
@@ -2321,8 +2341,8 @@
         <button id="btn-stop-${realIndex}" style="display: none;">Parar</button>
         <button id="btn-move-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #5a6c7d; color: white;">Mover para...</button>
         <button id="btn-delete-${realIndex}" data-index="${realIndex}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #8b5a5a; color: white;">Deletar</button>
-        <div id="log-${realIndex}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
-      </div>
+        <div id="log-${realIndex}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;">
+        </div>
     `;
     container.appendChild(div);
 
@@ -2643,8 +2663,8 @@
 
     projects.forEach((project, index) => {
       const div = document.createElement('div');
+      div.className = "project-card";
       div.innerHTML = `
-        <div class="project-card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <p style="margin: 0;"><strong>${project.name}</strong></p>
@@ -2692,7 +2712,6 @@
           <button id="onb-btn-delete-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #8b5a5a; color: white;">Deletar</button>
           
           <div id="onb-log-${index}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
-        </div>
       `;
       onboardingContainer.appendChild(div);
 

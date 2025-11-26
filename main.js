@@ -1097,17 +1097,17 @@ async function getProjectGitBranch(projectPath) {
         encoding: 'utf8'
       }, (error, stdout, stderr) => {
         if (error) {
-          console.log(`[GIT] Erro ao obter branch para ${projectPath}: ${error.message}`);
+          // console.log(`[GIT] Erro ao obter branch para ${projectPath}: ${error.message}`);
           resolve(null);
           return;
         }
 
         const branch = stdout.trim();
         if (branch) {
-          console.log(`[GIT] ${path.basename(projectPath)}: ${branch}`);
+          // console.log(`[GIT] ${path.basename(projectPath)}: ${branch}`);
           resolve(branch);
         } else {
-          console.log(`[GIT] Nenhuma branch para ${projectPath}`);
+          // console.log(`[GIT] Nenhuma branch para ${projectPath}`);
           resolve(null);
         }
       });
@@ -1199,7 +1199,7 @@ async function checkGitStatus(projectPath) {
     }
 
     return new Promise((resolve) => {
-      console.log(`[GIT] Fazendo fetch para ${projectPath}...`);
+      // console.log(`[GIT] Fazendo fetch para ${projectPath}...`);
       
       // Executa git fetch
       exec('git fetch', { 
@@ -1230,7 +1230,7 @@ async function checkGitStatus(projectPath) {
           const pendingCommits = parseInt(countStdout.trim()) || 0;
           const hasUpdates = pendingCommits > 0;
           
-          console.log(`[GIT] ${projectPath} - Branch: ${currentBranch}, Commits pendentes: ${pendingCommits}`);
+          // console.log(`[GIT] ${projectPath} - Branch: ${currentBranch}, Commits pendentes: ${pendingCommits}`);
           
           resolve({ 
             branch: currentBranch, 
@@ -1293,12 +1293,12 @@ let backgroundGitQueue = [];
 // Função principal para iniciar verificação Git em segundo plano
 async function startBackgroundGitCheck() {
   if (backgroundGitRunning) {
-    console.log('[GIT-BG] Verificação já está em execução, ignorando nova solicitação');
+    // console.log('[GIT-BG] Verificação já está em execução, ignorando nova solicitação');
     return;
   }
   
   backgroundGitRunning = true;
-  console.log('[GIT-BG] 🚀 Iniciando verificação Git em segundo plano...');
+  // console.log('[GIT-BG] 🚀 Iniciando verificação Git em segundo plano...');
   
   // Filtra projetos que têm path e branch definidos
   const projectsToCheck = projects.filter(project => 
@@ -1307,7 +1307,7 @@ async function startBackgroundGitCheck() {
     project.gitBranch
   );
   
-  console.log(`[GIT-BG] 📋 ${projectsToCheck.length} projetos serão verificados em segundo plano`);
+  // console.log(`[GIT-BG] 📋 ${projectsToCheck.length} projetos serão verificados em segundo plano`);
   
   // Processa projetos de forma assíncrona, um por vez para não sobrecarregar
   for (let i = 0; i < projectsToCheck.length; i++) {
@@ -1316,7 +1316,7 @@ async function startBackgroundGitCheck() {
     
     if (projectIndex === -1) continue;
     
-    console.log(`[GIT-BG] 🔍 Verificando ${project.name} (${i + 1}/${projectsToCheck.length})`);
+    // console.log(`[GIT-BG] 🔍 Verificando ${project.name} (${i + 1}/${projectsToCheck.length})`);
     
     try {
       // Executa checkGitStatus em segundo plano
@@ -1332,7 +1332,7 @@ async function startBackgroundGitCheck() {
       
       // Notifica a UI sobre a atualização específica deste projeto
       if (mainWindow && !mainWindow.isDestroyed()) {
-        console.log(`[GIT-BG] ✅ ${project.name} - Commits pendentes: ${gitStatus.pendingCommits}`);
+        // console.log(`[GIT-BG] ✅ ${project.name} - Commits pendentes: ${gitStatus.pendingCommits}`);
         mainWindow.webContents.send('git-status-updated', {
           projectIndex,
           gitStatus: {
@@ -1341,19 +1341,19 @@ async function startBackgroundGitCheck() {
             hasUpdates: gitStatus.hasUpdates
           }
         });
-        console.log(`[GIT-BG] 📡 IPC enviado para UI: projeto ${projectIndex}`);
+        // console.log(`[GIT-BG] 📡 IPC enviado para UI: projeto ${projectIndex}`);
       }
       
       // Pequeno delay para não sobrecarregar o sistema
       await new Promise(resolve => setTimeout(resolve, 200));
       
     } catch (error) {
-      console.log(`[GIT-BG] ❌ Erro ao verificar ${project.name}: ${error.message}`);
+      // console.log(`[GIT-BG] ❌ Erro ao verificar ${project.name}: ${error.message}`);
     }
   }
   
   backgroundGitRunning = false;
-  console.log('[GIT-BG] 🎉 Verificação Git em segundo plano concluída!');
+  // console.log('[GIT-BG] 🎉 Verificação Git em segundo plano concluída!');
 }
 
 // Função para atualizar um projeto específico em segundo plano
@@ -2274,7 +2274,7 @@ function openInstallerWindow() {
     
     // Abre DevTools para debug
     // Para desenvolvimento - descomente a linha abaixo se precisar debugar
-    // installerWindow.webContents.openDevTools();
+    //installerWindow.webContents.openDevTools();
     
     if (!nodeInstaller) {
       nodeInstaller = new NodeInstaller(installerWindow);
@@ -2352,6 +2352,46 @@ function openProjectConfigsWindow() {
     } catch (error) {
       console.error('Erro ao enviar tema:', error);
     }
+    
+    // Detecta e envia informações de layout responsivo
+    function sendLayoutInfo() {
+      const { screen } = require('electron');
+      const bounds = projectConfigsWindow.getBounds();
+      const display = screen.getDisplayMatching(bounds);
+      const windowWidth = bounds.width;
+      const screenWidth = display.workArea.width;
+      const screenHeight = display.workArea.height;
+      
+      // Define se deve usar 2 colunas baseado na largura da janela E do monitor
+      // Usa 2 colunas se a janela for >= 1400px OU se o monitor for >= 1920px e janela for >= 1200px
+      const use2Columns = windowWidth >= 1400 || (screenWidth >= 1920 && windowWidth >= 1200);
+      
+      console.log(`[LAYOUT] 📐 Monitor: ${screenWidth}x${screenHeight}px | Janela: ${windowWidth}x${bounds.height}px | Layout: ${use2Columns ? '2 COLUNAS' : '1 COLUNA'}`);
+      
+      projectConfigsWindow.webContents.send('layout-config', {
+        windowWidth,
+        windowHeight: bounds.height,
+        screenWidth,
+        screenHeight,
+        use2Columns
+      });
+    }
+    
+    // Envia layout inicial
+    setTimeout(() => sendLayoutInfo(), 100);
+    
+    // Monitora mudanças de tamanho (resize, maximize, etc)
+    projectConfigsWindow.on('resize', () => {
+      sendLayoutInfo();
+    });
+    
+    projectConfigsWindow.on('maximize', () => {
+      setTimeout(() => sendLayoutInfo(), 100);
+    });
+    
+    projectConfigsWindow.on('unmaximize', () => {
+      setTimeout(() => sendLayoutInfo(), 100);
+    });
     
     // Aguarda um pouco mais para garantir que a página está totalmente carregada
     setTimeout(() => {
@@ -3260,6 +3300,9 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
 
   mainWindow.loadFile('index.html');
   
+  // Abre o DevTools tela principal
+  mainWindow.webContents.openDevTools();
+  
   // Mostra a janela apenas quando estiver pronta
   mainWindow.once('ready-to-show', async () => {
     console.log('✅ Janela principal pronta para exibição');
@@ -3274,6 +3317,51 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       console.log('📱 Notificando splash que app principal está pronto');
       splashManager.notifyMainAppReady();
     }
+    
+    // ===== LAYOUT RESPONSIVO - DETECTA TAMANHO E ENVIA PARA FRONTEND =====
+    function sendMainWindowLayoutInfo() {
+      const { screen } = require('electron');
+      const bounds = mainWindow.getBounds();
+      const display = screen.getDisplayMatching(bounds);
+      const windowWidth = bounds.width;
+      const screenWidth = display.workArea.width;
+      
+      // Usa 2 colunas se a janela for >= 1400px OU se o monitor for >= 1920px e janela for >= 1200px
+      const use2Columns = windowWidth >= 1400 || (screenWidth >= 1920 && windowWidth >= 1200);
+      
+      //console.log(`[LAYOUT] 📐 Monitor: ${screenWidth}x${display.workArea.height}px | Janela: ${windowWidth}x${bounds.height}px | Layout: ${use2Columns ? '2 COLUNAS' : '1 COLUNA'}`);
+      
+      mainWindow.webContents.send('layout-config', {
+        windowWidth,
+        windowHeight: bounds.height,
+        screenWidth,
+        screenHeight: display.workArea.height,
+        use2Columns
+      });
+    }
+    
+    // Envia layout inicial após a janela estar visível
+    setTimeout(() => sendMainWindowLayoutInfo(), 500);
+    
+    // Monitora mudanças de tamanho
+    mainWindow.on('resize', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        sendMainWindowLayoutInfo();
+      }
+    });
+    
+    mainWindow.on('maximize', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        setTimeout(() => sendMainWindowLayoutInfo(), 100);
+      }
+    });
+    
+    mainWindow.on('unmaximize', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        setTimeout(() => sendMainWindowLayoutInfo(), 100);
+      }
+    });
+    // ===== FIM DO LAYOUT RESPONSIVO =====
     
     // DELAY REDUZIDO - app carrega mais rápido
     setTimeout(() => {

@@ -27,6 +27,7 @@
 
         .container {
             max-width: none;
+            width: 100%;
             margin: 0 auto;
             background: #fff;
             border: 1px solid #ddd;
@@ -56,9 +57,31 @@
         }
 
         .project-list {
-            display: flex;
-            flex-direction: column;
+            display: grid;
+            grid-template-columns: 1fr;
             gap: 15px;
+            transition: gap 0.3s ease;
+        }
+
+        /* Classe aplicada dinamicamente pelo backend quando deve usar 2 colunas */
+        .project-list.layout-2-columns {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+        
+        /* Debug: Banner visual quando layout 2 colunas está ativo */
+        .container.layout-2-columns::before {
+            content: '🎯 LAYOUT 2 COLUNAS ATIVO (controlado pelo backend)';
+            display: block;
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            padding: 12px 20px;
+            text-align: center;
+            margin: -20px -20px 20px -20px;
+            font-weight: bold;
+            font-size: 14px;
+            border-radius: 5px 5px 0 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
         .project-item {
@@ -69,8 +92,15 @@
             display: flex;
             align-items: center;
             gap: 30px;
-            margin-bottom: 15px;
             transition: all 0.2s ease;
+            width: 100%;
+        }
+
+        /* Em telas menores que 1920px, mantém margin-bottom para compatibilidade */
+        @media (max-width: 1919px) {
+            .project-item {
+                margin-bottom: 0;
+            }
         }
 
         body.dark-mode .project-item {
@@ -670,6 +700,30 @@
             
             // Solicita novamente as versões disponíveis do Node.js
             ipcRenderer.send('get-available-node-versions');
+        });
+
+        // 📐 RECEBE CONFIGURAÇÃO DE LAYOUT DO BACKEND (quando janela redimensiona/maximiza)
+        ipcRenderer.on('layout-config', (event, layoutInfo) => {
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('📐 LAYOUT CONFIG RECEBIDO DO BACKEND');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log(`🖥️  Monitor: ${layoutInfo.screenWidth}x${layoutInfo.screenHeight}px`);
+            console.log(`📱 Janela: ${layoutInfo.windowWidth}x${layoutInfo.windowHeight}px`);
+            console.log(`✅ Layout: ${layoutInfo.use2Columns ? '2 COLUNAS' : '1 COLUNA'}`);
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            
+            const projectList = document.getElementById('projectList');
+            const container = document.querySelector('.container');
+            
+            if (layoutInfo.use2Columns) {
+                projectList.classList.add('layout-2-columns');
+                container.classList.add('layout-2-columns');
+                console.log('✅ Classes "layout-2-columns" adicionadas!');
+            } else {
+                projectList.classList.remove('layout-2-columns');
+                container.classList.remove('layout-2-columns');
+                console.log('❌ Classes "layout-2-columns" removidas!');
+            }
         });
 
         // Aplica tema inicial e aguarda dados automáticos
