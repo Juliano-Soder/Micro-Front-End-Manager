@@ -1383,7 +1383,7 @@
   }
 
   /**
-   * Para projeto onboarding
+   * Para projeto onboarding (mata por porta também)
    */
   async function stopOnboardingProject(projectName, index) {
     const logElementId = `onb-log-${index}`;
@@ -1393,7 +1393,11 @@
     sharedServices.updateLog(logElementId, '');
     
     try {
-      const result = await ipcRenderer.invoke('stop-onboarding-project', { projectName });
+      // Encontra o projeto para obter a porta
+      const project = currentOnboardingProjects.find(p => p.name === projectName);
+      const port = project ? project.port : null;
+      
+      const result = await ipcRenderer.invoke('stop-onboarding-project', { projectName, port });
       
       if (result.success) {
         sharedServices.updateLog(logElementId, '✅ Projeto parado com sucesso!');
@@ -2799,10 +2803,11 @@
     onbCancelButton.addEventListener('click', () => {
       console.log(`[ONBOARDING] 🛑 Clique em Cancelar projeto ${project.name}`);
       
-      // Cancela o processo de inicialização
+      // Cancela o processo de inicialização com a porta
       ipcRenderer.send('cancel-onboarding-project', { 
         projectName: project.name, 
-        index: index 
+        index: index,
+        port: project.port
       });
       
       // Restaura o estado dos botões imediatamente

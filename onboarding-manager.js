@@ -50,6 +50,7 @@ class OnboardingManager {
     
     this.activeProcesses = new Map();
     this.projectPaths = new Map();
+    this.cancelledProjects = new Set(); // Projetos que foram cancelados
     
     // Carrega caminhos salvos do arquivo TXT no AppData
     this.loadProjectPaths();
@@ -269,7 +270,7 @@ class OnboardingManager {
   }
 
   /**
-   * Inicia um projeto onboarding
+   * Inicia um projeto onboarding (mata processo anterior se já estiver rodando, igual ao PAS/PAMP)
    */
   async startProject(projectName, onOutput, onError, onSuccess) {
     const project = this.onboardingProjects.find(p => p.name === projectName);
@@ -279,9 +280,15 @@ class OnboardingManager {
       throw new Error(`Projeto ${projectName} não encontrado ou não configurado`);
     }
 
-    // Verifica se já está rodando
+    // Se já está rodando, mata o processo anterior (igual ao PAS/PAMP)
     if (this.isProjectRunning(projectName)) {
-      throw new Error(`Projeto ${projectName} já está rodando`);
+      console.log(`[ONBOARDING] ⚠️ Projeto ${projectName} já está rodando, matando processo anterior...`);
+      if (onOutput) onOutput(`⚠️ Projeto já está rodando, matando processo anterior...`);
+      
+      this.stopProject(projectName, project.port);
+      
+      // Aguarda um pouco para garantir que o processo foi morto
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     // Libera a porta antes de iniciar (igual ao PAS)
@@ -382,9 +389,22 @@ class OnboardingManager {
         onOutput(`🚀 EXECUTANDO PROCESSO...`);
       }
       
+      // Verifica se foi cancelado antes de fazer spawn
+      if (this.cancelledProjects.has(projectName)) {
+        console.log(`[ONBOARDING] 🛑 Projeto ${projectName} foi cancelado, não iniciando processo`);
+        this.cancelledProjects.delete(projectName);
+        const errorMsg = `Projeto ${projectName} foi cancelado`;
+        if (onError) onError(errorMsg);
+        reject(new Error(errorMsg));
+        return;
+      }
+      
       const projectProcess = spawn(command, args, spawnOptions);
 
       this.activeProcesses.set(projectName, projectProcess);
+      
+      // Remove flag de cancelamento se projeto iniciou com sucesso
+      this.cancelledProjects.delete(projectName);
 
       let hasStarted = false;
       let output = '';
@@ -445,6 +465,7 @@ class OnboardingManager {
 
       projectProcess.on('close', (code) => {
         this.activeProcesses.delete(projectName);
+        this.cancelledProjects.delete(projectName); // Limpa flag de cancelamento
         
         if (code !== 0 && !hasStarted) {
           const error = `Processo encerrado com código ${code}`;
@@ -455,6 +476,7 @@ class OnboardingManager {
 
       projectProcess.on('error', (error) => {
         this.activeProcesses.delete(projectName);
+        this.cancelledProjects.delete(projectName); // Limpa flag de cancelamento
         const errorMsg = `Erro ao iniciar projeto: ${error.message}`;
         if (onError) onError(errorMsg);
         reject(new Error(errorMsg));
@@ -463,9 +485,9 @@ class OnboardingManager {
   }
 
   /**
-   * Para um projeto onboarding
+   * Para um projeto onboarding (mata processo conhecido e também busca por porta)
    */
-  stopProject(projectName) {
+  async stopProject(projectName, port) {
     const projectProcess = this.activeProcesses.get(projectName);
     
     if (projectProcess) {
@@ -486,22 +508,136 @@ class OnboardingManager {
       }
       
       this.activeProcesses.delete(projectName);
-      return true;
+    }
+
+    // Se não encontrou o processo em memória, mas recebeu uma porta, tenta matar por porta
+    if (port) {
+      await this.killProcessByPort(port);
     }
     
-    return false;
+    return !this.isProjectRunning(projectName);
+  }
+
+  /**
+   * Mata processo que está usando uma porta específica (igual ao PAS/PAMP)
+   */
+  killProcessByPort(port, onOutput) {
+    return new Promise((resolve) => {
+      if (os.platform() === 'win32') {
+        // Windows - mata processos na porta específica usando netstat
+        exec(`netstat -aon | findstr :${port}`, (err, stdout) => {
+          if (err || !stdout) {
+            console.log(`[ONBOARDING] 🔌 Nenhum processo encontrado na porta ${port}`);
+            resolve(true);
+            return;
+          }
+
+          // Extrai os PIDs dos processos
+          const pids = stdout
+            .split('\n')
+            .map(line => line.trim().split(/\s+/).pop())
+            .filter(pid => pid && !isNaN(pid) && pid !== '0' && pid !== 'PID');
+
+          if (pids.length === 0) {
+            console.log(`[ONBOARDING] 🔌 Nenhum processo encontrado na porta ${port}`);
+            resolve(true);
+            return;
+          }
+
+          let processesKilled = 0;
+          let totalProcesses = pids.length;
+
+          // Mata cada processo encontrado
+          pids.forEach(pid => {
+            exec(`taskkill /PID ${pid} /T /F`, (killErr) => {
+              processesKilled++;
+              
+              if (killErr) {
+                console.warn(`[ONBOARDING] ⚠️ Erro ao encerrar PID ${pid}:`, killErr.message);
+              } else {
+                console.log(`[ONBOARDING] ✅ Processo PID ${pid} na porta ${port} encerrado com sucesso`);
+              }
+
+              // Quando todos os processos foram processados
+              if (processesKilled === totalProcesses) {
+                resolve(true);
+              }
+            });
+          });
+        });
+      } else {
+        // Linux/Mac - mata processos na porta específica usando lsof
+        exec(`lsof -ti :${port}`, (err, stdout) => {
+          if (err || !stdout) {
+            console.log(`[ONBOARDING] 🔌 Nenhum processo encontrado na porta ${port}`);
+            resolve(true);
+            return;
+          }
+
+          // Extrai os PIDs dos processos
+          const pids = stdout
+            .split('\n')
+            .map(pid => pid.trim())
+            .filter(pid => pid && !isNaN(pid));
+
+          if (pids.length === 0) {
+            console.log(`[ONBOARDING] 🔌 Nenhum processo encontrado na porta ${port}`);
+            resolve(true);
+            return;
+          }
+
+          let processesKilled = 0;
+          let totalProcesses = pids.length;
+
+          // Mata cada processo encontrado
+          pids.forEach(pid => {
+            exec(`kill -9 ${pid}`, (killErr) => {
+              processesKilled++;
+              
+              if (killErr) {
+                console.warn(`[ONBOARDING] ⚠️ Erro ao encerrar PID ${pid}:`, killErr.message);
+              } else {
+                console.log(`[ONBOARDING] ✅ Processo PID ${pid} na porta ${port} encerrado com sucesso`);
+              }
+
+              // Quando todos os processos foram processados
+              if (processesKilled === totalProcesses) {
+                resolve(true);
+              }
+            });
+          });
+        });
+      }
+    });
+  }
+
+  /**
+   * Cancela um projeto onboarding (mata processo durante startup, igual ao PAS/PAMP)
+   */
+  async cancelProject(projectName, port) {
+    console.log(`[ONBOARDING] 🛑 Cancelando projeto ${projectName}...`);
+    
+    // Marca projeto como cancelado para evitar que inicie após cancelamento
+    this.cancelledProjects.add(projectName);
+    
+    // Para o processo se estiver em execução
+    const stopped = await this.stopProject(projectName, port);
+    
+    return stopped;
   }
 
   /**
    * Para todos os projetos onboarding
    */
-  stopAllProjects() {
+  async stopAllProjects() {
     const stoppedProjects = [];
     
     for (const projectName of this.activeProcesses.keys()) {
-      if (this.stopProject(projectName)) {
+      if (await this.stopProject(projectName)) {
         stoppedProjects.push(projectName);
       }
+      // Limpa flag de cancelamento
+      this.cancelledProjects.delete(projectName);
     }
     
     return stoppedProjects;

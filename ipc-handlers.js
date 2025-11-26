@@ -213,11 +213,20 @@ try {
     }
   });
 
-  // Parar projeto onboarding
-  ipcMain.handle('stop-onboarding-project', async (event, { projectName }) => {
-    console.log(`[ONBOARDING] 📡 Parando projeto ${projectName}...`);
+  // Parar projeto onboarding (mata por porta também, igual ao PAS)
+  ipcMain.handle('stop-onboarding-project', async (event, { projectName, port }) => {
+    console.log(`[ONBOARDING] 📡 Parando projeto ${projectName} (porta: ${port})...`);
     try {
-      const result = onboardingManager.stopProject(projectName);
+      const project = onboardingManager.onboardingProjects.find(p => p.name === projectName);
+      const projectPort = port || (project ? project.port : null);
+      
+      // Para o projeto e mata por porta também
+      const result = await onboardingManager.stopProject(projectName, projectPort);
+      
+      // Se ainda há processo rodando na porta, tenta matar
+      if (projectPort) {
+        await onboardingManager.killProcessByPort(projectPort);
+      }
       
       // Enviar evento de projeto parado
       event.sender.send('onboarding-stopped', { projectName });
@@ -230,13 +239,16 @@ try {
     }
   });
 
-  // Cancelar projeto onboarding (igual ao PAS)
-  ipcMain.on('cancel-onboarding-project', (event, { projectName, index }) => {
-    console.log(`[ONBOARDING] 🛑 Cancelando projeto ${projectName} (índice: ${index})`);
+  // Cancelar projeto onboarding (mata durante startup, igual ao PAS)
+  ipcMain.on('cancel-onboarding-project', async (event, { projectName, index, port }) => {
+    console.log(`[ONBOARDING] 🛑 Cancelando projeto ${projectName} (índice: ${index}, porta: ${port})`);
     
     try {
-      // Para o projeto se estiver rodando
-      const result = onboardingManager.stopProject(projectName);
+      const project = onboardingManager.onboardingProjects.find(p => p.name === projectName);
+      const projectPort = port || (project ? project.port : null);
+      
+      // Cancela o projeto (mata processo)
+      const result = await onboardingManager.cancelProject(projectName, projectPort);
       console.log(`[ONBOARDING] ✅ Processo cancelado para ${projectName}`);
       
       // Envia confirmação de cancelamento para o frontend

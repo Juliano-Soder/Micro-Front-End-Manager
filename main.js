@@ -3,7 +3,7 @@ const { exec, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { Menu } = require('electron');
+const { Menu, nativeImage } = require('electron');
 const { spawn } = require('child_process');
 const https = require('https');
 const http = require('http');
@@ -1072,6 +1072,30 @@ const IDE_CONFIG = {
     }
   }
 };
+
+/**
+ * Função para obter o ícone do terminal baseado no tema
+ * Dark mode ativo = terminal_whitesmoke.png (branco)
+ * Dark mode inativo = terminal_black.png (preto)
+ */
+function getTerminalIconForMenu() {
+  try {
+    const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
+    const isDarkMode = config.darkMode === true;
+    
+    const iconFile = isDarkMode ? 'terminal_whitesmoke.png' : 'terminal_black.png';
+    const iconPath = path.join(__dirname, 'assets', iconFile);
+    
+    if (fs.existsSync(iconPath)) {
+      const icon = nativeImage.createFromPath(iconPath);
+      return icon.resize({ width: 16, height: 16 });
+    }
+  } catch (error) {
+    console.warn('[MENU] Erro ao obter ícone do terminal:', error.message);
+  }
+  return null;
+}
+
 // ⚡ FUNÇÃO PARA OBTER BRANCH GIT DO PROJETO ⚡
 async function getProjectGitBranch(projectPath) {
   if (!projectPath || projectPath.trim() === '') {
@@ -2952,6 +2976,17 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
   });
 
   // ⚡ CRIA O MENU APÓS A JANELA PRINCIPAL ⚡
+  // Função para obter o ícone do terminal (sempre whitesmoke para o menu superior escuro)
+  const getTerminalIconForMenu = () => {
+    const iconPath = path.join(__dirname, 'assets', 'terminal_whitesmoke.png');
+    try {
+      return nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+    } catch (error) {
+      console.log('[MENU] Aviso: Não foi possível carregar ícone do terminal:', error.message);
+      return undefined;
+    }
+  };
+
   // Cria o menu da aplicação e usa a variável global
   const menuTemplate = [
     {
@@ -3013,6 +3048,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         { type: 'separator' },
         {
           label: 'Login npm',
+          icon: getTerminalIconForMenu(),
           id: 'npm-login',
           click: () => {
             // Desabilita o item do menu
@@ -3037,6 +3073,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         },
         {
           label: 'Verificar Status Nexus',
+          icon: getTerminalIconForMenu(),
           id: 'verify-nexus',
           click: () => {
             // Desabilita o item do menu
@@ -3301,7 +3338,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
   mainWindow.loadFile('index.html');
   
   // Abre o DevTools tela principal
-  mainWindow.webContents.openDevTools();
+  //mainWindow.webContents.openDevTools();
   
   // Mostra a janela apenas quando estiver pronta
   mainWindow.once('ready-to-show', async () => {
