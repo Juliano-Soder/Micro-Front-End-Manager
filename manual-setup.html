@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configuração Manual - Nexus</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #ffffff;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      color: #333;
+    }
+
+    body.dark-mode {
+      background: #1e1e1e;
+      color: #e0e0e0;
+    }
+
+    .container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+      max-width: 700px;
+      width: 100%;
+      overflow: hidden;
+    }
+
+    body.dark-mode .container {
+      background: #2d2d2d;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    }
+
+    .header {
+      background: linear-gradient(135deg, #333333 0%, #555555 100%);
+      color: white;
+      padding: 30px 20px;
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .header p {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+
+    .content {
+      padding: 30px;
+      max-height: 600px;
+      overflow-y: auto;
+    }
+
+    body.dark-mode .content {
+      background: #2d2d2d;
+      color: #e0e0e0;
+    }
+
+    .steps-list {
+      list-style: none;
+    }
+
+    .step {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 20px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border-left: 4px solid #555555;
+    }
+
+    body.dark-mode .step {
+      background: #3d3d3d;
+      border-left-color: #888888;
+    }
+
+    .step:hover {
+      background: #f0f1f5;
+      transform: translateX(5px);
+      transition: all 0.3s ease;
+    }
+
+    body.dark-mode .step:hover {
+      background: #4d4d4d;
+    }
+
+    .step-number {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #555555 0%, #333333 100%);
+      color: white;
+      border-radius: 50%;
+      flex-shrink: 0;
+      font-weight: bold;
+      font-size: 16px;
+    }
+
+    .step-content {
+      flex: 1;
+    }
+
+    .step-title {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 5px;
+      font-size: 14px;
+    }
+
+    body.dark-mode .step-title {
+      color: #e0e0e0;
+    }
+
+    .step-description {
+      color: #666;
+      font-size: 13px;
+      line-height: 1.5;
+      margin-bottom: 8px;
+    }
+
+    body.dark-mode .step-description {
+      color: #b0b0b0;
+    }
+
+    .command-box {
+      background: #2d2d2d;
+      color: #f8f8f2;
+      padding: 10px 12px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      overflow-x: auto;
+      margin-top: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    body.dark-mode .command-box {
+      background: #1a1a1a;
+      color: #a0d755;
+    }
+
+    .command-text {
+      flex: 1;
+      overflow-x: auto;
+      user-select: all;
+    }
+
+    .copy-btn {
+      background: #555555;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+
+    .copy-btn:hover {
+      background: #333333;
+    }
+
+    .note {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #856404;
+      margin-top: 20px;
+    }
+
+    body.dark-mode .note {
+      background: #3d3d1a;
+      border-left-color: #ffc107;
+      color: #f0c040;
+    }
+
+    .footer {
+      border-top: 1px solid #e0e0e0;
+      padding: 20px 30px;
+      background: #f8f9fa;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+
+    body.dark-mode .footer {
+      border-top-color: #3d3d3d;
+      background: #2d2d2d;
+    }
+
+    .copied-notification {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #28a745;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      animation: slideIn 0.3s ease;
+      z-index: 1000;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    @media (max-height: 800px) {
+      .content {
+        max-height: 400px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>
+        <img src="assets/manual.png" alt="Manual" style="width: 24px; height: 24px;">
+        Configuração Manual - Nexus
+      </h1>
+      <p>Siga os passos abaixo para configurar manualmente seu acesso ao Nexus</p>
+    </div>
+
+    <div class="content">
+      <ol class="steps-list">
+        <li class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <div class="step-title">Navegar até a pasta do projeto</div>
+            <div class="step-description">Abra um terminal e navegue até a pasta de um dos seus projetos (navbar, marketplace, etc)</div>
+            <div class="command-box">
+              <div class="command-text">cd D:\workdir\front-end\mp-pas-navbar</div>
+              <button class="copy-btn" onclick="copyCommand('cd D:\\workdir\\front-end\\mp-pas-navbar')">Copiar</button>
+            </div>
+            <div class="step-description" style="margin-top: 10px; font-style: italic; color: #999;">
+              ℹ️ Substitua o caminho pelo seu projeto (mp-pas-marketplace, mp-pamp, etc)
+            </div>
+          </div>
+        </li>
+
+        <li class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <div class="step-title">Configurar o registry do Nexus</div>
+            <div class="step-description">Adicione o registry do Nexus à configuração do npm</div>
+            <div class="command-box">
+              <div class="command-text">npm config set registry http://nexus.viavarejo.com.br/repository/npm-marketplace/</div>
+              <button class="copy-btn" onclick="copyCommand('npm config set registry http://nexus.viavarejo.com.br/repository/npm-marketplace/')">Copiar</button>
+            </div>
+          </div>
+        </li>
+
+        <li class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <div class="step-title">Inserir seu email</div>
+            <div class="step-description">Configure seu email corporativo</div>
+            <div class="command-box">
+              <div class="command-text">npm config set email "seu-email@empresa.com.br"</div>
+              <button class="copy-btn" onclick="copyCommand('npm config set email \"seu-email@empresa.com.br\"')">Copiar</button>
+            </div>
+          </div>
+        </li>
+
+        <li class="step">
+          <div class="step-number">4</div>
+          <div class="step-content">
+            <div class="step-title">Inserir sua senha</div>
+            <div class="step-description">Configure sua senha do Nexus</div>
+            <div class="command-box">
+              <div class="command-text">npm config set _password "sua-senha"</div>
+              <button class="copy-btn" onclick="copyCommand('npm config set _password \"sua-senha\"')">Copiar</button>
+            </div>
+          </div>
+        </li>
+
+        <li class="step">
+          <div class="step-number">5</div>
+          <div class="step-content">
+            <div class="step-title">Verificar se está logado no Nexus</div>
+            <div class="step-description">Confirme que a autenticação funcionou corretamente</div>
+            <div class="command-box">
+              <div class="command-text">npm ping</div>
+              <button class="copy-btn" onclick="copyCommand('npm ping')">Copiar</button>
+            </div>
+            <div class="step-description" style="margin-top: 10px; color: #28a745; font-weight: 600;">
+              ✅ Se retornar "Packages" você está logado com sucesso!
+            </div>
+          </div>
+        </li>
+      </ol>
+
+      <div class="note">
+        <strong>⚠️ Importante:</strong> Substitua os valores de exemplo pelas suas credenciais reais (seu email corporativo e sua senha do Nexus).
+      </div>
+    </div>
+
+    <div class="footer">
+      <p style="text-align: center; color: #999; font-size: 12px;">Pressione ESC para fechar</p>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    // Detecta modo dark da aplicação
+    function applyDarkMode() {
+      const isDarkMode = localStorage.getItem('darkMode') === 'true';
+      if (isDarkMode) {
+        document.body.classList.add('dark-mode');
+      } else {
+        document.body.classList.remove('dark-mode');
+      }
+    }
+
+    // Aplica ao carregar
+    applyDarkMode();
+
+    // Escuta mudanças de tema
+    window.addEventListener('storage', () => {
+      applyDarkMode();
+    });
+
+    // Escuta o evento do main.js com o estado de dark mode
+    ipcRenderer.on('apply-dark-mode', (event, isDark) => {
+      if (isDark) {
+        document.body.classList.add('dark-mode');
+      } else {
+        document.body.classList.remove('dark-mode');
+      }
+    });
+
+    function copyCommand(command) {
+      require('electron').clipboard.writeText(command);
+      
+      // Mostra notificação
+      const notification = document.createElement('div');
+      notification.className = 'copied-notification';
+      notification.textContent = '✓ Comando copiado!';
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        notification.remove();
+      }, 2000);
+    }
+
+    function closeWindow() {
+      ipcRenderer.send('close-manual-setup-window');
+    }
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeWindow();
+      }
+    });
+  </script>
+</body>
+</html>

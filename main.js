@@ -3194,6 +3194,44 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
             });
           },
         },
+        {
+          label: 'Configurar Manualmente',
+          icon: path.join(__dirname, 'assets', 'manual.png'),
+          id: 'manual-setup',
+          click: () => {
+            // Cria janela para configuração manual
+            const manualWindow = new BrowserWindow({
+              width: 750,
+              height: 800,
+              modal: true,
+              parent: mainWindow,
+              webPreferences: {
+                nodeIntegration: true,
+                contextIsolation: false,
+              },
+              autoHideMenuBar: true,
+              resizable: true,
+              minWidth: 600,
+              minHeight: 600,
+              titleBarStyle: 'default',
+              title: '🛠️ Configuração Manual - Nexus',
+              icon: path.join(__dirname, 'assets', 'manual.png')
+            });
+
+            manualWindow.loadFile(path.join(__dirname, 'manual-setup.html'));
+
+            // Envia o estado de dark mode para a janela
+            manualWindow.webContents.on('did-finish-load', () => {
+              const config = loadConfig();
+              manualWindow.webContents.send('apply-dark-mode', config.darkMode || false);
+            });
+
+            // Handler para fechar a janela
+            ipcMain.once('close-manual-setup-window', () => {
+              manualWindow.close();
+            });
+          },
+        },
         { type: 'separator' },
         {
           label: 'Instalar Dependências Node.js',
@@ -5285,7 +5323,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         enhancedMessage += '\n\n💡 SOLUÇÃO: Git não está instalado ou não está no PATH do sistema.';
         enhancedMessage += '\n   • Acesse o menu "Instalar Dependências" para instalação automática';
         enhancedMessage += '\n   • Ou instale manualmente em: https://git-scm.com/downloads';
-        enhancedMessage += '\n   • Após a instalação, reinicie o Micro Front-End Manager';
+        enhancedMessage += '\n   • Após a instalação, reinicie o Front-End Manager';
       }
       
       if (isPampProject) {
