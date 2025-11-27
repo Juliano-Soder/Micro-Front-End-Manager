@@ -504,6 +504,71 @@
             margin-top: 8px;
         }
 
+        /* Estilos para seleção de Terminal */
+        .terminals-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .terminal-option {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #ffffff;
+        }
+
+        .terminal-option:hover {
+            border-color: #007bff;
+            background: #f8f9fa;
+        }
+
+        .terminal-option.selected {
+            border-color: #007bff;
+            background: #e7f3ff;
+        }
+
+        body.dark-mode .terminal-option {
+            background: #2d2d2d;
+            border-color: #555;
+            color: #e0e0e0;
+        }
+
+        body.dark-mode .terminal-option:hover {
+            border-color: #007bff;
+            background: #333;
+        }
+
+        body.dark-mode .terminal-option.selected {
+            background: #1a365d;
+        }
+
+        .terminal-radio {
+            margin-right: 12px;
+            cursor: pointer;
+        }
+
+        .terminal-name {
+            font-size: 14px;
+            font-weight: 500;
+            flex: 1;
+        }
+
+        .terminal-description {
+            font-size: 12px;
+            color: #666;
+            margin-left: 12px;
+        }
+
+        body.dark-mode .terminal-description {
+            color: #999;
+        }
+
         @keyframes fadeIn {
             from { opacity: 0; }
             to { opacity: 1; }
@@ -545,6 +610,16 @@
                     <div class="config-description">Escolha o editor de código que será usado para abrir os projetos</div>
                 </div>
                 <button class="order-button" onclick="openIDEModal()">Escolher IDE</button>
+            </div>
+        </div>
+
+        <div class="config-section">
+            <div class="config-item">
+                <div>
+                    <div class="config-label">🖥️ Terminal Preferido</div>
+                    <div class="config-description">Escolha o terminal que será usado para abrir os projetos</div>
+                </div>
+                <button class="order-button" onclick="openTerminalModal()">Selecionar Terminal</button>
             </div>
         </div>
 
@@ -608,6 +683,29 @@
                 </div>
                 <div style="text-align: center; margin-top: 20px;">
                     <button onclick="saveIDESelection()" class="btn btn-primary" id="saveIDEBtn" disabled>
+                        Salvar Seleção
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para seleção de Terminal -->
+    <div id="terminalModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Selecionar Terminal Preferido</h2>
+                <button class="close-modal" onclick="closeTerminalModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 20px; text-align: center; color: #666;">
+                    Escolha seu terminal preferido para abrir os projetos:
+                </p>
+                <div class="terminals-list" id="terminalsList">
+                    <!-- Terminais serão carregados dinamicamente -->
+                </div>
+                <div style="text-align: center; margin-top: 20px;">
+                    <button onclick="saveTerminalSelection()" class="btn btn-primary" id="saveTerminalBtn" disabled>
                         Salvar Seleção
                     </button>
                 </div>
@@ -769,6 +867,7 @@
 
         // Funções do Modal de IDE
         let selectedIDE = null;
+        let selectedTerminal = null;
 
         function openIDEModal() {
             const modal = document.getElementById('ideModal');
@@ -895,12 +994,16 @@
         window.onclick = function(event) {
             const ideModal = document.getElementById('ideModal');
             const orderModal = document.getElementById('orderModal');
+            const terminalModal = document.getElementById('terminalModal');
             
             if (event.target === ideModal) {
                 closeIDEModal();
             }
             if (event.target === orderModal) {
                 closeOrderModal();
+            }
+            if (event.target === terminalModal) {
+                closeTerminalModal();
             }
         }
 
@@ -1214,6 +1317,127 @@
                 }
             }
         });
+
+        // Abre o modal de seleção de terminal
+        function openTerminalModal() {
+            console.log('Abrindo seletor de terminal...');
+            const modal = document.getElementById('terminalModal');
+            modal.style.display = 'block';
+            loadTerminalOptions();
+        }
+
+        function closeTerminalModal() {
+            const modal = document.getElementById('terminalModal');
+            modal.style.display = 'none';
+            selectedTerminal = null;
+        }
+
+        async function loadTerminalOptions() {
+            try {
+                // Solicita os terminais disponíveis
+                console.log('[TERMINAL] Carregando opções de terminais...');
+                
+                // Solicita os terminais
+                ipcRenderer.send('get-all-terminals');
+                
+                // Escuta os terminais
+                ipcRenderer.once('available-terminals', (event, terminalsData) => {
+                    console.log('[TERMINAL] Terminais recebidos:', terminalsData.map(t => t.name).join(', '));
+                    const terminals = terminalsData;
+                    
+                    // Solicita o terminal atual
+                    ipcRenderer.send('get-preferred-terminal');
+                    
+                    ipcRenderer.once('current-terminal', (event, currentTerminalData) => {
+                        const currentTerminal = currentTerminalData;
+                        console.log('[TERMINAL] Terminal atual:', currentTerminal ? currentTerminal.name : 'Nenhum');
+                        
+                        const terminalsList = document.getElementById('terminalsList');
+                        terminalsList.innerHTML = '';
+
+                        terminals.forEach((terminal, index) => {
+                            const terminalOption = document.createElement('div');
+                            terminalOption.className = `terminal-option ${currentTerminal && currentTerminal.name === terminal.name ? 'selected' : ''}`;
+                            terminalOption.onclick = () => selectTerminal(index, terminal, terminalOption);
+
+                            terminalOption.innerHTML = `
+                                <input type="radio" name="terminal" value="${terminal.name}" class="terminal-radio" ${currentTerminal && currentTerminal.name === terminal.name ? 'checked' : ''}>
+                                <div class="terminal-name">${terminal.name}</div>
+                                <div class="terminal-description">${terminal.description || ''}</div>
+                            `;
+
+                            terminalsList.appendChild(terminalOption);
+                        });
+
+                        selectedTerminal = currentTerminal;
+                        updateTerminalSaveButton();
+                    });
+                });
+                
+            } catch (error) {
+                console.error('[TERMINAL] Erro ao carregar terminais:', error);
+            }
+        }
+
+        function selectTerminal(index, terminal, element) {
+            // Remove seleção anterior
+            document.querySelectorAll('.terminal-option').forEach(opt => {
+                opt.classList.remove('selected');
+                opt.querySelector('input').checked = false;
+            });
+
+            // Seleciona novo terminal
+            element.classList.add('selected');
+            element.querySelector('input').checked = true;
+            selectedTerminal = terminal;
+            updateTerminalSaveButton();
+        }
+
+        function updateTerminalSaveButton() {
+            const saveBtn = document.getElementById('saveTerminalBtn');
+            saveBtn.disabled = !selectedTerminal;
+        }
+
+        async function saveTerminalSelection() {
+            if (!selectedTerminal) return;
+
+            try {
+                // Feedback visual imediato
+                const saveBtn = document.getElementById('saveTerminalBtn');
+                const originalText = saveBtn.textContent;
+                saveBtn.textContent = 'Salvando...';
+                saveBtn.disabled = true;
+
+                console.log('[TERMINAL] Salvando terminal preferido:', selectedTerminal.name);
+                
+                // Usa invoke para salvar o terminal
+                const result = await ipcRenderer.invoke('save-preferred-terminal', selectedTerminal);
+                
+                if (result.success) {
+                    saveBtn.textContent = '✓ Salvo!';
+                    saveBtn.style.backgroundColor = '#28a745';
+                    
+                    setTimeout(() => {
+                        saveBtn.textContent = originalText;
+                        saveBtn.style.backgroundColor = '';
+                        saveBtn.disabled = false;
+                        closeTerminalModal();
+                        
+                        // Mostrar mensagem de sucesso
+                        showNotification('Terminal configurado com sucesso!', 'success');
+                    }, 1500);
+                } else {
+                    throw new Error('Falha ao salvar terminal');
+                }
+                
+            } catch (error) {
+                console.error('[TERMINAL] Erro ao salvar terminal:', error);
+                const saveBtn = document.getElementById('saveTerminalBtn');
+                saveBtn.textContent = originalText;
+                saveBtn.disabled = false;
+                showNotification('Erro ao salvar configuração do terminal', 'error');
+            }
+        }
     </script>
 </body>
 </html>

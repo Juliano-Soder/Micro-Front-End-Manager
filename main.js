@@ -1545,7 +1545,8 @@ function getDefaultConfig() {
     projectOrder: [], // Array para armazenar a ordem customizada dos projetos (deprecated)
     pasOrder: [], // Ordem específica dos projetos PAS
     pampOrder: [], // Ordem específica dos projetos PAMP
-    preferredIDE: 'vscode' // IDE preferida do usuário
+    preferredIDE: 'vscode', // IDE preferida do usuário
+    preferredTerminal: null // Terminal preferido do usuário (será definido pelo seletor)
   };
 }
 
@@ -2665,6 +2666,7 @@ function openNewCLIsWindow() {
   });
 }
 
+// Função para abrir a janela de seleção de terminal
 let mainWindow;
 let loginWindow = null;
 let splashManager; // Gerenciador de splash screen e loading
@@ -5926,39 +5928,186 @@ ipcMain.on('execute-command', (event, command) => {
 
   // Handler para abrir terminal na pasta do projeto
   ipcMain.on('open-terminal', (event, { projectPath }) => {
-    console.log(`Abrindo terminal na pasta: ${projectPath}`);
+    console.log(`🖥️ [TERMINAL] Abrindo terminal na pasta: ${projectPath}`);
     
     try {
       // Verifica se o caminho existe
       if (!fs.existsSync(projectPath)) {
-        console.error(`Caminho não encontrado: ${projectPath}`);
+        console.error(`[TERMINAL] ❌ Caminho não encontrado: ${projectPath}`);
         return;
       }
       
-      // Comando para abrir terminal baseado no sistema operacional
-      let command;
-      if (os.platform() === 'win32') {
-        // Windows: abre PowerShell na pasta usando cmd
-        command = `cmd /c "cd /d "${projectPath}" && start powershell"`;
-      } else if (os.platform() === 'darwin') {
-        // macOS: abre Terminal na pasta
-        command = `open -a Terminal "${projectPath}"`;
-      } else {
-        // Linux: tenta abrir terminal padrão
-        command = `gnome-terminal --working-directory="${projectPath}" || xterm -e "cd '${projectPath}' && bash" || konsole --workdir "${projectPath}"`;
+      // Obtém o terminal preferido do usuário - LEITURA DIRETA DO ARQUIVO, SEM CACHE
+      console.log(`[TERMINAL] 📖 Lendo config do arquivo diretamente...`);
+      let preferredTerminal = null;
+      
+      try {
+        if (fs.existsSync(configFile)) {
+          const configData = fs.readFileSync(configFile, 'utf-8');
+          const config = JSON.parse(configData);
+          preferredTerminal = config.preferredTerminal;
+          console.log(`[TERMINAL] 📖 Config lida do arquivo:`, JSON.stringify(config, null, 2));
+        }
+      } catch (e) {
+        console.error(`[TERMINAL] ❌ Erro ao ler config do arquivo:`, e);
       }
       
-      console.log(`Executando comando: ${command}`);
-      exec(command, (err) => {
-        if (err) {
-          console.error(`Erro ao abrir terminal: ${err.message}`);
-        } else {
-          console.log(`Terminal aberto com sucesso em: ${projectPath}`);
+      console.log(`[TERMINAL] 📌 Terminal preferido: ${preferredTerminal ? preferredTerminal.name : 'Nenhum (usando padrão)'}`);
+      console.log(`[TERMINAL] 📌 Objeto terminal completo:`, JSON.stringify(preferredTerminal));
+      
+      // Define o caminho do Node.js portátil (para adicionar ao PATH se possível)
+      let nodeDir = '';
+      try {
+        const { getNodesBasePath, getCurrentOS } = require('./node-version-config');
+        const osType = getCurrentOS();
+        nodeDir = path.join(getNodesBasePath(), osType);
+        
+        // Verifica se pelo menos uma versão existe
+        if (!fs.existsSync(nodeDir)) {
+          nodeDir = '';
         }
-      });
+      } catch (e) {
+        console.log('[TERMINAL] ⚠️ Não foi possível detectar Node.js portátil');
+      }
+
+      // Constrói o comando baseado no terminal preferido
+      let command;
+      let env = { ...process.env };
+
+      if (preferredTerminal) {
+        // Usa o terminal preferido
+        const terminal = preferredTerminal;
+        
+        console.log(`[TERMINAL] 🎯 Usando terminal preferido: ${terminal.name}`);
+        
+        // Adiciona Node portátil ao PATH se disponível
+        if (nodeDir && fs.existsSync(nodeDir)) {
+          env.PATH = `${nodeDir}${path.delimiter}${process.env.PATH}`;
+          console.log(`[TERMINAL] 🔧 Node.js portátil adicionado ao PATH`);
+        }
+
+        // Para Windows, simplifica para cmd.exe ou powershell
+        if (os.platform() === 'win32') {
+          // No Windows, constrói comando específico para cada terminal
+          const terminalName = terminal.name.toLowerCase();
+          console.log(`[TERMINAL] 🔍 Verificando nome do terminal (lowercase): ${terminalName}`);
+          
+          if (terminalName === 'powershell') {
+            console.log(`[TERMINAL] ✓ Detectado PowerShell`);
+            command = `powershell.exe`;
+          } else if (terminalName === 'git bash') {
+            console.log(`[TERMINAL] ✓ Detectado Git Bash`);
+            command = `bash.exe`;
+          } else if (terminalName === 'windows terminal') {
+            console.log(`[TERMINAL] ✓ Detectado Windows Terminal`);
+            command = `wt.exe`;
+          } else if (terminalName.includes('wsl')) {
+            console.log(`[TERMINAL] ✓ Detectado WSL`);
+            command = `wsl.exe`;
+          } else {
+            // Padrão: CMD
+            console.log(`[TERMINAL] ✓ Usando CMD como padrão`);
+            command = 'cmd.exe';
+          }
+        } else {
+          // Linux/Mac: constrói comandos específicos
+          if (terminal.name === 'Terminal' || terminal.name === 'iTerm2') {
+            command = `open -a "${terminal.name}" "${projectPath}"`;
+          } else if (terminal.name === 'GNOME Terminal') {
+            command = `gnome-terminal --working-directory="${projectPath}"`;
+          } else if (terminal.name === 'Konsole') {
+            command = `konsole --workdir "${projectPath}"`;
+          } else if (terminal.name === 'xfce4-terminal') {
+            command = `xfce4-terminal --working-directory="${projectPath}"`;
+          } else if (terminal.name === 'Xterm') {
+            command = `xterm -e "cd '${projectPath}' && bash"`;
+          } else {
+            // Fallback para terminal genérico
+            command = `gnome-terminal --working-directory="${projectPath}"`;
+          }
+        }
+      } else {
+        // Usa terminal padrão do sistema
+        console.log(`[TERMINAL] ⚙️ Usando terminal padrão do sistema`);
+        
+        // Adiciona Node portátil ao PATH se disponível
+        if (nodeDir && fs.existsSync(nodeDir)) {
+          env.PATH = `${nodeDir}${path.delimiter}${process.env.PATH}`;
+        }
+
+        if (os.platform() === 'win32') {
+          // Windows: cmd como padrão
+          command = 'cmd.exe';
+        } else if (os.platform() === 'darwin') {
+          // macOS: Terminal padrão
+          command = `open -a Terminal "${projectPath}"`;
+        } else {
+          // Linux: GNOME Terminal ou fallback
+          command = `gnome-terminal --working-directory="${projectPath}"`;
+        }
+      }
+
+      console.log(`[TERMINAL] 📋 Comando: ${command}`);
+      console.log(`[TERMINAL] 📁 Caminho do projeto: ${projectPath}`);
+      
+      // Executa o comando com o ambiente customizado
+      const { exec, spawn } = require('child_process');
+      
+      try {
+        if (os.platform() === 'win32') {
+          // Windows: construir comando correto para cada tipo
+          console.log(`[TERMINAL] 🪟 Executando no Windows com start`);
+          
+          let startCmd;
+          const terminalName = preferredTerminal ? preferredTerminal.name.toLowerCase() : '';
+          
+          if (terminalName === 'powershell') {
+            // PowerShell
+            console.log(`[TERMINAL] 📟 Abrindo PowerShell na pasta: ${projectPath}`);
+            startCmd = `start powershell -NoExit -Command "cd '${projectPath}'"`;
+          } else if (terminalName === 'git bash') {
+            // Git Bash - precisa de tratamento especial
+            console.log(`[TERMINAL] 📟 Abrindo Git Bash na pasta: ${projectPath}`);
+            const bashPath = 'bash.exe';
+            // Usa spawn para Git Bash com as variáveis corretas
+            spawn(bashPath, ['--login', '-i'], {
+              cwd: projectPath,
+              env: { ...env, CHERE_INVOKING: '1' },
+              detached: true,
+              stdio: 'ignore'
+            }).unref();
+            
+            console.log(`[TERMINAL] ✅ Terminal aberto com sucesso em: ${projectPath}`);
+            return;
+          } else if (terminalName === 'windows terminal') {
+            // Windows Terminal
+            console.log(`[TERMINAL] 📟 Abrindo Windows Terminal na pasta: ${projectPath}`);
+            startCmd = `start wt -d "${projectPath}"`;
+          } else if (terminalName.includes('wsl')) {
+            // WSL
+            console.log(`[TERMINAL] 📟 Abrindo WSL na pasta: ${projectPath}`);
+            startCmd = `start wsl.exe`;
+          } else {
+            // CMD (padrão)
+            console.log(`[TERMINAL] 📟 Abrindo CMD na pasta: ${projectPath}`);
+            startCmd = `start cmd /k "cd /d ${projectPath}"`;
+          }
+          
+          console.log(`[TERMINAL] 📝 Comando executado: ${startCmd}`);
+          exec(startCmd, { env });
+        } else {
+          // Linux/Mac: usa comando direto
+          console.log(`[TERMINAL] 🐧 Executando no ${os.platform() === 'darwin' ? 'macOS' : 'Linux'}`);
+          exec(command, { env });
+        }
+      } catch (execError) {
+        console.error(`[TERMINAL] ❌ Erro ao executar comando:`, execError);
+      }
+
+      console.log(`[TERMINAL] ✅ Terminal aberto com sucesso em: ${projectPath}`);
       
     } catch (error) {
-      console.error(`Erro ao abrir terminal:`, error);
+      console.error(`[TERMINAL] ❌ Erro ao abrir terminal:`, error);
     }
   });
 

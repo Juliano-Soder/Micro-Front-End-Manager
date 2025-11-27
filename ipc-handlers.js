@@ -884,6 +884,177 @@ try {
   console.error('[IPC-HANDLERS] ❌ Erro ao registrar handlers Onboarding:', err);
 }
 
+// ===== HANDLERS PARA SELEÇÃO DE TERMINAL =====
+try {
+  const TerminalDetector = require('./detect-terminals');
+  let terminalDetector = null;
+
+  // Detecta todos os terminais disponíveis
+  ipcMain.handle('get-all-terminals', async (event) => {
+    try {
+      console.log('[TERMINALS] 🖥️ Detectando terminais disponíveis...');
+      
+      if (!terminalDetector) {
+        terminalDetector = new TerminalDetector();
+      }
+
+      const terminals = await terminalDetector.detectAll();
+      console.log('[TERMINALS] ✅ Terminais detectados:', terminals.map(t => t.name).join(', '));
+      
+      return terminals;
+    } catch (error) {
+      console.error('[TERMINALS] ❌ Erro ao detectar terminais:', error);
+      return [];
+    }
+  });
+
+  // Obtém o terminal preferido salvo
+  ipcMain.handle('get-preferred-terminal', async (event) => {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const { app } = require('electron');
+      
+      const configPath = path.join(app.getPath('userData'), 'config.json');
+      
+      if (fs.existsSync(configPath)) {
+        const data = fs.readFileSync(configPath, 'utf-8');
+        const config = JSON.parse(data);
+        
+        if (config.preferredTerminal) {
+          console.log('[TERMINALS] 📌 Terminal preferido carregado:', config.preferredTerminal.name);
+          return config.preferredTerminal;
+        }
+      }
+
+      console.log('[TERMINALS] ℹ️ Nenhum terminal preferido salvo');
+      return null;
+    } catch (error) {
+      console.error('[TERMINALS] ❌ Erro ao carregar terminal preferido:', error);
+      return null;
+    }
+  });
+
+  // Salva o terminal preferido
+  ipcMain.handle('save-preferred-terminal', async (event, terminal) => {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const { app } = require('electron');
+      
+      console.log('[TERMINALS] 📨 Recebido terminal para salvar:', terminal.name);
+      
+      const configPath = path.join(app.getPath('userData'), 'config.json');
+      const dir = path.dirname(configPath);
+      
+      // Cria diretório se não existir
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      
+      // Carrega config existente ou usa vazio
+      let config = {};
+      if (fs.existsSync(configPath)) {
+        const data = fs.readFileSync(configPath, 'utf-8');
+        config = JSON.parse(data);
+      }
+      
+      config.preferredTerminal = terminal;
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+
+      console.log('[TERMINALS] 💾 Terminal preferido salvo:', terminal.name);
+      console.log('[TERMINALS] ✅ Retornando sucesso para o renderer');
+      return { success: true };
+    } catch (error) {
+      console.error('[TERMINALS] ❌ Erro ao salvar terminal preferido:', error);
+      throw error;
+    }
+  });
+
+  // Event listener para fechar a janela de seleção de terminal
+  ipcMain.on('close-select-terminal-window', () => {
+    // Será tratado em main.js
+    console.log('[TERMINALS] 🔔 Fechando janela de seleção de terminal');
+  });
+
+  // Handlers para retornar dados dos terminais (para o configs modal)
+  ipcMain.on('get-all-terminals', async (event) => {
+    try {
+      console.log('[TERMINALS] 📨 Solicitação para obter todos os terminais (via send)');
+      
+      if (!terminalDetector) {
+        terminalDetector = new TerminalDetector();
+      }
+
+      const terminals = await terminalDetector.detectAll();
+      console.log('[TERMINALS] ✅ Enviando terminais:', terminals.map(t => t.name).join(', '));
+      event.reply('available-terminals', terminals);
+    } catch (error) {
+      console.error('[TERMINALS] ❌ Erro ao detectar terminais:', error);
+      event.reply('available-terminals', []);
+    }
+  });
+
+  ipcMain.on('get-preferred-terminal', (event) => {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const { app } = require('electron');
+      
+      console.log('[TERMINALS] 📨 Solicitação para obter terminal preferido (via send)');
+      const configPath = path.join(app.getPath('userData'), 'config.json');
+      
+      if (fs.existsSync(configPath)) {
+        const data = fs.readFileSync(configPath, 'utf-8');
+        const config = JSON.parse(data);
+        
+        if (config.preferredTerminal) {
+          console.log('[TERMINALS] 📌 Enviando terminal preferido:', config.preferredTerminal.name);
+          event.reply('current-terminal', config.preferredTerminal);
+          return;
+        }
+      }
+
+      console.log('[TERMINALS] ℹ️ Nenhum terminal preferido salvo, enviando null');
+      event.reply('current-terminal', null);
+    } catch (error) {
+      console.error('[TERMINALS] ❌ Erro ao carregar terminal preferido:', error);
+      event.reply('current-terminal', null);
+    }
+  });
+
+  // Obtém o estado do modo escuro
+  ipcMain.handle('get-dark-mode-state', async (event) => {
+    try {
+      const { loadConfig } = require('./project-config-manager');
+      // Tenta primeiro do config.json do projeto
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const { app } = require('electron');
+        const configPath = path.join(app.getPath('userData'), 'config.json');
+        
+        if (fs.existsSync(configPath)) {
+          const data = fs.readFileSync(configPath, 'utf-8');
+          const config = JSON.parse(data);
+          return config.darkMode || false;
+        }
+      } catch (e) {
+        // Fallback
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('[DARK-MODE] ❌ Erro ao obter estado de dark mode:', error);
+      return false;
+    }
+  });
+
+  console.log('[IPC-HANDLERS] ✅ Handlers de Terminal registrados com sucesso!');
+} catch (err) {
+  console.error('[IPC-HANDLERS] ❌ Erro ao registrar handlers de Terminal:', err);
+}
+
 console.log('[IPC-HANDLERS] ✅ Handlers registrados com sucesso!');
 
 module.exports = {
