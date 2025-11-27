@@ -2,7 +2,7 @@
 
 ## 📋 Visão Geral
 
-Este documento explica como compilar o Micro Front-End Manager com a estrutura de Node.js portátil incluída.
+Este documento explica como compilar o Front-End Manager com a estrutura de Node.js portátil incluída.
 
 ---
 

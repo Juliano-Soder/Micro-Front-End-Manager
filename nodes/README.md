@@ -1,6 +1,6 @@
 # 📦 Node.js Portátil
 
-Esta pasta contém as versões portáteis do Node.js usadas pelo Micro Front-End Manager.
+Esta pasta contém as versões portáteis do Node.js usadas pelo Front-End Manager.
 
 ## 📁 Estrutura
 
@@ -16,7 +16,7 @@ nodes/
 As versões do Node.js podem ser instaladas de duas formas:
 
 1. **Via menu da aplicação:**
-   - Abra o Micro Front-End Manager
+   - Abra o Front-End Manager
    - Menu: `Dependências > Instalar Dependências Node.js`
    - Aguarde o download e instalação automática
 
