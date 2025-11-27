@@ -13,8 +13,9 @@
         padding: 20px;
         background-color: #f4f4f4;
         color: #333;
-        max-width: 80vw;
-        margin: 0 auto;
+        width: 100%;
+        box-sizing: border-box;
+        overflow-x: hidden;
         transition: background-color 0.3s ease, color 0.3s ease;
       }
 
@@ -24,13 +25,14 @@
 
       @media screen and (max-width: 801px) {
         body {
-          min-width: 95vw;
+          max-width: 95vw;
         }
       }
 
       @media screen and (min-width: 1600px) {
         body {
-          min-width: 70vw;
+          max-width: 70vw;
+          margin: 0 auto;
         }
         .project-card {
           width: 47% !important;
@@ -100,7 +102,7 @@
 
     /* Estilos para MFEs containers */
     #pamp-mfes, #projects {
-      min-width: 80vw;
+      width: 100%;
       margin-top: 15px;
       justify-content: space-evenly;
       display: flex;
@@ -623,7 +625,7 @@
 </head>
 <body>
   <div class="main-title">
-    Front-end Manager <span style="font-size: 14px; color: #666;">v0.0.11</span>
+    Front-end Manager <span style="font-size: 14px; color: #666;">v0.0.12</span>
     <span id="dependencies-status" style="font-size: 12px; margin-left: 10px;"></span>
     <span style="font-size: 10px; margin-left: 20px; color: #666; font-style: italic;" title="Atalhos para reiniciar">
       💡 Ctrl+R ou F5 = Reiniciar

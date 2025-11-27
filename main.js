@@ -1546,7 +1546,14 @@ function getDefaultConfig() {
     pasOrder: [], // Ordem específica dos projetos PAS
     pampOrder: [], // Ordem específica dos projetos PAMP
     preferredIDE: 'vscode', // IDE preferida do usuário
-    preferredTerminal: null // Terminal preferido do usuário (será definido pelo seletor)
+    preferredTerminal: null, // Terminal preferido do usuário (será definido pelo seletor)
+    windowSizeConfig: {
+      normalWidth: 700,
+      largeWidth: 47,
+      minWindowWidth: 1600,
+      bodySmallWidth: 95,
+      bodyLargeWidth: 70
+    }
   };
 }
 
@@ -2666,6 +2673,126 @@ function openNewCLIsWindow() {
   });
 }
 
+// Variável global para a janela de configuração de tamanho
+let windowSizeConfigWindow = null;
+
+// Função para aplicar configuração de tamanho dinamicamente na janela
+function applyWindowSizeConfigToWindow(win, config) {
+  try {
+    if (!win || win.isDestroyed()) return;
+    
+    const bodySmallWidth = config.bodySmallWidth || 95;
+    const bodyLargeWidth = config.bodyLargeWidth || 70;
+    const minWindowWidth = config.minWindowWidth || 1600;
+    
+    const css = `
+      :root {
+        --project-card-normal-width: ${config.normalWidth}px;
+        --project-card-large-width: ${config.largeWidth}%;
+        --project-card-breakpoint: ${minWindowWidth}px;
+        --body-small-width: ${bodySmallWidth}vw;
+        --body-large-width: ${bodyLargeWidth}vw;
+      }
+      
+      body {
+        max-width: ${bodySmallWidth}vw !important;
+        margin: 0 auto !important;
+      }
+      
+      .project-card {
+        width: var(--project-card-normal-width) !important;
+        max-width: calc(100% - 20px) !important;
+        min-width: 300px;
+      }
+      
+      #pamp-mfes, #projects, #onboarding-mfes {
+        width: 100% !important;
+        min-width: unset !important;
+        max-width: 100% !important;
+      }
+      
+      @media (min-width: ${minWindowWidth}px) {
+        body {
+          max-width: ${bodyLargeWidth}vw !important;
+        }
+        .project-card {
+          width: var(--project-card-large-width) !important;
+        }
+      }
+    `;
+    
+    // Injeta CSS dinamicamente
+    win.webContents.executeJavaScript(`
+      (function() {
+        let styleEl = document.getElementById('window-size-config-styles');
+        if (!styleEl) {
+          styleEl = document.createElement('style');
+          styleEl.id = 'window-size-config-styles';
+          document.head.appendChild(styleEl);
+        }
+        styleEl.textContent = ${JSON.stringify(css)};
+        console.log('[WINDOW-SIZE] ✅ CSS dinâmico injetado: body=${bodySmallWidth}vw/${bodyLargeWidth}vw, normalWidth=${config.normalWidth}px, largeWidth=${config.largeWidth}%, breakpoint=${minWindowWidth}px');
+      })();
+    `).catch(err => console.error('[WINDOW-SIZE] ❌ Erro ao injetar CSS:', err));
+  } catch (error) {
+    console.error('[WINDOW-SIZE] ❌ Erro ao aplicar configuração:', error);
+  }
+}
+
+// Função para abrir a janela de configuração de tamanho da janela
+function openWindowSizeConfigWindow() {
+  console.log('[DEBUG] Abrindo janela de configuração de tamanho');
+  
+  if (windowSizeConfigWindow && !windowSizeConfigWindow.isDestroyed()) {
+    windowSizeConfigWindow.focus();
+    return;
+  }
+
+  windowSizeConfigWindow = new BrowserWindow({
+    width: 700,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    },
+    icon: path.join(__dirname, 'OIP.ico'),
+    title: 'Configurar Tamanho da Janela',
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    modal: true,
+    parent: mainWindow
+  });
+
+  windowSizeConfigWindow.loadFile(path.join(__dirname, 'window-size-config.html'));
+
+  // Para desenvolvimento - descomente a linha abaixo se precisar debugar
+  // windowSizeConfigWindow.webContents.openDevTools();
+
+  windowSizeConfigWindow.webContents.once('did-finish-load', () => {
+    console.log('✅ Janela de configuração de tamanho carregada');
+    
+    // Envia o tema atual para a janela
+    try {
+      const configPath = path.join(userDataPath, 'config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        const isDarkMode = config.darkMode === true;
+        windowSizeConfigWindow.webContents.send('apply-dark-mode', isDarkMode);
+        console.log(`🎨 Tema enviado para configuração de tamanho: ${isDarkMode ? 'escuro' : 'claro'}`);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao carregar tema:', error);
+    }
+  });
+
+  // Limpa referência quando fechada
+  windowSizeConfigWindow.on('closed', () => {
+    windowSizeConfigWindow = null;
+    console.log('🧹 Janela de configuração de tamanho fechada');
+  });
+}
+
 // Função para abrir a janela de seleção de terminal
 let mainWindow;
 let loginWindow = null;
@@ -3196,7 +3323,15 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         },
         {
           label: 'Configurar Manualmente',
-          icon: path.join(__dirname, 'assets', 'manual.png'),
+          icon: (() => {
+            const iconPath = path.join(__dirname, 'assets', 'manual.png');
+            try {
+              return nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+            } catch (error) {
+              console.log('[MENU] Aviso: Não foi possível carregar ícone manual:', error.message);
+              return undefined;
+            }
+          })(),
           id: 'manual-setup',
           click: () => {
             // Cria janela para configuração manual
@@ -3235,6 +3370,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         { type: 'separator' },
         {
           label: 'Instalar Dependências Node.js',
+          icon: getTerminalIconForMenu(),
           id: 'install-deps',
           click: () => {
             // Desabilita o item do menu
@@ -3266,26 +3402,63 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
           label: '🔧 Configurações',
           accelerator: 'CmdOrCtrl+Comma',
           id: 'open-config',
-          click: () => {
-            // Desabilita temporariamente
-            const menuItem = appMenu ? appMenu.getMenuItemById('open-config') : null;
-            if (menuItem) {
-              menuItem.label = 'Abrindo...';
-              menuItem.enabled = false;
-            }
+          submenu: [
+            {
+              label: 'Abrir Configurações',
+              id: 'open-config-main',
+              click: () => {
+                // Desabilita temporariamente
+                const menuItem = appMenu ? appMenu.getMenuItemById('open-config-main') : null;
+                if (menuItem) {
+                  menuItem.label = 'Abrindo...';
+                  menuItem.enabled = false;
+                }
 
-            openConfigWindow();
+                openConfigWindow();
 
-            // Reabilita após um tempo
-            setTimeout(() => {
-              if (menuItem) {
-                menuItem.label = '🔧 Configurações';
-                menuItem.enabled = true;
-              }
-            }, 1000);
-          },
+                // Reabilita após um tempo
+                setTimeout(() => {
+                  if (menuItem) {
+                    menuItem.label = 'Abrir Configurações';
+                    menuItem.enabled = true;
+                  }
+                }, 1000);
+              },
+            },
+            { type: 'separator' },
+            {
+              label: '📐 Tamanho da Janela do Projeto',
+              // icon: (() => {
+              //   const iconPath = path.join(__dirname, 'assets', 'tamanhoDoConsole.png');
+              //   try {
+              //     return nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+              //   } catch (error) {
+              //     console.log('[MENU] Aviso: Não foi possível carregar ícone tamanho:', error.message);
+              //     return undefined;
+              //   }
+              // })(),
+              id: 'window-size-config',
+              click: () => {
+                // Desabilita temporariamente
+                const menuItem = appMenu ? appMenu.getMenuItemById('window-size-config') : null;
+                if (menuItem) {
+                  menuItem.label = 'Abrindo...';
+                  menuItem.enabled = false;
+                }
+
+                openWindowSizeConfigWindow();
+
+                // Reabilita após um tempo
+                setTimeout(() => {
+                  if (menuItem) {
+                    menuItem.label = '📐 Tamanho da Janela do Projeto';
+                    menuItem.enabled = true;
+                  }
+                }, 1000);
+              },
+            },
+          ]
         },
-        { type: 'separator' },
         {
           label: '🎓 Configurar Onboarding (Node.js)',
           id: 'onboarding-node-config',
@@ -3445,6 +3618,17 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       console.log('🚀 Mostrando janela principal e fechando splash');
       mainWindow.show();
       mainWindow.focus();
+      
+      // Aplica configuração de tamanho das janelas ao iniciar
+      try {
+        const config = loadConfig();
+        if (config.windowSizeConfig) {
+          applyWindowSizeConfigToWindow(mainWindow, config.windowSizeConfig);
+          console.log('[WINDOW-SIZE] ✅ Configuração de tamanho aplicada ao iniciar');
+        }
+      } catch (error) {
+        console.error('[WINDOW-SIZE] ❌ Erro ao aplicar configuração inicial:', error);
+      }
       
       // Fecha a splash screen após mostrar a principal
       setTimeout(() => {
@@ -6146,6 +6330,90 @@ ipcMain.on('execute-command', (event, command) => {
       
     } catch (error) {
       console.error(`[TERMINAL] ❌ Erro ao abrir terminal:`, error);
+    }
+  });
+
+  // Handler para obter configuração de tamanho da janela
+  ipcMain.on('get-window-size-config', (event) => {
+    try {
+      console.log('[WINDOW-SIZE] 📖 Obtendo configuração de tamanho da janela...');
+      const config = loadConfig();
+      const windowSizeConfig = config.windowSizeConfig || {
+        normalWidth: 700,
+        largeWidth: 47,
+        minWindowWidth: 1600,
+        bodySmallWidth: 95,
+        bodyLargeWidth: 70
+      };
+      event.reply('window-size-config-loaded', windowSizeConfig);
+      console.log('[WINDOW-SIZE] ✅ Configuração enviada:', windowSizeConfig);
+    } catch (error) {
+      console.error('[WINDOW-SIZE] ❌ Erro ao obter configuração:', error);
+      event.reply('window-size-config-error', { error: error.message });
+    }
+  });
+
+  // Handler para salvar configuração de tamanho da janela
+  ipcMain.on('save-window-size-config', (event, config) => {
+    try {
+      console.log('[WINDOW-SIZE] 💾 Salvando configuração de tamanho da janela...', config);
+      
+      // Valida os valores de card sizing
+      if (typeof config.normalWidth !== 'number' || config.normalWidth < 400 || config.normalWidth > 1200) {
+        throw new Error('normalWidth deve estar entre 400 e 1200px');
+      }
+      if (typeof config.largeWidth !== 'number' || config.largeWidth < 30 || config.largeWidth > 100) {
+        throw new Error('largeWidth deve estar entre 30 e 100%');
+      }
+      if (typeof config.minWindowWidth !== 'number' || config.minWindowWidth < 800 || config.minWindowWidth > 2000) {
+        throw new Error('minWindowWidth deve estar entre 800 e 2000px');
+      }
+      
+      // Valida os valores de body sizing
+      if (typeof config.bodySmallWidth !== 'number' || config.bodySmallWidth < 50 || config.bodySmallWidth > 100) {
+        throw new Error('bodySmallWidth deve estar entre 50 e 100vw');
+      }
+      if (typeof config.bodyLargeWidth !== 'number' || config.bodyLargeWidth < 50 || config.bodyLargeWidth > 100) {
+        throw new Error('bodyLargeWidth deve estar entre 50 e 100vw');
+      }
+
+      // Carrega configuração atual
+      const currentConfig = loadConfig();
+      
+      // Atualiza com novos valores
+      currentConfig.windowSizeConfig = config;
+      
+      // Salva configuração
+      saveConfig(currentConfig);
+      
+      console.log('[WINDOW-SIZE] ✅ Configuração salva com sucesso');
+      event.reply('window-size-config-saved', { success: true, config });
+      
+      // Notifica todas as janelas sobre a nova configuração e injeta CSS imediatamente
+      BrowserWindow.getAllWindows().forEach(win => {
+        if (!win.isDestroyed()) {
+          // Envia evento IPC
+          win.webContents.send('window-size-config-updated', config);
+          // Aplica CSS dinamicamente
+          applyWindowSizeConfigToWindow(win, config);
+        }
+      });
+      
+    } catch (error) {
+      console.error('[WINDOW-SIZE] ❌ Erro ao salvar configuração:', error);
+      event.reply('window-size-config-error', { error: error.message });
+    }
+  });
+
+  // Handler para fechar a janela de configuração
+  ipcMain.on('close-window-size-config-window', () => {
+    try {
+      console.log('[WINDOW-SIZE] 🚪 Fechando janela de configuração de tamanho');
+      if (windowSizeConfigWindow && !windowSizeConfigWindow.isDestroyed()) {
+        windowSizeConfigWindow.close();
+      }
+    } catch (error) {
+      console.error('[WINDOW-SIZE] ❌ Erro ao fechar janela:', error);
     }
   });
 
