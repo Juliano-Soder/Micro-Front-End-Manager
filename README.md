@@ -1,14 +1,33 @@
-# Micro Front-End Manager
+# Front-End Manager
 
-**Micro Front-End Manager** é um aplicativo desenvolvido em Electron para gerenciar projetos de micro front-ends. Ele permite clonar, iniciar, parar e excluir projetos de forma simples e eficiente, além de verificar dependências como Node.js e Angular CLI.
+**Front-End Manager** é um aplicativo desenvolvido em Electron para gerenciar projetos de micro front-ends. Ele permite clonar, iniciar, parar e excluir projetos de forma simples e eficiente, além de verificar dependências como Node.js e Angular CLI.
 
 ---
 
 ## 📝 Notas de Versão
 
+### Versão 0.0.12 - Novembro 2025
+
+**🎛️ Sistema Avançado de Configuração de Layout:**
+- **Tamanho Dinâmico de Cards**: Configuração independente de largura de cards de projeto (400-1200px)
+- **Ajuste por Resolução**: Diferentes tamanhos para telas pequenas vs. grandes com breakpoint personalizável
+- **Tamanho do Body Responsivo**: Controle da largura do corpo da página (95vw-70vw) baseado em resolução
+- **CSS Injection em Tempo Real**: Mudanças aplicadas instantaneamente sem necessidade de restart
+- **Interface Intuitiva**: Modal de configuração com presets rápidos (Compacto, Normal, Grande, Ultra) + personalização
+- **Feedback Visual**: Botão muda para "Configurado 👍" quando salva com sucesso
+- **Persistência de Configuração**: Todas as configurações salvas em JSON e restauradas ao iniciar
+- **Preview de Referência**: Imagens explicativas para entender o que cada configuração faz
+
+**✨ Melhorias Adicionais:**
+- Navbar removida de todas as janelas modais (configurações, tamanho, manual setup)
+- Versioning repositionado para canto inferior direito sem interferência
+- Interface mais limpa e profissional
+
+---
+
 ### Versão 0.0.9.5/ 0.0.10 - Novembro 2025
 
-> **� Nota Importante:** A versão 0.0.9.0 foi pulada devido ao volume excepcional de novas funcionalidades implementadas. Esta versão concentra múltiplas melhorias significativas que transformam o aplicativo em uma suite completa de desenvolvimento.
+> **⚠️ Nota Importante:** A versão 0.0.9.0 foi pulada devido ao volume excepcional de novas funcionalidades implementadas. Esta versão concentra múltiplas melhorias significativas que transformam o aplicativo em uma suite completa de desenvolvimento.
 
 **�🔐 Sistema de Fallback para Nexus:**
 - **Autenticação Automática**: Sistema inteligente que detecta falhas de `npm install` e executa login automático no Nexus

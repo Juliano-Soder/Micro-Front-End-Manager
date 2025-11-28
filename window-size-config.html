@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configurar Tamanho da Janela</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    /* Esconde navbar e elementos que não devem aparecer em janelas modais */
+    .navbar,
+    nav,
+    .menu,
+    .app-menu,
+    #navbar,
+    #menu,
+    .main-navbar {
+      display: none !important;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #ffffff;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      color: #333;
+    }
+
+    body.dark-mode {
+      background: #1e1e1e;
+      color: #e0e0e0;
+    }
+
+    .container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+      max-width: 700px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      max-height: 90vh;
+      overflow: hidden;
+    }
+
+    body.dark-mode .container {
+      background: #2d2d2d;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    }
+
+    .header {
+      background: linear-gradient(135deg, #555555 0%, #333333 100%);
+      color: white;
+      padding: 30px 20px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .header p {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+
+    .content {
+      padding: 30px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    body.dark-mode .content {
+      background: #2d2d2d;
+      color: #e0e0e0;
+    }
+
+    .preview-section {
+      margin-bottom: 30px;
+      text-align: center;
+    }
+
+    .preview-image {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      border: 2px solid #ddd;
+    }
+
+    body.dark-mode .preview-image {
+      border-color: #4d4d4d;
+    }
+
+    .settings-group {
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    body.dark-mode .settings-group {
+      background: #3d3d3d;
+    }
+
+    .settings-group h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 15px;
+      color: #333;
+    }
+
+    body.dark-mode .settings-group h3 {
+      color: #e0e0e0;
+    }
+
+    .setting-row {
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+
+    .setting-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .setting-label {
+      flex: 1;
+      font-size: 13px;
+      color: #666;
+      min-width: 150px;
+    }
+
+    body.dark-mode .setting-label {
+      color: #b0b0b0;
+    }
+
+    .input-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex: 1;
+    }
+
+    input[type="number"],
+    input[type="text"] {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 13px;
+      flex: 1;
+      background: white;
+      color: #333;
+    }
+
+    body.dark-mode input[type="number"],
+    body.dark-mode input[type="text"] {
+      background: #2d2d2d;
+      border-color: #4d4d4d;
+      color: #e0e0e0;
+    }
+
+    input[type="number"]:focus,
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #555555;
+      box-shadow: 0 0 0 3px rgba(85, 85, 85, 0.1);
+    }
+
+    .unit {
+      font-size: 12px;
+      color: #999;
+      min-width: 35px;
+    }
+
+    body.dark-mode .unit {
+      color: #888;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 30px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.3s;
+    }
+
+    .btn-reset {
+      background: #e0e0e0;
+      color: #333;
+    }
+
+    body.dark-mode .btn-reset {
+      background: #3d3d3d;
+      color: #e0e0e0;
+      border: 1px solid #4d4d4d;
+    }
+
+    .btn-reset:hover {
+      background: #d0d0d0;
+    }
+
+    body.dark-mode .btn-reset:hover {
+      background: #4d4d4d;
+    }
+
+    .btn-save {
+      background: #555555;
+      color: white;
+    }
+
+    .btn-save:hover {
+      background: #333333;
+    }
+
+    .btn-save.saved {
+      background: #4caf50;
+      color: white;
+      cursor: default;
+    }
+
+    .btn-save.saved:hover {
+      background: #4caf50;
+    }
+
+    .status-message {
+      padding: 12px;
+      border-radius: 6px;
+      margin-bottom: 15px;
+      font-size: 13px;
+      display: none;
+    }
+
+    .status-message.success {
+      display: block;
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    body.dark-mode .status-message.success {
+      background: #1e4620;
+      color: #a8d5a8;
+      border-color: #2d6b2d;
+    }
+
+    .status-message.error {
+      display: block;
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    body.dark-mode .status-message.error {
+      background: #4d1f1f;
+      color: #f5a5a5;
+      border-color: #6b2d2d;
+    }
+
+    .info-text {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #856404;
+      margin-top: 20px;
+    }
+
+    body.dark-mode .info-text {
+      background: #3d3d1a;
+      border-left-color: #ffc107;
+      color: #f0c040;
+    }
+
+    .preset-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .preset-btn {
+      padding: 10px;
+      border: 1px solid #ddd;
+      background: white;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.3s;
+      color: #333;
+    }
+
+    body.dark-mode .preset-btn {
+      background: #3d3d3d;
+      border-color: #4d4d4d;
+      color: #e0e0e0;
+    }
+
+    .preset-btn:hover {
+      border-color: #555555;
+      background: #f5f5f5;
+    }
+
+    body.dark-mode .preset-btn:hover {
+      background: #4d4d4d;
+      border-color: #555555;
+    }
+
+    .preset-btn.active {
+      background: #555555;
+      color: white;
+      border-color: #333333;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>
+        <img src="assets/tamanhoDoConsole.png" alt="Tamanho" style="width: 24px; height: 24px;">
+        Configurar Tamanho da Janela
+      </h1>
+      <p>Ajuste o tamanho dos cards de projeto conforme sua preferência</p>
+    </div>
+
+    <div class="content">
+      <div class="preview-section">
+        <img src="assets/tamanhoDoConsole.png" alt="Preview" class="preview-image">
+      </div>
+
+      <div id="statusMessage" class="status-message"></div>
+
+      <div class="settings-group">
+        <h3>📐 Presets Rápidos</h3>
+        <div class="preset-buttons">
+          <button class="preset-btn" onclick="applyPreset('compact')">
+            🤏 Compacto<br><small>600px</small>
+          </button>
+          <button class="preset-btn" onclick="applyPreset('normal')">
+            📦 Normal<br><small>700px</small>
+          </button>
+          <button class="preset-btn" onclick="applyPreset('large')">
+            📺 Grande<br><small>850px</small>
+          </button>
+          <button class="preset-btn" onclick="applyPreset('ultrawide')">
+            🖥️ Ultra<br><small>1000px</small>
+          </button>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <h3>🎯 Configuração Personalizada</h3>
+        
+        <div class="setting-row">
+          <label class="setting-label">Largura do Card (Normal)</label>
+          <div class="input-group">
+            <input type="number" id="normalWidth" min="400" max="1200" step="10" placeholder="700">
+            <span class="unit">px</span>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <label class="setting-label">Largura do Card (Telas > 1600px)</label>
+          <div class="input-group">
+            <input type="number" id="largeWidth" min="30" max="100" step="1" placeholder="47">
+            <span class="unit">%</span>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <label class="setting-label">Largura Mínima da Janela</label>
+          <div class="input-group">
+            <input type="number" id="minWindowWidth" min="800" max="2000" step="100" placeholder="1600">
+            <span class="unit">px</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <h3>📏 Tamanho do Corpo da Página</h3>
+        <p style="font-size: 12px; margin-bottom: 15px; color: #666;">
+          Define o espaço entre as bordas e o centro onde aparecem os projetos
+        </p>
+        <div class="preview-section" style="margin-bottom: 15px;">
+          <img src="assets/tamanhoDoBody.png" alt="Tamanho do Body" class="preview-image">
+        </div>
+        
+        <div class="setting-row">
+          <label class="setting-label">Largura para Telas < 1600px</label>
+          <div class="input-group">
+            <input type="number" id="bodySmallWidth" min="50" max="100" step="1" placeholder="95">
+            <span class="unit">vw</span>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <label class="setting-label">Largura para Telas ≥ 1600px</label>
+          <div class="input-group">
+            <input type="number" id="bodyLargeWidth" min="50" max="100" step="1" placeholder="70">
+            <span class="unit">vw</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="info-text">
+        <strong>💡 Dica:</strong> Use os presets para configurações rápidas ou personalize cada valor conforme preferir. As alterações são aplicadas imediatamente e salvas na configuração.
+      </div>
+
+      <div class="button-group">
+        <button class="btn btn-reset" onclick="resetToDefaults()">
+          ↺ Restaurar Padrão
+        </button>
+        <button class="btn btn-save" onclick="saveConfiguration()">
+          💾 Salvar Configuração
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    let currentConfig = {
+      normalWidth: 700,
+      largeWidth: 47,
+      minWindowWidth: 1600,
+      bodySmallWidth: 95,
+      bodyLargeWidth: 70
+    };
+
+    // Aplica modo dark ao carregar
+    function applyDarkMode() {
+      const isDarkMode = localStorage.getItem('darkMode') === 'true';
+      if (isDarkMode) {
+        document.body.classList.add('dark-mode');
+      } else {
+        document.body.classList.remove('dark-mode');
+      }
+    }
+
+    // Carrega configuração ao abrir
+    function loadConfiguration() {
+      ipcRenderer.send('get-window-size-config');
+    }
+
+    // Recebe configuração do main.js
+    ipcRenderer.on('window-size-config-loaded', (event, config) => {
+      if (config) {
+        currentConfig = config;
+        document.getElementById('normalWidth').value = config.normalWidth || 700;
+        document.getElementById('largeWidth').value = config.largeWidth || 47;
+        document.getElementById('minWindowWidth').value = config.minWindowWidth || 1600;
+        document.getElementById('bodySmallWidth').value = config.bodySmallWidth || 95;
+        document.getElementById('bodyLargeWidth').value = config.bodyLargeWidth || 70;
+      }
+    });
+
+    // Recebe eventos de dark mode
+    ipcRenderer.on('apply-dark-mode', (event, isDark) => {
+      if (isDark) {
+        document.body.classList.add('dark-mode');
+      } else {
+        document.body.classList.remove('dark-mode');
+      }
+    });
+
+    // Recebe feedback de sucesso ao salvar
+    ipcRenderer.on('window-size-config-saved', (event, result) => {
+      if (result.success) {
+        showStatusPersistent('✅ Configuração salva! As mudanças foram aplicadas na janela principal.', 'success', 3000);
+      }
+    });
+
+    // Recebe feedback de erro ao salvar
+    ipcRenderer.on('window-size-config-error', (event, result) => {
+      showStatusPersistent(`❌ Erro: ${result.error}`, 'error', 4000);
+    });
+
+    function showStatus(message, type = 'success') {
+      const statusEl = document.getElementById('statusMessage');
+      statusEl.textContent = message;
+      statusEl.className = `status-message ${type}`;
+      
+      // Auto-hide após 4 segundos (mais tempo para o usuário ver)
+      setTimeout(() => {
+        statusEl.className = 'status-message';
+      }, 4000);
+    }
+
+    function showStatusPersistent(message, type = 'success', duration = 5000) {
+      const statusEl = document.getElementById('statusMessage');
+      statusEl.textContent = message;
+      statusEl.className = `status-message ${type}`;
+      
+      // Auto-hide após duração especificada
+      setTimeout(() => {
+        statusEl.className = 'status-message';
+      }, duration);
+    }
+
+    function applyPreset(preset) {
+      const presets = {
+        compact: { normalWidth: 600, largeWidth: 40, minWindowWidth: 1400 },
+        normal: { normalWidth: 700, largeWidth: 47, minWindowWidth: 1600 },
+        large: { normalWidth: 850, largeWidth: 55, minWindowWidth: 1800 },
+        ultrawide: { normalWidth: 1000, largeWidth: 60, minWindowWidth: 2000 }
+      };
+
+      const config = presets[preset];
+      if (config) {
+        document.getElementById('normalWidth').value = config.normalWidth;
+        document.getElementById('largeWidth').value = config.largeWidth;
+        document.getElementById('minWindowWidth').value = config.minWindowWidth;
+
+        // Atualiza botões de preset
+        document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
+        event.target.classList.add('active');
+
+        showStatus(`✅ Preset "${preset}" aplicado!`);
+      }
+    }
+
+    function resetToDefaults() {
+      document.getElementById('normalWidth').value = 700;
+      document.getElementById('largeWidth').value = 47;
+      document.getElementById('minWindowWidth').value = 1600;
+      document.getElementById('bodySmallWidth').value = 95;
+      document.getElementById('bodyLargeWidth').value = 70;
+      showStatus('🔄 Valores restaurados para padrão');
+    }
+
+    function saveConfiguration() {
+      const config = {
+        normalWidth: parseInt(document.getElementById('normalWidth').value) || 700,
+        largeWidth: parseInt(document.getElementById('largeWidth').value) || 47,
+        minWindowWidth: parseInt(document.getElementById('minWindowWidth').value) || 1600,
+        bodySmallWidth: parseInt(document.getElementById('bodySmallWidth').value) || 95,
+        bodyLargeWidth: parseInt(document.getElementById('bodyLargeWidth').value) || 70
+      };
+
+      // Validação básica
+      if (config.normalWidth < 400 || config.normalWidth > 1200) {
+        showStatus('❌ Largura normal deve estar entre 400 e 1200px', 'error');
+        return;
+      }
+
+      if (config.largeWidth < 30 || config.largeWidth > 100) {
+        showStatus('❌ Largura de telas grandes deve estar entre 30% e 100%', 'error');
+        return;
+      }
+
+      if (config.minWindowWidth < 800 || config.minWindowWidth > 2000) {
+        showStatus('❌ Largura mínima deve estar entre 800 e 2000px', 'error');
+        return;
+      }
+
+      if (config.bodySmallWidth < 50 || config.bodySmallWidth > 100) {
+        showStatus('❌ Largura do corpo (telas pequenas) deve estar entre 50vw e 100vw', 'error');
+        return;
+      }
+
+      if (config.bodyLargeWidth < 50 || config.bodyLargeWidth > 100) {
+        showStatus('❌ Largura do corpo (telas grandes) deve estar entre 50vw e 100vw', 'error');
+        return;
+      }
+
+      // Feedback imediato de que está processando
+      showStatusPersistent('⏳ Salvando configuração...', 'success', 2000);
+
+      // Envia para o main.js
+      ipcRenderer.send('save-window-size-config', config);
+      
+      // Feedback de sucesso após enviar
+      setTimeout(() => {
+        showStatusPersistent('✅ Configuração salva com sucesso! As mudanças foram aplicadas.', 'success', 3000);
+        
+        // Muda o texto do botão para "Configurado 👍"
+        const saveBtn = document.querySelector('.btn-save');
+        const originalText = saveBtn.textContent;
+        saveBtn.textContent = 'Configurado 👍';
+        saveBtn.classList.add('saved');
+        saveBtn.disabled = true;
+        
+        // Volta o botão ao normal após 3 segundos
+        setTimeout(() => {
+          saveBtn.textContent = originalText;
+          saveBtn.classList.remove('saved');
+          saveBtn.disabled = false;
+        }, 3000);
+      }, 500);
+    }
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        saveConfiguration();
+      }
+      if (e.key === 'Escape') {
+        ipcRenderer.send('close-window-size-config-window');
+      }
+    });
+
+    // Carrega ao iniciar
+    applyDarkMode();
+    loadConfiguration();
+  </script>
+</body>
+</html>

@@ -3,7 +3,7 @@ const { exec, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { Menu } = require('electron');
+const { Menu, nativeImage } = require('electron');
 const { spawn } = require('child_process');
 const https = require('https');
 const http = require('http');
@@ -20,7 +20,6 @@ console.log('[MAIN] INÍCIO: Preparando para registrar handler start-node-instal
 // Imports para gerenciamento de Node.js portátil
 const NodeInstaller = require('./node-installer');
 const ProjectConfigManager = require('./project-config-manager');
-const NpmFallbackHandlers = require('./npm-fallback-handlers');
 const OnboardingManager = require('./onboarding-manager');
 const SplashManager = require('./splash-manager');
 
@@ -186,7 +185,6 @@ function safeReadConfigFile(filename) {
 // Instâncias globais
 let nodeInstaller = null;
 let projectConfigManager = null;
-let npmFallbackHandlers = null;
 let installerWindow = null;
 let projectConfigsWindow = null;
 let newCLIsWindow = null;
@@ -491,10 +489,6 @@ ipcMain.on('get-project-configs', (event) => {
     projectConfigManager = new ProjectConfigManager();
   }
   
-  if (!npmFallbackHandlers) {
-    npmFallbackHandlers = new NpmFallbackHandlers();
-  }
-  
   const configs = projectConfigManager.getAllConfigs();
   const { getDefaultNodeVersion } = require('./node-version-config');
   
@@ -551,24 +545,72 @@ ipcMain.on('get-available-node-versions', (event) => {
       return;
     }
     
+    console.log(`[DEBUG] 🔍 Verificando pasta: ${entry.name}`);
+    
     const folderPath = path.join(osPath, entry.name);
     
-    // Detecta se tem node.exe ou node (para Linux/Mac)
-    const nodeExePath = currentOS === 'windows' 
-      ? path.join(folderPath, 'node.exe')
-      : path.join(folderPath, 'bin', 'node');
+    // 🔍 PROCURA node.exe E npm.cmd (DIRETAMENTE OU EM SUBPASTAS)
+    let nodeExePath = null;
+    let npmPath = null;
+    let actualFolderPath = folderPath;
     
-    const npmPath = currentOS === 'windows'
-      ? path.join(folderPath, 'npm.cmd')
-      : path.join(folderPath, 'bin', 'npm');
+    if (currentOS === 'windows') {
+      // Tenta primeiro diretamente na pasta
+      nodeExePath = path.join(folderPath, 'node.exe');
+      npmPath = path.join(folderPath, 'npm.cmd');
+      
+      console.log(`[DEBUG]   Verificando diretamente: ${nodeExePath}`);
+      console.log(`[DEBUG]   Existe node.exe? ${fs.existsSync(nodeExePath)}`);
+      console.log(`[DEBUG]   Existe npm.cmd? ${fs.existsSync(npmPath)}`);
+      
+      // Se não encontrar, procura em subpastas (para estruturas como node-v22.12.0/node-v22.12.0-win-x64/)
+      if (!fs.existsSync(nodeExePath) || !fs.existsSync(npmPath)) {
+        console.log(`[DEBUG]   ⚠️ Não encontrado diretamente, procurando em subpastas...`);
+        
+        try {
+          const subfolders = fs.readdirSync(folderPath, { withFileTypes: true })
+            .filter(item => item.isDirectory());
+          
+          console.log(`[DEBUG]   Subpastas encontradas: ${subfolders.map(s => s.name).join(', ')}`);
+          
+          for (const subfolder of subfolders) {
+            const subfolderPath = path.join(folderPath, subfolder.name);
+            const subNodeExe = path.join(subfolderPath, 'node.exe');
+            const subNpmCmd = path.join(subfolderPath, 'npm.cmd');
+            
+            console.log(`[DEBUG]     Verificando subpasta ${subfolder.name}...`);
+            console.log(`[DEBUG]     Existe node.exe? ${fs.existsSync(subNodeExe)}`);
+            console.log(`[DEBUG]     Existe npm.cmd? ${fs.existsSync(subNpmCmd)}`);
+            
+            if (fs.existsSync(subNodeExe) && fs.existsSync(subNpmCmd)) {
+              nodeExePath = subNodeExe;
+              npmPath = subNpmCmd;
+              actualFolderPath = subfolderPath;
+              console.log(`[DEBUG] ✅ Node.js encontrado em subpasta: ${subfolder.name}`);
+              break;
+            }
+          }
+        } catch (err) {
+          console.log(`[DEBUG]   ❌ Erro ao ler subpastas: ${err.message}`);
+        }
+      }
+    } else {
+      // Linux/Mac: procura em bin/
+      nodeExePath = path.join(folderPath, 'bin', 'node');
+      npmPath = path.join(folderPath, 'bin', 'npm');
+    }
     
     // Verifica se é uma instalação válida do Node.js
-    const isValidNodeInstall = fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
+    const isValidNodeInstall = nodeExePath && npmPath && fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
+    
+    console.log(`[DEBUG]   Instalação válida? ${isValidNodeInstall}`);
     
     if (isValidNodeInstall) {
       // Extrai a versão do nome da pasta
-      // Formato esperado: node-v16.10.0-win-x64 ou node-v18.20.4
+      // Formato esperado: node-v16.10.0-win-x64 ou node-v18.20.4 ou node-v22.12.0
       const versionMatch = entry.name.match(/node-v([\d.]+)/i);
+      
+      console.log(`[DEBUG]   Regex match resultado: ${versionMatch ? versionMatch[1] : 'NENHUM'}`);
       
       if (versionMatch) {
         const version = versionMatch[1];
@@ -580,7 +622,7 @@ ipcMain.on('get-available-node-versions', (event) => {
           folderName: entry.name,
           label: `Node ${version}`,
           installed: true,
-          path: folderPath
+          path: actualFolderPath // USA O CAMINHO REAL (pode ser subpasta)
         };
       } else {
         console.log(`[DEBUG] ⚠️ Pasta ignorada (formato não reconhecido): ${entry.name}`);
@@ -1030,6 +1072,30 @@ const IDE_CONFIG = {
     }
   }
 };
+
+/**
+ * Função para obter o ícone do terminal baseado no tema
+ * Dark mode ativo = terminal_whitesmoke.png (branco)
+ * Dark mode inativo = terminal_black.png (preto)
+ */
+function getTerminalIconForMenu() {
+  try {
+    const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
+    const isDarkMode = config.darkMode === true;
+    
+    const iconFile = isDarkMode ? 'terminal_whitesmoke.png' : 'terminal_black.png';
+    const iconPath = path.join(__dirname, 'assets', iconFile);
+    
+    if (fs.existsSync(iconPath)) {
+      const icon = nativeImage.createFromPath(iconPath);
+      return icon.resize({ width: 16, height: 16 });
+    }
+  } catch (error) {
+    console.warn('[MENU] Erro ao obter ícone do terminal:', error.message);
+  }
+  return null;
+}
+
 // ⚡ FUNÇÃO PARA OBTER BRANCH GIT DO PROJETO ⚡
 async function getProjectGitBranch(projectPath) {
   if (!projectPath || projectPath.trim() === '') {
@@ -1055,17 +1121,17 @@ async function getProjectGitBranch(projectPath) {
         encoding: 'utf8'
       }, (error, stdout, stderr) => {
         if (error) {
-          console.log(`[GIT] Erro ao obter branch para ${projectPath}: ${error.message}`);
+          // console.log(`[GIT] Erro ao obter branch para ${projectPath}: ${error.message}`);
           resolve(null);
           return;
         }
 
         const branch = stdout.trim();
         if (branch) {
-          console.log(`[GIT] ${path.basename(projectPath)}: ${branch}`);
+          // console.log(`[GIT] ${path.basename(projectPath)}: ${branch}`);
           resolve(branch);
         } else {
-          console.log(`[GIT] Nenhuma branch para ${projectPath}`);
+          // console.log(`[GIT] Nenhuma branch para ${projectPath}`);
           resolve(null);
         }
       });
@@ -1157,7 +1223,7 @@ async function checkGitStatus(projectPath) {
     }
 
     return new Promise((resolve) => {
-      console.log(`[GIT] Fazendo fetch para ${projectPath}...`);
+      // console.log(`[GIT] Fazendo fetch para ${projectPath}...`);
       
       // Executa git fetch
       exec('git fetch', { 
@@ -1188,7 +1254,7 @@ async function checkGitStatus(projectPath) {
           const pendingCommits = parseInt(countStdout.trim()) || 0;
           const hasUpdates = pendingCommits > 0;
           
-          console.log(`[GIT] ${projectPath} - Branch: ${currentBranch}, Commits pendentes: ${pendingCommits}`);
+          // console.log(`[GIT] ${projectPath} - Branch: ${currentBranch}, Commits pendentes: ${pendingCommits}`);
           
           resolve({ 
             branch: currentBranch, 
@@ -1251,12 +1317,12 @@ let backgroundGitQueue = [];
 // Função principal para iniciar verificação Git em segundo plano
 async function startBackgroundGitCheck() {
   if (backgroundGitRunning) {
-    console.log('[GIT-BG] Verificação já está em execução, ignorando nova solicitação');
+    // console.log('[GIT-BG] Verificação já está em execução, ignorando nova solicitação');
     return;
   }
   
   backgroundGitRunning = true;
-  console.log('[GIT-BG] 🚀 Iniciando verificação Git em segundo plano...');
+  // console.log('[GIT-BG] 🚀 Iniciando verificação Git em segundo plano...');
   
   // Filtra projetos que têm path e branch definidos
   const projectsToCheck = projects.filter(project => 
@@ -1265,7 +1331,7 @@ async function startBackgroundGitCheck() {
     project.gitBranch
   );
   
-  console.log(`[GIT-BG] 📋 ${projectsToCheck.length} projetos serão verificados em segundo plano`);
+  // console.log(`[GIT-BG] 📋 ${projectsToCheck.length} projetos serão verificados em segundo plano`);
   
   // Processa projetos de forma assíncrona, um por vez para não sobrecarregar
   for (let i = 0; i < projectsToCheck.length; i++) {
@@ -1274,7 +1340,7 @@ async function startBackgroundGitCheck() {
     
     if (projectIndex === -1) continue;
     
-    console.log(`[GIT-BG] 🔍 Verificando ${project.name} (${i + 1}/${projectsToCheck.length})`);
+    // console.log(`[GIT-BG] 🔍 Verificando ${project.name} (${i + 1}/${projectsToCheck.length})`);
     
     try {
       // Executa checkGitStatus em segundo plano
@@ -1290,7 +1356,7 @@ async function startBackgroundGitCheck() {
       
       // Notifica a UI sobre a atualização específica deste projeto
       if (mainWindow && !mainWindow.isDestroyed()) {
-        console.log(`[GIT-BG] ✅ ${project.name} - Commits pendentes: ${gitStatus.pendingCommits}`);
+        // console.log(`[GIT-BG] ✅ ${project.name} - Commits pendentes: ${gitStatus.pendingCommits}`);
         mainWindow.webContents.send('git-status-updated', {
           projectIndex,
           gitStatus: {
@@ -1299,19 +1365,19 @@ async function startBackgroundGitCheck() {
             hasUpdates: gitStatus.hasUpdates
           }
         });
-        console.log(`[GIT-BG] 📡 IPC enviado para UI: projeto ${projectIndex}`);
+        // console.log(`[GIT-BG] 📡 IPC enviado para UI: projeto ${projectIndex}`);
       }
       
       // Pequeno delay para não sobrecarregar o sistema
       await new Promise(resolve => setTimeout(resolve, 200));
       
     } catch (error) {
-      console.log(`[GIT-BG] ❌ Erro ao verificar ${project.name}: ${error.message}`);
+      // console.log(`[GIT-BG] ❌ Erro ao verificar ${project.name}: ${error.message}`);
     }
   }
   
   backgroundGitRunning = false;
-  console.log('[GIT-BG] 🎉 Verificação Git em segundo plano concluída!');
+  // console.log('[GIT-BG] 🎉 Verificação Git em segundo plano concluída!');
 }
 
 // Função para atualizar um projeto específico em segundo plano
@@ -1479,7 +1545,15 @@ function getDefaultConfig() {
     projectOrder: [], // Array para armazenar a ordem customizada dos projetos (deprecated)
     pasOrder: [], // Ordem específica dos projetos PAS
     pampOrder: [], // Ordem específica dos projetos PAMP
-    preferredIDE: 'vscode' // IDE preferida do usuário
+    preferredIDE: 'vscode', // IDE preferida do usuário
+    preferredTerminal: null, // Terminal preferido do usuário (será definido pelo seletor)
+    windowSizeConfig: {
+      normalWidth: 700,
+      largeWidth: 47,
+      minWindowWidth: 1600,
+      bodySmallWidth: 95,
+      bodyLargeWidth: 70
+    }
   };
 }
 
@@ -1895,10 +1969,7 @@ function handleNpmLogin() {
       resolve();
     }).catch((error) => {
       console.error('Erro ao verificar status de login:', error);
-      mainWindow.webContents.send('log', { message: `Erro ao verificar login: ${error.message}. Prosseguindo com login...` });
-      
-      // Em caso de erro na verificação, procede com login usando lógica antiga
-      performNpmLoginFallback();
+      mainWindow.webContents.send('log', { message: `Erro ao verificar login: ${error.message}. Tente fazer login manualmente.` });
       resolve();
     });
   });
@@ -1964,9 +2035,6 @@ function performNpmLoginWithPath(projectPath, registry) {
 
   loginWindow.loadFile(path.join(__dirname, 'login.html'));
   
-  // Abre DevTools automaticamente para debug
-  loginWindow.webContents.openDevTools();
-
   // Event handlers para cleanup quando a janela for fechada
   loginWindow.on('closed', () => {
     console.log('🔴 Janela de login foi fechada pelo usuário');
@@ -2025,27 +2093,7 @@ function performNpmLoginWithPath(projectPath, registry) {
       // Verifica se este foi um login do Nexus ou do registry público
       const isNexusLogin = registry && registry.includes('nexus.viavarejo.com.br');
       
-      // Salva credenciais em base64 se fornecidas
-      if (credentials && credentials.username && credentials.password && credentials.email) {
-        if (!npmFallbackHandlers) {
-          npmFallbackHandlers = new NpmFallbackHandlers();
-        }
-        
-        const saved = npmFallbackHandlers.saveCredentials(
-          credentials.username,
-          credentials.password,
-          credentials.email
-        );
-        
-        if (saved) {
-          console.log('✅ Credenciais salvas em base64 com sucesso');
-          mainWindow.webContents.send('log', { message: '🔐 Credenciais salvas para futuros logins' });
-        } else {
-          console.error('❌ Erro ao salvar credenciais');
-        }
-      } else {
-        console.log('⚠️ Credenciais não fornecidas ou incompletas, não será possível fazer login silencioso');
-      }
+      console.log('✅ Login completado - sistema de fallback removido conforme solicitado');
       
       if (isNexusLogin) {
         // Login no Nexus completado - agora configura o registry para npm-group
@@ -2155,43 +2203,7 @@ function performNpmLoginWithPath(projectPath, registry) {
   });
 }
 
-function performNpmLoginFallback() {
-  // Lógica de fallback usando a implementação original
-  const mfePaths = projects
-    .filter(
-      (project) =>
-        typeof project.path === 'string' &&
-        project.path.trim() !== "" &&
-        fs.existsSync(project.path) &&
-        fs.existsSync(path.join(project.path, '.npmrc'))
-    )
-    .map((project) => project.path);
-
-  if (mfePaths.length === 0) {
-    console.error('Nenhum projeto com arquivo .npmrc encontrado para login no npm.');
-    mainWindow.webContents.send('log', { message: 'Erro: Nenhum projeto com arquivo .npmrc encontrado para login no npm.' });
-
-    dialog.showMessageBox(mainWindow, {
-      type: 'warning',
-      title: 'Atenção',
-      message: 'Você precisa ter pelo menos um projeto salvo e o caminho configurado corretamente antes de fazer login no npm.',
-      buttons: ['OK']
-    });
-    return;
-  }
-
-  const projectPath = mfePaths[0];
-  const npmrcPath = path.join(projectPath, '.npmrc');
-  let registry = 'https://nexus.viavarejo.com.br/repository/npm-marketplace/';
-  if (fs.existsSync(npmrcPath)) {
-    const npmrcContent = fs.readFileSync(npmrcPath, 'utf-8');
-    if (npmrcContent.includes('http://')) {
-      registry = 'http://nexus.viavarejo.com.br/repository/npm-marketplace/';
-    }
-  }
-
-  performNpmLogin(registry);
-}
+// Função performNpmLoginFallback() removida - sistema de fallback desabilitado conforme solicitado
 
 // Função para abrir a janela de configurações
 let configWindow = null;
@@ -2294,7 +2306,7 @@ function openInstallerWindow() {
     
     // Abre DevTools para debug
     // Para desenvolvimento - descomente a linha abaixo se precisar debugar
-    // installerWindow.webContents.openDevTools();
+    //installerWindow.webContents.openDevTools();
     
     if (!nodeInstaller) {
       nodeInstaller = new NodeInstaller(installerWindow);
@@ -2373,6 +2385,46 @@ function openProjectConfigsWindow() {
       console.error('Erro ao enviar tema:', error);
     }
     
+    // Detecta e envia informações de layout responsivo
+    function sendLayoutInfo() {
+      const { screen } = require('electron');
+      const bounds = projectConfigsWindow.getBounds();
+      const display = screen.getDisplayMatching(bounds);
+      const windowWidth = bounds.width;
+      const screenWidth = display.workArea.width;
+      const screenHeight = display.workArea.height;
+      
+      // Define se deve usar 2 colunas baseado na largura da janela E do monitor
+      // Usa 2 colunas se a janela for >= 1400px OU se o monitor for >= 1920px e janela for >= 1200px
+      const use2Columns = windowWidth >= 1400 || (screenWidth >= 1920 && windowWidth >= 1200);
+      
+      console.log(`[LAYOUT] 📐 Monitor: ${screenWidth}x${screenHeight}px | Janela: ${windowWidth}x${bounds.height}px | Layout: ${use2Columns ? '2 COLUNAS' : '1 COLUNA'}`);
+      
+      projectConfigsWindow.webContents.send('layout-config', {
+        windowWidth,
+        windowHeight: bounds.height,
+        screenWidth,
+        screenHeight,
+        use2Columns
+      });
+    }
+    
+    // Envia layout inicial
+    setTimeout(() => sendLayoutInfo(), 100);
+    
+    // Monitora mudanças de tamanho (resize, maximize, etc)
+    projectConfigsWindow.on('resize', () => {
+      sendLayoutInfo();
+    });
+    
+    projectConfigsWindow.on('maximize', () => {
+      setTimeout(() => sendLayoutInfo(), 100);
+    });
+    
+    projectConfigsWindow.on('unmaximize', () => {
+      setTimeout(() => sendLayoutInfo(), 100);
+    });
+    
     // Aguarda um pouco mais para garantir que a página está totalmente carregada
     setTimeout(() => {
       const configs = projectConfigManager.getAllConfigs();
@@ -2400,7 +2452,7 @@ function openProjectConfigsWindow() {
         configs: configs
       });
       
-      // Envia versões disponíveis do Node.js
+      // Envia versões disponíveis do Node.js (DETECÇÃO DINÂMICA)
       setTimeout(() => {
         console.log('[AUTO-SEND] Enviando versões disponíveis...');
         const { NODE_VERSIONS } = require('./node-version-config');
@@ -2412,27 +2464,76 @@ function openProjectConfigsWindow() {
         const currentOS = getCurrentOS();
         const osPath = path.join(nodesBasePath, currentOS);
         
-        Object.keys(NODE_VERSIONS).forEach(version => {
-          const versionConfig = NODE_VERSIONS[version];
-          const folderName = typeof versionConfig.folderName === 'object' 
-            ? versionConfig.folderName[currentOS] 
-            : versionConfig.folderName;
-          
-          const nodeDir = path.join(osPath, folderName);
-          const nodeExePath = path.join(nodeDir, currentOS === 'windows' ? 'node.exe' : 'bin/node');
-          const npmPath = path.join(nodeDir, currentOS === 'windows' ? 'npm.cmd' : 'bin/npm');
-          
-          const isInstalled = fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
-          
-          availableVersions[version] = {
-            version: version,
-            label: versionConfig.nodeLabel || `Node ${version}`,
-            installed: isInstalled,
-            angularVersion: versionConfig.angularVersion,
-            angularPackage: versionConfig.angularPackage
-          };
-        });
+        console.log('[AUTO-SEND] 🔍 Detectando versões em:', osPath);
         
+        // DETECÇÃO DINÂMICA - escaneia filesystem em vez de usar NODE_VERSIONS hardcoded
+        if (fs.existsSync(osPath)) {
+          const folders = fs.readdirSync(osPath, { withFileTypes: true })
+            .filter(dirent => dirent.isDirectory())
+            .map(dirent => dirent.name);
+          
+          console.log('[AUTO-SEND] 📁 Pastas encontradas:', folders.length);
+          
+          folders.forEach(folder => {
+            console.log(`[AUTO-SEND] 🔎 Verificando: ${folder}`);
+            const folderPath = path.join(osPath, folder);
+            
+            // Verifica se tem node.exe diretamente
+            let nodeExePath = path.join(folderPath, currentOS === 'windows' ? 'node.exe' : 'bin/node');
+            let npmPath = path.join(folderPath, currentOS === 'windows' ? 'npm.cmd' : 'bin/npm');
+            let actualPath = folderPath;
+            
+            // Se não encontrar, procura em subpastas
+            if (!fs.existsSync(nodeExePath) || !fs.existsSync(npmPath)) {
+              console.log(`[AUTO-SEND]   ⚠️ Não encontrado diretamente, procurando em subpastas...`);
+              const subfolders = fs.readdirSync(folderPath, { withFileTypes: true })
+                .filter(dirent => dirent.isDirectory())
+                .map(dirent => dirent.name);
+              
+              for (const subfolder of subfolders) {
+                const subfolderPath = path.join(folderPath, subfolder);
+                const subNodeExe = path.join(subfolderPath, currentOS === 'windows' ? 'node.exe' : 'bin/node');
+                const subNpmPath = path.join(subfolderPath, currentOS === 'windows' ? 'npm.cmd' : 'bin/npm');
+                
+                if (fs.existsSync(subNodeExe) && fs.existsSync(subNpmPath)) {
+                  console.log(`[AUTO-SEND]   ✅ Encontrado em subpasta: ${subfolder}`);
+                  nodeExePath = subNodeExe;
+                  npmPath = subNpmPath;
+                  actualPath = subfolderPath;
+                  break;
+                }
+              }
+            }
+            
+            const isInstalled = fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
+            
+            if (isInstalled) {
+              // Extrai versão do nome da pasta
+              const versionMatch = folder.match(/node-v([\d.]+)/);
+              if (versionMatch) {
+                const version = versionMatch[1];
+                console.log(`[AUTO-SEND]   ✅ Versão detectada: ${version}`);
+                
+                // Tenta pegar configuração do NODE_VERSIONS, senão usa defaults
+                const versionConfig = NODE_VERSIONS[version] || {
+                  nodeLabel: `Node ${version}`,
+                  angularVersion: 'Unknown',
+                  angularPackage: '@angular/cli@latest'
+                };
+                
+                availableVersions[version] = {
+                  version: version,
+                  label: versionConfig.nodeLabel || `Node ${version}`,
+                  installed: true,
+                  angularVersion: versionConfig.angularVersion,
+                  angularPackage: versionConfig.angularPackage
+                };
+              }
+            }
+          });
+        }
+        
+        console.log('[AUTO-SEND] 📋 Total de versões detectadas:', Object.keys(availableVersions).length);
         console.log('[AUTO-SEND] Versões disponíveis:', availableVersions);
         projectConfigsWindow.webContents.send('available-node-versions', availableVersions);
       }, 200);
@@ -2572,6 +2673,127 @@ function openNewCLIsWindow() {
   });
 }
 
+// Variável global para a janela de configuração de tamanho
+let windowSizeConfigWindow = null;
+
+// Função para aplicar configuração de tamanho dinamicamente na janela
+function applyWindowSizeConfigToWindow(win, config) {
+  try {
+    if (!win || win.isDestroyed()) return;
+    
+    const bodySmallWidth = config.bodySmallWidth || 95;
+    const bodyLargeWidth = config.bodyLargeWidth || 70;
+    const minWindowWidth = config.minWindowWidth || 1600;
+    
+    const css = `
+      :root {
+        --project-card-normal-width: ${config.normalWidth}px;
+        --project-card-large-width: ${config.largeWidth}%;
+        --project-card-breakpoint: ${minWindowWidth}px;
+        --body-small-width: ${bodySmallWidth}vw;
+        --body-large-width: ${bodyLargeWidth}vw;
+      }
+      
+      body {
+        max-width: ${bodySmallWidth}vw !important;
+        margin: 0 auto !important;
+      }
+      
+      .project-card {
+        width: var(--project-card-normal-width) !important;
+        max-width: calc(100% - 20px) !important;
+        min-width: 300px;
+      }
+      
+      #pamp-mfes, #projects, #onboarding-mfes {
+        width: 100% !important;
+        min-width: unset !important;
+        max-width: 100% !important;
+      }
+      
+      @media (min-width: ${minWindowWidth}px) {
+        body {
+          max-width: ${bodyLargeWidth}vw !important;
+        }
+        .project-card {
+          width: var(--project-card-large-width) !important;
+        }
+      }
+    `;
+    
+    // Injeta CSS dinamicamente
+    win.webContents.executeJavaScript(`
+      (function() {
+        let styleEl = document.getElementById('window-size-config-styles');
+        if (!styleEl) {
+          styleEl = document.createElement('style');
+          styleEl.id = 'window-size-config-styles';
+          document.head.appendChild(styleEl);
+        }
+        styleEl.textContent = ${JSON.stringify(css)};
+        console.log('[WINDOW-SIZE] ✅ CSS dinâmico injetado: body=${bodySmallWidth}vw/${bodyLargeWidth}vw, normalWidth=${config.normalWidth}px, largeWidth=${config.largeWidth}%, breakpoint=${minWindowWidth}px');
+      })();
+    `).catch(err => console.error('[WINDOW-SIZE] ❌ Erro ao injetar CSS:', err));
+  } catch (error) {
+    console.error('[WINDOW-SIZE] ❌ Erro ao aplicar configuração:', error);
+  }
+}
+
+// Função para abrir a janela de configuração de tamanho da janela
+function openWindowSizeConfigWindow() {
+  console.log('[DEBUG] Abrindo janela de configuração de tamanho');
+  
+  if (windowSizeConfigWindow && !windowSizeConfigWindow.isDestroyed()) {
+    windowSizeConfigWindow.focus();
+    return;
+  }
+
+  windowSizeConfigWindow = new BrowserWindow({
+    width: 700,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    },
+    icon: path.join(__dirname, 'OIP.ico'),
+    title: 'Configurar Tamanho da Janela',
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    modal: true,
+    parent: mainWindow
+  });
+
+  windowSizeConfigWindow.loadFile(path.join(__dirname, 'window-size-config.html'));
+
+  // Para desenvolvimento - descomente a linha abaixo se precisar debugar
+  // windowSizeConfigWindow.webContents.openDevTools();
+
+  windowSizeConfigWindow.webContents.once('did-finish-load', () => {
+    console.log('✅ Janela de configuração de tamanho carregada');
+    
+    // Envia o tema atual para a janela
+    try {
+      const configPath = path.join(userDataPath, 'config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        const isDarkMode = config.darkMode === true;
+        windowSizeConfigWindow.webContents.send('apply-dark-mode', isDarkMode);
+        console.log(`🎨 Tema enviado para configuração de tamanho: ${isDarkMode ? 'escuro' : 'claro'}`);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao carregar tema:', error);
+    }
+  });
+
+  // Limpa referência quando fechada
+  windowSizeConfigWindow.on('closed', () => {
+    windowSizeConfigWindow = null;
+    console.log('🧹 Janela de configuração de tamanho fechada');
+  });
+}
+
+// Função para abrir a janela de seleção de terminal
 let mainWindow;
 let loginWindow = null;
 let splashManager; // Gerenciador de splash screen e loading
@@ -2883,6 +3105,17 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
   });
 
   // ⚡ CRIA O MENU APÓS A JANELA PRINCIPAL ⚡
+  // Função para obter o ícone do terminal (sempre whitesmoke para o menu superior escuro)
+  const getTerminalIconForMenu = () => {
+    const iconPath = path.join(__dirname, 'assets', 'terminal_whitesmoke.png');
+    try {
+      return nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+    } catch (error) {
+      console.log('[MENU] Aviso: Não foi possível carregar ícone do terminal:', error.message);
+      return undefined;
+    }
+  };
+
   // Cria o menu da aplicação e usa a variável global
   const menuTemplate = [
     {
@@ -2944,6 +3177,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         { type: 'separator' },
         {
           label: 'Login npm',
+          icon: getTerminalIconForMenu(),
           id: 'npm-login',
           click: () => {
             // Desabilita o item do menu
@@ -2968,6 +3202,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         },
         {
           label: 'Verificar Status Nexus',
+          icon: getTerminalIconForMenu(),
           id: 'verify-nexus',
           click: () => {
             // Desabilita o item do menu
@@ -3086,9 +3321,56 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
             });
           },
         },
+        {
+          label: 'Configurar Manualmente',
+          icon: (() => {
+            const iconPath = path.join(__dirname, 'assets', 'manual.png');
+            try {
+              return nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+            } catch (error) {
+              console.log('[MENU] Aviso: Não foi possível carregar ícone manual:', error.message);
+              return undefined;
+            }
+          })(),
+          id: 'manual-setup',
+          click: () => {
+            // Cria janela para configuração manual
+            const manualWindow = new BrowserWindow({
+              width: 750,
+              height: 800,
+              modal: true,
+              parent: mainWindow,
+              webPreferences: {
+                nodeIntegration: true,
+                contextIsolation: false,
+              },
+              autoHideMenuBar: true,
+              resizable: true,
+              minWidth: 600,
+              minHeight: 600,
+              titleBarStyle: 'default',
+              title: '🛠️ Configuração Manual - Nexus',
+              icon: path.join(__dirname, 'assets', 'manual.png')
+            });
+
+            manualWindow.loadFile(path.join(__dirname, 'manual-setup.html'));
+
+            // Envia o estado de dark mode para a janela
+            manualWindow.webContents.on('did-finish-load', () => {
+              const config = loadConfig();
+              manualWindow.webContents.send('apply-dark-mode', config.darkMode || false);
+            });
+
+            // Handler para fechar a janela
+            ipcMain.once('close-manual-setup-window', () => {
+              manualWindow.close();
+            });
+          },
+        },
         { type: 'separator' },
         {
           label: 'Instalar Dependências Node.js',
+          icon: getTerminalIconForMenu(),
           id: 'install-deps',
           click: () => {
             // Desabilita o item do menu
@@ -3120,26 +3402,63 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
           label: '🔧 Configurações',
           accelerator: 'CmdOrCtrl+Comma',
           id: 'open-config',
-          click: () => {
-            // Desabilita temporariamente
-            const menuItem = appMenu ? appMenu.getMenuItemById('open-config') : null;
-            if (menuItem) {
-              menuItem.label = 'Abrindo...';
-              menuItem.enabled = false;
-            }
+          submenu: [
+            {
+              label: 'Abrir Configurações',
+              id: 'open-config-main',
+              click: () => {
+                // Desabilita temporariamente
+                const menuItem = appMenu ? appMenu.getMenuItemById('open-config-main') : null;
+                if (menuItem) {
+                  menuItem.label = 'Abrindo...';
+                  menuItem.enabled = false;
+                }
 
-            openConfigWindow();
+                openConfigWindow();
 
-            // Reabilita após um tempo
-            setTimeout(() => {
-              if (menuItem) {
-                menuItem.label = '🔧 Configurações';
-                menuItem.enabled = true;
-              }
-            }, 1000);
-          },
+                // Reabilita após um tempo
+                setTimeout(() => {
+                  if (menuItem) {
+                    menuItem.label = 'Abrir Configurações';
+                    menuItem.enabled = true;
+                  }
+                }, 1000);
+              },
+            },
+            { type: 'separator' },
+            {
+              label: '📐 Tamanho da Janela do Projeto',
+              // icon: (() => {
+              //   const iconPath = path.join(__dirname, 'assets', 'tamanhoDoConsole.png');
+              //   try {
+              //     return nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
+              //   } catch (error) {
+              //     console.log('[MENU] Aviso: Não foi possível carregar ícone tamanho:', error.message);
+              //     return undefined;
+              //   }
+              // })(),
+              id: 'window-size-config',
+              click: () => {
+                // Desabilita temporariamente
+                const menuItem = appMenu ? appMenu.getMenuItemById('window-size-config') : null;
+                if (menuItem) {
+                  menuItem.label = 'Abrindo...';
+                  menuItem.enabled = false;
+                }
+
+                openWindowSizeConfigWindow();
+
+                // Reabilita após um tempo
+                setTimeout(() => {
+                  if (menuItem) {
+                    menuItem.label = '📐 Tamanho da Janela do Projeto';
+                    menuItem.enabled = true;
+                  }
+                }, 1000);
+              },
+            },
+          ]
         },
-        { type: 'separator' },
         {
           label: '🎓 Configurar Onboarding (Node.js)',
           id: 'onboarding-node-config',
@@ -3231,6 +3550,9 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
 
   mainWindow.loadFile('index.html');
   
+  // Abre o DevTools tela principal
+  //mainWindow.webContents.openDevTools();
+  
   // Mostra a janela apenas quando estiver pronta
   mainWindow.once('ready-to-show', async () => {
     console.log('✅ Janela principal pronta para exibição');
@@ -3246,11 +3568,67 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       splashManager.notifyMainAppReady();
     }
     
+    // ===== LAYOUT RESPONSIVO - DETECTA TAMANHO E ENVIA PARA FRONTEND =====
+    function sendMainWindowLayoutInfo() {
+      const { screen } = require('electron');
+      const bounds = mainWindow.getBounds();
+      const display = screen.getDisplayMatching(bounds);
+      const windowWidth = bounds.width;
+      const screenWidth = display.workArea.width;
+      
+      // Usa 2 colunas se a janela for >= 1400px OU se o monitor for >= 1920px e janela for >= 1200px
+      const use2Columns = windowWidth >= 1400 || (screenWidth >= 1920 && windowWidth >= 1200);
+      
+      //console.log(`[LAYOUT] 📐 Monitor: ${screenWidth}x${display.workArea.height}px | Janela: ${windowWidth}x${bounds.height}px | Layout: ${use2Columns ? '2 COLUNAS' : '1 COLUNA'}`);
+      
+      mainWindow.webContents.send('layout-config', {
+        windowWidth,
+        windowHeight: bounds.height,
+        screenWidth,
+        screenHeight: display.workArea.height,
+        use2Columns
+      });
+    }
+    
+    // Envia layout inicial após a janela estar visível
+    setTimeout(() => sendMainWindowLayoutInfo(), 500);
+    
+    // Monitora mudanças de tamanho
+    mainWindow.on('resize', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        sendMainWindowLayoutInfo();
+      }
+    });
+    
+    mainWindow.on('maximize', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        setTimeout(() => sendMainWindowLayoutInfo(), 100);
+      }
+    });
+    
+    mainWindow.on('unmaximize', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        setTimeout(() => sendMainWindowLayoutInfo(), 100);
+      }
+    });
+    // ===== FIM DO LAYOUT RESPONSIVO =====
+    
     // DELAY REDUZIDO - app carrega mais rápido
     setTimeout(() => {
       console.log('🚀 Mostrando janela principal e fechando splash');
       mainWindow.show();
       mainWindow.focus();
+      
+      // Aplica configuração de tamanho das janelas ao iniciar
+      try {
+        const config = loadConfig();
+        if (config.windowSizeConfig) {
+          applyWindowSizeConfigToWindow(mainWindow, config.windowSizeConfig);
+          console.log('[WINDOW-SIZE] ✅ Configuração de tamanho aplicada ao iniciar');
+        }
+      } catch (error) {
+        console.error('[WINDOW-SIZE] ❌ Erro ao aplicar configuração inicial:', error);
+      }
       
       // Fecha a splash screen após mostrar a principal
       setTimeout(() => {
@@ -4500,161 +4878,23 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
    * Função auxiliar para executar npm install com tratamento de erros
    */
   function executeNpmInstall(event, projectPath, projectName, projectIndex, isPampProject, npmCmd, nodePaths, command, port) {
-    console.log(`[INSTALL] Iniciando npm install para ${projectName}`);
-    
-    // Verifica se é projeto problemático que precisa de tratamento especial
-    const problematicProjects = ['mp-pas-catalogo', 'mp-pas-financeiro', 'mp-pas-vendas'];
-    const isProblematicProject = problematicProjects.includes(projectName);
-    
-    if (isProblematicProject) {
-      console.log(`🎯 Detectado projeto problemático: ${projectName}, usando tratamento especial...`);
-      const specialMsg = `🎯 Usando procedimento especial para ${projectName}...`;
-      if (isPampProject) {
-        event.reply('pamp-log', { 
-          path: projectPath, 
-          message: specialMsg,
-          index: projectIndex,
-          name: projectName
-        });
-      } else {
-        event.reply('log', { path: projectPath, message: specialMsg });
-      }
-      
-      // Usa o handler especial para mp-pas-atendimento
-      if (!npmFallbackHandlers) {
-        npmFallbackHandlers = new NpmFallbackHandlers();
-      }
-      
-      // Cria um objeto event emitter para enviar logs
-      const eventEmitter = {
-        send: (eventName, data) => {
-          if (eventName === 'log') {
-            if (isPampProject) {
-              event.reply('pamp-log', { 
-                path: projectPath, 
-                message: data.message,
-                index: projectIndex,
-                name: projectName
-              });
-            } else {
-              event.reply('log', data);
-            }
-          }
-        }
-      };
-      
-      npmFallbackHandlers.handleMpPasAtendimentoInstall(projectPath, eventEmitter).then((result) => {
-        if (result.success) {
-          console.log(`✅ ${projectName} instalado com sucesso`);
-          const successMsg = `✅ Dependências instaladas com sucesso (${projectName})`;
-          if (isPampProject) {
-            event.reply('pamp-log', { 
-              path: projectPath, 
-              message: successMsg,
-              index: projectIndex,
-              name: projectName
-            });
-          } else {
-            event.reply('log', { path: projectPath, message: successMsg });
-          }
-          
-          // Inicia o projeto
-          executeStartCommand(event, projectPath, command, port);
-        } else {
-          console.error(`❌ Falha ao instalar ${projectName}:`, result.message);
-          const errorMsg = `❌ Erro: ${result.message}`;
-          
-          if (result.reason === 'login-required') {
-            // Solicita login manual
-            dialog.showMessageBox(mainWindow, {
-              type: 'warning',
-              title: 'Login Necessário',
-              message: `É necessário fazer login no Nexus para instalar dependências do ${projectName}.`,
-              detail: 'Clique em OK para abrir a janela de login.',
-              buttons: ['OK', 'Cancelar']
-            }).then((dialogResult) => {
-              if (dialogResult.response === 0) {
-                handleNpmLogin().then(() => {
-                  setTimeout(() => {
-                    startProject(event, projectPath, port);
-                  }, 2000);
-                });
-              } else {
-                if (isPampProject) {
-                  event.reply('pamp-log', { 
-                    path: projectPath, 
-                    message: errorMsg,
-                    index: projectIndex,
-                    name: projectName,
-                    error: true
-                  });
-                  event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
-                } else {
-                  event.reply('log', { path: projectPath, message: errorMsg, error: true });
-                  event.reply('process-error', { path: projectPath });
-                }
-              }
-            });
-          } else {
-            if (isPampProject) {
-              event.reply('pamp-log', { 
-                path: projectPath, 
-                message: errorMsg,
-                index: projectIndex,
-                name: projectName,
-                error: true
-              });
-              event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
-            } else {
-              event.reply('log', { path: projectPath, message: errorMsg, error: true });
-              event.reply('process-error', { path: projectPath });
-            }
-          }
-        }
-      }).catch((error) => {
-        console.error(`❌ Erro inesperado ao instalar ${projectName}:`, error);
-        const errorMsg = `❌ Erro inesperado: ${error.message}`;
-        if (isPampProject) {
-          event.reply('pamp-log', { 
-            path: projectPath, 
-            message: errorMsg,
-            index: projectIndex,
-            name: projectName,
-            error: true
-          });
-          event.reply('pamp-process-error', { path: projectPath, index: projectIndex });
-        } else {
-          event.reply('log', { path: projectPath, message: errorMsg, error: true });
-          event.reply('process-error', { path: projectPath });
-        }
-      });
-      
-      return; // Sai da função, o handler especial cuida do resto
-    }
+    console.log(`[INSTALL] Iniciando npm install simples para ${projectName}`);
 
-    // Executa npm install normal para outros projetos
-    // 🎯 NÃO força registry - deixa o npm usar o .npmrc do projeto + fallback público
-    const installCommand = `${npmCmd} install --progress=true --verbose`;
-    console.log(`[DEBUG] Executando: ${installCommand}`);
+    // Executa npm install SIMPLES - SEM fallback, SEM login automático, SEM complicação
+    const installCommand = `${npmCmd} install --progress=true`;
+    console.log(`[DEBUG] Executando comando simples: ${installCommand}`);
     
-    // 🎯 GARANTE QUE NODE.JS PORTÁTIL SEJA USADO NO NPM INSTALL (se aplicável)
+    // Configura ambiente com Node.js portátil se disponível
     let installEnv;
     if (nodePaths) {
-      // Sistema portátil: adiciona Node.js portátil ao PATH
       installEnv = { 
         ...process.env,
-        PATH: `${nodePaths.nodeDir}${path.delimiter}${process.env.PATH}`, // Node.js portátil primeiro!
-        NODE_PATH: path.join(nodePaths.nodeDir, 'node_modules'),
-        npm_config_progress: 'true',
-        npm_config_loglevel: 'info' // Mais logs detalhados
+        PATH: `${nodePaths.nodeDir}${path.delimiter}${process.env.PATH}`
       };
+      console.log(`[DEBUG] Usando Node.js portátil: ${nodePaths.nodeDir}`);
     } else {
-      // Sistema global: usa PATH padrão do sistema
-      installEnv = {
-        ...process.env,
-        npm_config_progress: 'true',
-        npm_config_loglevel: 'info'
-      };
+      installEnv = { ...process.env };
+      console.log(`[DEBUG] Usando Node.js global do sistema`);
     }
     
     const installProcess = exec(installCommand, { 
@@ -4748,65 +4988,28 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
       } else {
         console.error(`Erro ao instalar dependências em ${projectPath}. Código: ${code}`);
         
-        // Verifica se é o erro específico do ajv mencionado
-        if (!npmFallbackHandlers) {
-          npmFallbackHandlers = new NpmFallbackHandlers();
-        }
+        // Erro real na instalação - SEM tentar login automático
+        const errorMessage = `❌ [ERRO] Erro ao instalar dependências. Código: ${code}`;
         
-        const isAjvError = npmFallbackHandlers.isAjvError(errorOutput);
-        const hasNodeModules = npmFallbackHandlers.hasNodeModules(projectPath);
-        const isAuthError = errorOutput.includes('401') || 
-                           errorOutput.includes('Unable to authenticate') || 
-                           errorOutput.includes('BASIC realm');
-        
-        console.log(`[FALLBACK] Análise de erro: isAjvError=${isAjvError}, hasNodeModules=${hasNodeModules}, isAuthError=${isAuthError}`);
-        
-        // Se detectou o erro do ajv mas node_modules existe, tenta continuar mesmo assim
-        if (isAjvError && hasNodeModules) {
-          console.log('⚠️ Erro do ajv detectado, mas node_modules existe. Tentando continuar...');
-          const warningMsg = '⚠️ Aviso: Houve avisos na instalação, mas node_modules foi criado. Tentando iniciar...';
-          
-          if (isPampProject) {
-            event.reply('pamp-log', { 
-              path: projectPath, 
-              message: warningMsg,
-              index: projectIndex,
-              name: projectName
-            });
-          } else {
-            event.reply('log', { path: projectPath, message: warningMsg });
-          }
-          
-          // Tenta iniciar mesmo com o aviso
-          executeStartCommand(event, projectPath, command, port);
+        if (isPampProject) {
+          event.reply('pamp-log', { 
+            path: projectPath, 
+            message: errorMessage,
+            index: projectIndex,
+            name: projectName,
+            error: true
+          });
+          event.reply('pamp-process-error', { 
+            path: projectPath,
+            index: projectIndex 
+          });
         } else {
-          // Erro real na instalação
-          const errorMessage = `❌ [ERRO] Erro ao instalar dependências. Código: ${code}`;
-          
-          if (isPampProject) {
-            event.reply('pamp-log', { 
-              path: projectPath, 
-              message: errorMessage,
-              index: projectIndex,
-              name: projectName,
-              error: true
-            });
-            
-            // Resetar botões do projeto PAMP
-            event.reply('pamp-process-error', { 
-              path: projectPath,
-              index: projectIndex 
-            });
-          } else {
-            event.reply('log', { 
-              path: projectPath, 
-              message: errorMessage,
-              error: true
-            });
-            
-            // Resetar botões do projeto PAS
-            event.reply('process-error', { path: projectPath });
-          }
+          event.reply('log', { 
+            path: projectPath, 
+            message: errorMessage,
+            error: true
+          });
+          event.reply('process-error', { path: projectPath });
         }
       }
     });
@@ -5304,7 +5507,7 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         enhancedMessage += '\n\n💡 SOLUÇÃO: Git não está instalado ou não está no PATH do sistema.';
         enhancedMessage += '\n   • Acesse o menu "Instalar Dependências" para instalação automática';
         enhancedMessage += '\n   • Ou instale manualmente em: https://git-scm.com/downloads';
-        enhancedMessage += '\n   • Após a instalação, reinicie o Micro Front-End Manager';
+        enhancedMessage += '\n   • Após a instalação, reinicie o Front-End Manager';
       }
       
       if (isPampProject) {
@@ -5947,39 +6150,270 @@ ipcMain.on('execute-command', (event, command) => {
 
   // Handler para abrir terminal na pasta do projeto
   ipcMain.on('open-terminal', (event, { projectPath }) => {
-    console.log(`Abrindo terminal na pasta: ${projectPath}`);
+    console.log(`🖥️ [TERMINAL] Abrindo terminal na pasta: ${projectPath}`);
     
     try {
       // Verifica se o caminho existe
       if (!fs.existsSync(projectPath)) {
-        console.error(`Caminho não encontrado: ${projectPath}`);
+        console.error(`[TERMINAL] ❌ Caminho não encontrado: ${projectPath}`);
         return;
       }
       
-      // Comando para abrir terminal baseado no sistema operacional
-      let command;
-      if (os.platform() === 'win32') {
-        // Windows: abre PowerShell na pasta usando cmd
-        command = `cmd /c "cd /d "${projectPath}" && start powershell"`;
-      } else if (os.platform() === 'darwin') {
-        // macOS: abre Terminal na pasta
-        command = `open -a Terminal "${projectPath}"`;
-      } else {
-        // Linux: tenta abrir terminal padrão
-        command = `gnome-terminal --working-directory="${projectPath}" || xterm -e "cd '${projectPath}' && bash" || konsole --workdir "${projectPath}"`;
+      // Obtém o terminal preferido do usuário - LEITURA DIRETA DO ARQUIVO, SEM CACHE
+      console.log(`[TERMINAL] 📖 Lendo config do arquivo diretamente...`);
+      let preferredTerminal = null;
+      
+      try {
+        if (fs.existsSync(configFile)) {
+          const configData = fs.readFileSync(configFile, 'utf-8');
+          const config = JSON.parse(configData);
+          preferredTerminal = config.preferredTerminal;
+          console.log(`[TERMINAL] 📖 Config lida do arquivo:`, JSON.stringify(config, null, 2));
+        }
+      } catch (e) {
+        console.error(`[TERMINAL] ❌ Erro ao ler config do arquivo:`, e);
       }
       
-      console.log(`Executando comando: ${command}`);
-      exec(command, (err) => {
-        if (err) {
-          console.error(`Erro ao abrir terminal: ${err.message}`);
+      console.log(`[TERMINAL] 📌 Terminal preferido: ${preferredTerminal ? preferredTerminal.name : 'Nenhum (usando padrão)'}`);
+      console.log(`[TERMINAL] 📌 Objeto terminal completo:`, JSON.stringify(preferredTerminal));
+      
+      // Define o caminho do Node.js portátil (para adicionar ao PATH se possível)
+      let nodeDir = '';
+      try {
+        const { getNodesBasePath, getCurrentOS } = require('./node-version-config');
+        const osType = getCurrentOS();
+        nodeDir = path.join(getNodesBasePath(), osType);
+        
+        // Verifica se pelo menos uma versão existe
+        if (!fs.existsSync(nodeDir)) {
+          nodeDir = '';
+        }
+      } catch (e) {
+        console.log('[TERMINAL] ⚠️ Não foi possível detectar Node.js portátil');
+      }
+
+      // Constrói o comando baseado no terminal preferido
+      let command;
+      let env = { ...process.env };
+
+      if (preferredTerminal) {
+        // Usa o terminal preferido
+        const terminal = preferredTerminal;
+        
+        console.log(`[TERMINAL] 🎯 Usando terminal preferido: ${terminal.name}`);
+        
+        // Adiciona Node portátil ao PATH se disponível
+        if (nodeDir && fs.existsSync(nodeDir)) {
+          env.PATH = `${nodeDir}${path.delimiter}${process.env.PATH}`;
+          console.log(`[TERMINAL] 🔧 Node.js portátil adicionado ao PATH`);
+        }
+
+        // Para Windows, simplifica para cmd.exe ou powershell
+        if (os.platform() === 'win32') {
+          // No Windows, constrói comando específico para cada terminal
+          const terminalName = terminal.name.toLowerCase();
+          console.log(`[TERMINAL] 🔍 Verificando nome do terminal (lowercase): ${terminalName}`);
+          
+          if (terminalName === 'powershell') {
+            console.log(`[TERMINAL] ✓ Detectado PowerShell`);
+            command = `powershell.exe`;
+          } else if (terminalName === 'git bash') {
+            console.log(`[TERMINAL] ✓ Detectado Git Bash`);
+            command = `bash.exe`;
+          } else if (terminalName === 'windows terminal') {
+            console.log(`[TERMINAL] ✓ Detectado Windows Terminal`);
+            command = `wt.exe`;
+          } else if (terminalName.includes('wsl')) {
+            console.log(`[TERMINAL] ✓ Detectado WSL`);
+            command = `wsl.exe`;
+          } else {
+            // Padrão: CMD
+            console.log(`[TERMINAL] ✓ Usando CMD como padrão`);
+            command = 'cmd.exe';
+          }
         } else {
-          console.log(`Terminal aberto com sucesso em: ${projectPath}`);
+          // Linux/Mac: constrói comandos específicos
+          if (terminal.name === 'Terminal' || terminal.name === 'iTerm2') {
+            command = `open -a "${terminal.name}" "${projectPath}"`;
+          } else if (terminal.name === 'GNOME Terminal') {
+            command = `gnome-terminal --working-directory="${projectPath}"`;
+          } else if (terminal.name === 'Konsole') {
+            command = `konsole --workdir "${projectPath}"`;
+          } else if (terminal.name === 'xfce4-terminal') {
+            command = `xfce4-terminal --working-directory="${projectPath}"`;
+          } else if (terminal.name === 'Xterm') {
+            command = `xterm -e "cd '${projectPath}' && bash"`;
+          } else {
+            // Fallback para terminal genérico
+            command = `gnome-terminal --working-directory="${projectPath}"`;
+          }
+        }
+      } else {
+        // Usa terminal padrão do sistema
+        console.log(`[TERMINAL] ⚙️ Usando terminal padrão do sistema`);
+        
+        // Adiciona Node portátil ao PATH se disponível
+        if (nodeDir && fs.existsSync(nodeDir)) {
+          env.PATH = `${nodeDir}${path.delimiter}${process.env.PATH}`;
+        }
+
+        if (os.platform() === 'win32') {
+          // Windows: cmd como padrão
+          command = 'cmd.exe';
+        } else if (os.platform() === 'darwin') {
+          // macOS: Terminal padrão
+          command = `open -a Terminal "${projectPath}"`;
+        } else {
+          // Linux: GNOME Terminal ou fallback
+          command = `gnome-terminal --working-directory="${projectPath}"`;
+        }
+      }
+
+      console.log(`[TERMINAL] 📋 Comando: ${command}`);
+      console.log(`[TERMINAL] 📁 Caminho do projeto: ${projectPath}`);
+      
+      // Executa o comando com o ambiente customizado
+      const { exec, spawn } = require('child_process');
+      
+      try {
+        if (os.platform() === 'win32') {
+          // Windows: construir comando correto para cada tipo
+          console.log(`[TERMINAL] 🪟 Executando no Windows com start`);
+          
+          let startCmd;
+          const terminalName = preferredTerminal ? preferredTerminal.name.toLowerCase() : '';
+          
+          if (terminalName === 'powershell') {
+            // PowerShell
+            console.log(`[TERMINAL] 📟 Abrindo PowerShell na pasta: ${projectPath}`);
+            startCmd = `start powershell -NoExit -Command "cd '${projectPath}'"`;
+          } else if (terminalName === 'git bash') {
+            // Git Bash - precisa de tratamento especial
+            console.log(`[TERMINAL] 📟 Abrindo Git Bash na pasta: ${projectPath}`);
+            const bashPath = 'bash.exe';
+            // Usa spawn para Git Bash com as variáveis corretas
+            spawn(bashPath, ['--login', '-i'], {
+              cwd: projectPath,
+              env: { ...env, CHERE_INVOKING: '1' },
+              detached: true,
+              stdio: 'ignore'
+            }).unref();
+            
+            console.log(`[TERMINAL] ✅ Terminal aberto com sucesso em: ${projectPath}`);
+            return;
+          } else if (terminalName === 'windows terminal') {
+            // Windows Terminal
+            console.log(`[TERMINAL] 📟 Abrindo Windows Terminal na pasta: ${projectPath}`);
+            startCmd = `start wt -d "${projectPath}"`;
+          } else if (terminalName.includes('wsl')) {
+            // WSL
+            console.log(`[TERMINAL] 📟 Abrindo WSL na pasta: ${projectPath}`);
+            startCmd = `start wsl.exe`;
+          } else {
+            // CMD (padrão)
+            console.log(`[TERMINAL] 📟 Abrindo CMD na pasta: ${projectPath}`);
+            startCmd = `start cmd /k "cd /d ${projectPath}"`;
+          }
+          
+          console.log(`[TERMINAL] 📝 Comando executado: ${startCmd}`);
+          exec(startCmd, { env });
+        } else {
+          // Linux/Mac: usa comando direto
+          console.log(`[TERMINAL] 🐧 Executando no ${os.platform() === 'darwin' ? 'macOS' : 'Linux'}`);
+          exec(command, { env });
+        }
+      } catch (execError) {
+        console.error(`[TERMINAL] ❌ Erro ao executar comando:`, execError);
+      }
+
+      console.log(`[TERMINAL] ✅ Terminal aberto com sucesso em: ${projectPath}`);
+      
+    } catch (error) {
+      console.error(`[TERMINAL] ❌ Erro ao abrir terminal:`, error);
+    }
+  });
+
+  // Handler para obter configuração de tamanho da janela
+  ipcMain.on('get-window-size-config', (event) => {
+    try {
+      console.log('[WINDOW-SIZE] 📖 Obtendo configuração de tamanho da janela...');
+      const config = loadConfig();
+      const windowSizeConfig = config.windowSizeConfig || {
+        normalWidth: 700,
+        largeWidth: 47,
+        minWindowWidth: 1600,
+        bodySmallWidth: 95,
+        bodyLargeWidth: 70
+      };
+      event.reply('window-size-config-loaded', windowSizeConfig);
+      console.log('[WINDOW-SIZE] ✅ Configuração enviada:', windowSizeConfig);
+    } catch (error) {
+      console.error('[WINDOW-SIZE] ❌ Erro ao obter configuração:', error);
+      event.reply('window-size-config-error', { error: error.message });
+    }
+  });
+
+  // Handler para salvar configuração de tamanho da janela
+  ipcMain.on('save-window-size-config', (event, config) => {
+    try {
+      console.log('[WINDOW-SIZE] 💾 Salvando configuração de tamanho da janela...', config);
+      
+      // Valida os valores de card sizing
+      if (typeof config.normalWidth !== 'number' || config.normalWidth < 400 || config.normalWidth > 1200) {
+        throw new Error('normalWidth deve estar entre 400 e 1200px');
+      }
+      if (typeof config.largeWidth !== 'number' || config.largeWidth < 30 || config.largeWidth > 100) {
+        throw new Error('largeWidth deve estar entre 30 e 100%');
+      }
+      if (typeof config.minWindowWidth !== 'number' || config.minWindowWidth < 800 || config.minWindowWidth > 2000) {
+        throw new Error('minWindowWidth deve estar entre 800 e 2000px');
+      }
+      
+      // Valida os valores de body sizing
+      if (typeof config.bodySmallWidth !== 'number' || config.bodySmallWidth < 50 || config.bodySmallWidth > 100) {
+        throw new Error('bodySmallWidth deve estar entre 50 e 100vw');
+      }
+      if (typeof config.bodyLargeWidth !== 'number' || config.bodyLargeWidth < 50 || config.bodyLargeWidth > 100) {
+        throw new Error('bodyLargeWidth deve estar entre 50 e 100vw');
+      }
+
+      // Carrega configuração atual
+      const currentConfig = loadConfig();
+      
+      // Atualiza com novos valores
+      currentConfig.windowSizeConfig = config;
+      
+      // Salva configuração
+      saveConfig(currentConfig);
+      
+      console.log('[WINDOW-SIZE] ✅ Configuração salva com sucesso');
+      event.reply('window-size-config-saved', { success: true, config });
+      
+      // Notifica todas as janelas sobre a nova configuração e injeta CSS imediatamente
+      BrowserWindow.getAllWindows().forEach(win => {
+        if (!win.isDestroyed()) {
+          // Envia evento IPC
+          win.webContents.send('window-size-config-updated', config);
+          // Aplica CSS dinamicamente
+          applyWindowSizeConfigToWindow(win, config);
         }
       });
       
     } catch (error) {
-      console.error(`Erro ao abrir terminal:`, error);
+      console.error('[WINDOW-SIZE] ❌ Erro ao salvar configuração:', error);
+      event.reply('window-size-config-error', { error: error.message });
+    }
+  });
+
+  // Handler para fechar a janela de configuração
+  ipcMain.on('close-window-size-config-window', () => {
+    try {
+      console.log('[WINDOW-SIZE] 🚪 Fechando janela de configuração de tamanho');
+      if (windowSizeConfigWindow && !windowSizeConfigWindow.isDestroyed()) {
+        windowSizeConfigWindow.close();
+      }
+    } catch (error) {
+      console.error('[WINDOW-SIZE] ❌ Erro ao fechar janela:', error);
     }
   });
 

@@ -419,7 +419,7 @@ class SplashManager {
           </style>
       </head>
       <body>
-          <div class="logo">Micro Front-End Manager</div>
+          <div class="logo">Front-End Manager</div>
           <div class="spinner"></div>
           <div class="loading-text">Carregando aplicação...</div>
           <div class="progress-bar">

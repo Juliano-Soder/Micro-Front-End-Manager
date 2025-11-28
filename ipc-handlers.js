@@ -87,6 +87,26 @@ try {
     await installer.installCustomVersion(customVersion);
     
     console.log(`[CUSTOM-CLI] ✅ Instalação concluída com sucesso!`);
+    
+    // 🔔 NOTIFICA TODAS AS JANELAS ABERTAS PARA ATUALIZAR LISTA DE VERSÕES DISPONÍVEIS
+    try {
+      const { BrowserWindow } = require('electron');
+      const allWindows = BrowserWindow.getAllWindows();
+      console.log(`[CUSTOM-CLI] 📢 Notificando ${allWindows.length} janela(s) para atualizar lista de nodes...`);
+      
+      allWindows.forEach((window, index) => {
+        if (window && !window.isDestroyed()) {
+          console.log(`[CUSTOM-CLI] 📤 Enviando notificação para janela ${index + 1}...`);
+          window.webContents.send('node-versions-updated', {
+            newVersion: nodeVersion,
+            message: 'Nova versão do Node.js instalada com sucesso!'
+          });
+        }
+      });
+    } catch (notifyError) {
+      console.error(`[CUSTOM-CLI] ⚠️ Erro ao notificar janelas:`, notifyError);
+    }
+    
     return {
       success: true,
       message: `Node.js ${nodeVersion} e Angular CLI instalados com sucesso!`
@@ -193,11 +213,20 @@ try {
     }
   });
 
-  // Parar projeto onboarding
-  ipcMain.handle('stop-onboarding-project', async (event, { projectName }) => {
-    console.log(`[ONBOARDING] 📡 Parando projeto ${projectName}...`);
+  // Parar projeto onboarding (mata por porta também, igual ao PAS)
+  ipcMain.handle('stop-onboarding-project', async (event, { projectName, port }) => {
+    console.log(`[ONBOARDING] 📡 Parando projeto ${projectName} (porta: ${port})...`);
     try {
-      const result = onboardingManager.stopProject(projectName);
+      const project = onboardingManager.onboardingProjects.find(p => p.name === projectName);
+      const projectPort = port || (project ? project.port : null);
+      
+      // Para o projeto e mata por porta também
+      const result = await onboardingManager.stopProject(projectName, projectPort);
+      
+      // Se ainda há processo rodando na porta, tenta matar
+      if (projectPort) {
+        await onboardingManager.killProcessByPort(projectPort);
+      }
       
       // Enviar evento de projeto parado
       event.sender.send('onboarding-stopped', { projectName });
@@ -210,13 +239,16 @@ try {
     }
   });
 
-  // Cancelar projeto onboarding (igual ao PAS)
-  ipcMain.on('cancel-onboarding-project', (event, { projectName, index }) => {
-    console.log(`[ONBOARDING] 🛑 Cancelando projeto ${projectName} (índice: ${index})`);
+  // Cancelar projeto onboarding (mata durante startup, igual ao PAS)
+  ipcMain.on('cancel-onboarding-project', async (event, { projectName, index, port }) => {
+    console.log(`[ONBOARDING] 🛑 Cancelando projeto ${projectName} (índice: ${index}, porta: ${port})`);
     
     try {
-      // Para o projeto se estiver rodando
-      const result = onboardingManager.stopProject(projectName);
+      const project = onboardingManager.onboardingProjects.find(p => p.name === projectName);
+      const projectPort = port || (project ? project.port : null);
+      
+      // Cancela o projeto (mata processo)
+      const result = await onboardingManager.cancelProject(projectName, projectPort);
       console.log(`[ONBOARDING] ✅ Processo cancelado para ${projectName}`);
       
       // Envia confirmação de cancelamento para o frontend
@@ -394,11 +426,8 @@ try {
   ipcMain.handle('get-available-node-versions', async () => {
     try {
       console.log('[ONBOARDING] 📦 Obtendo versões disponíveis do Node.js...');
-      const NodeInstaller = require('./node-installer');
-      const nodeInstaller = new NodeInstaller(null);
       
-      // Usa o mesmo sistema do project-configs para obter versões
-      const { NODE_VERSIONS, getNodesBasePath, getCurrentOS } = require('./node-version-config');
+      const { getNodesBasePath, getCurrentOS } = require('./node-version-config');
       const path = require('path');
       const fs = require('fs');
       
@@ -407,25 +436,95 @@ try {
       const currentOS = getCurrentOS();
       const osPath = path.join(nodesBasePath, currentOS);
       
-      Object.keys(NODE_VERSIONS).forEach(version => {
-        const versionConfig = NODE_VERSIONS[version];
-        const folderName = typeof versionConfig.folderName === 'object' 
-          ? versionConfig.folderName[currentOS] 
-          : versionConfig.folderName;
+      console.log(`[ONBOARDING] 🔍 Detectando versões em: ${osPath}`);
+      
+      // Verifica se o diretório existe
+      if (!fs.existsSync(osPath)) {
+        console.log('[ONBOARDING] ⚠️ Diretório de nodes não existe ainda');
+        return availableVersions;
+      }
+      
+      // Lista todos os diretórios no path do OS
+      const entries = fs.readdirSync(osPath, { withFileTypes: true });
+      
+      entries.forEach(entry => {
+        // Ignora arquivos e diretórios que não parecem ser do Node.js
+        if (!entry.isDirectory() || entry.name === '.gitkeep') {
+          return;
+        }
         
-        const nodeDir = path.join(osPath, folderName);
-        const nodeExePath = path.join(nodeDir, currentOS === 'windows' ? 'node.exe' : 'bin/node');
-        const npmPath = path.join(nodeDir, currentOS === 'windows' ? 'npm.cmd' : 'bin/npm');
+        console.log(`[ONBOARDING] 🔍 Verificando pasta: ${entry.name}`);
         
-        const isInstalled = fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
+        const folderPath = path.join(osPath, entry.name);
         
-        availableVersions[version] = {
-          version: version,
-          installed: isInstalled,
-          folderName: folderName,
-          path: nodeDir
-        };
+        // 🔍 PROCURA node.exe E npm.cmd (DIRETAMENTE OU EM SUBPASTAS)
+        let nodeExePath = null;
+        let npmPath = null;
+        let actualFolderPath = folderPath;
+        
+        if (currentOS === 'windows') {
+          // Tenta primeiro diretamente na pasta
+          nodeExePath = path.join(folderPath, 'node.exe');
+          npmPath = path.join(folderPath, 'npm.cmd');
+          
+          // Se não encontrar, procura em subpastas (para estruturas como node-v22.12.0/node-v22.12.0-win-x64/)
+          if (!fs.existsSync(nodeExePath) || !fs.existsSync(npmPath)) {
+            console.log(`[ONBOARDING]   ⚠️ Não encontrado diretamente, procurando em subpastas...`);
+            
+            try {
+              const subfolders = fs.readdirSync(folderPath, { withFileTypes: true })
+                .filter(item => item.isDirectory());
+              
+              for (const subfolder of subfolders) {
+                const subfolderPath = path.join(folderPath, subfolder.name);
+                const subNodeExe = path.join(subfolderPath, 'node.exe');
+                const subNpmCmd = path.join(subfolderPath, 'npm.cmd');
+                
+                if (fs.existsSync(subNodeExe) && fs.existsSync(subNpmCmd)) {
+                  nodeExePath = subNodeExe;
+                  npmPath = subNpmCmd;
+                  actualFolderPath = subfolderPath;
+                  console.log(`[ONBOARDING] ✅ Node.js encontrado em subpasta: ${subfolder.name}`);
+                  break;
+                }
+              }
+            } catch (err) {
+              console.log(`[ONBOARDING]   ❌ Erro ao ler subpastas: ${err.message}`);
+            }
+          }
+        } else {
+          // Linux/Mac: procura em bin/
+          nodeExePath = path.join(folderPath, 'bin', 'node');
+          npmPath = path.join(folderPath, 'bin', 'npm');
+        }
+        
+        // Verifica se é uma instalação válida do Node.js
+        const isValidNodeInstall = nodeExePath && npmPath && fs.existsSync(nodeExePath) && fs.existsSync(npmPath);
+        
+        if (isValidNodeInstall) {
+          // Extrai a versão do nome da pasta
+          const versionMatch = entry.name.match(/node-v([\d.]+)/i);
+          
+          if (versionMatch) {
+            const version = versionMatch[1];
+            
+            console.log(`[ONBOARDING] ✅ Versão detectada: ${version} (pasta: ${entry.name})`);
+            
+            availableVersions[version] = {
+              version: version,
+              folderName: entry.name,
+              label: `Node ${version}`,
+              installed: true,
+              path: actualFolderPath
+            };
+          }
+        } else {
+          console.log(`[ONBOARDING] ⚠️ Pasta ignorada (não tem node.exe/npm): ${entry.name}`);
+        }
       });
+      
+      console.log(`[ONBOARDING] 📊 Total de versões detectadas: ${Object.keys(availableVersions).length}`);
+      console.log('[ONBOARDING] 📋 Versões disponíveis:', Object.keys(availableVersions));
       
       return availableVersions;
     } catch (error) {
@@ -783,6 +882,177 @@ try {
   console.log('[IPC-HANDLERS] ✅ Handlers Onboarding registrados com sucesso!');
 } catch (err) {
   console.error('[IPC-HANDLERS] ❌ Erro ao registrar handlers Onboarding:', err);
+}
+
+// ===== HANDLERS PARA SELEÇÃO DE TERMINAL =====
+try {
+  const TerminalDetector = require('./detect-terminals');
+  let terminalDetector = null;
+
+  // Detecta todos os terminais disponíveis
+  ipcMain.handle('get-all-terminals', async (event) => {
+    try {
+      console.log('[TERMINALS] 🖥️ Detectando terminais disponíveis...');
+      
+      if (!terminalDetector) {
+        terminalDetector = new TerminalDetector();
+      }
+
+      const terminals = await terminalDetector.detectAll();
+      console.log('[TERMINALS] ✅ Terminais detectados:', terminals.map(t => t.name).join(', '));
+      
+      return terminals;
+    } catch (error) {
+      console.error('[TERMINALS] ❌ Erro ao detectar terminais:', error);
+      return [];
+    }
+  });
+
+  // Obtém o terminal preferido salvo
+  ipcMain.handle('get-preferred-terminal', async (event) => {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const { app } = require('electron');
+      
+      const configPath = path.join(app.getPath('userData'), 'config.json');
+      
+      if (fs.existsSync(configPath)) {
+        const data = fs.readFileSync(configPath, 'utf-8');
+        const config = JSON.parse(data);
+        
+        if (config.preferredTerminal) {
+          console.log('[TERMINALS] 📌 Terminal preferido carregado:', config.preferredTerminal.name);
+          return config.preferredTerminal;
+        }
+      }
+
+      console.log('[TERMINALS] ℹ️ Nenhum terminal preferido salvo');
+      return null;
+    } catch (error) {
+      console.error('[TERMINALS] ❌ Erro ao carregar terminal preferido:', error);
+      return null;
+    }
+  });
+
+  // Salva o terminal preferido
+  ipcMain.handle('save-preferred-terminal', async (event, terminal) => {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const { app } = require('electron');
+      
+      console.log('[TERMINALS] 📨 Recebido terminal para salvar:', terminal.name);
+      
+      const configPath = path.join(app.getPath('userData'), 'config.json');
+      const dir = path.dirname(configPath);
+      
+      // Cria diretório se não existir
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      
+      // Carrega config existente ou usa vazio
+      let config = {};
+      if (fs.existsSync(configPath)) {
+        const data = fs.readFileSync(configPath, 'utf-8');
+        config = JSON.parse(data);
+      }
+      
+      config.preferredTerminal = terminal;
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+
+      console.log('[TERMINALS] 💾 Terminal preferido salvo:', terminal.name);
+      console.log('[TERMINALS] ✅ Retornando sucesso para o renderer');
+      return { success: true };
+    } catch (error) {
+      console.error('[TERMINALS] ❌ Erro ao salvar terminal preferido:', error);
+      throw error;
+    }
+  });
+
+  // Event listener para fechar a janela de seleção de terminal
+  ipcMain.on('close-select-terminal-window', () => {
+    // Será tratado em main.js
+    console.log('[TERMINALS] 🔔 Fechando janela de seleção de terminal');
+  });
+
+  // Handlers para retornar dados dos terminais (para o configs modal)
+  ipcMain.on('get-all-terminals', async (event) => {
+    try {
+      console.log('[TERMINALS] 📨 Solicitação para obter todos os terminais (via send)');
+      
+      if (!terminalDetector) {
+        terminalDetector = new TerminalDetector();
+      }
+
+      const terminals = await terminalDetector.detectAll();
+      console.log('[TERMINALS] ✅ Enviando terminais:', terminals.map(t => t.name).join(', '));
+      event.reply('available-terminals', terminals);
+    } catch (error) {
+      console.error('[TERMINALS] ❌ Erro ao detectar terminais:', error);
+      event.reply('available-terminals', []);
+    }
+  });
+
+  ipcMain.on('get-preferred-terminal', (event) => {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const { app } = require('electron');
+      
+      console.log('[TERMINALS] 📨 Solicitação para obter terminal preferido (via send)');
+      const configPath = path.join(app.getPath('userData'), 'config.json');
+      
+      if (fs.existsSync(configPath)) {
+        const data = fs.readFileSync(configPath, 'utf-8');
+        const config = JSON.parse(data);
+        
+        if (config.preferredTerminal) {
+          console.log('[TERMINALS] 📌 Enviando terminal preferido:', config.preferredTerminal.name);
+          event.reply('current-terminal', config.preferredTerminal);
+          return;
+        }
+      }
+
+      console.log('[TERMINALS] ℹ️ Nenhum terminal preferido salvo, enviando null');
+      event.reply('current-terminal', null);
+    } catch (error) {
+      console.error('[TERMINALS] ❌ Erro ao carregar terminal preferido:', error);
+      event.reply('current-terminal', null);
+    }
+  });
+
+  // Obtém o estado do modo escuro
+  ipcMain.handle('get-dark-mode-state', async (event) => {
+    try {
+      const { loadConfig } = require('./project-config-manager');
+      // Tenta primeiro do config.json do projeto
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const { app } = require('electron');
+        const configPath = path.join(app.getPath('userData'), 'config.json');
+        
+        if (fs.existsSync(configPath)) {
+          const data = fs.readFileSync(configPath, 'utf-8');
+          const config = JSON.parse(data);
+          return config.darkMode || false;
+        }
+      } catch (e) {
+        // Fallback
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('[DARK-MODE] ❌ Erro ao obter estado de dark mode:', error);
+      return false;
+    }
+  });
+
+  console.log('[IPC-HANDLERS] ✅ Handlers de Terminal registrados com sucesso!');
+} catch (err) {
+  console.error('[IPC-HANDLERS] ❌ Erro ao registrar handlers de Terminal:', err);
 }
 
 console.log('[IPC-HANDLERS] ✅ Handlers registrados com sucesso!');
