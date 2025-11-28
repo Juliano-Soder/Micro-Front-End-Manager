@@ -2741,7 +2741,7 @@
           
           <button id="onb-btn-download-${index}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">📥 Clonar Projeto</button>
           <button id="onb-btn-install-${index}" style="margin-right: 10px; ${(!project.path || project.isInstalled) ? 'display: none' : ''}">📦 Instalar</button>
-          <button id="onb-btn-start-${index}" style="margin-right: 10px;" ${(!project.path || !project.isInstalled) ? 'disabled' : ''}>Iniciar</button>
+          <button id="onb-btn-start-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}" ${(!project.path || !project.isInstalled) ? 'disabled' : ''}>Iniciar</button>
           <span id="onb-port-${index}" style="display: none; margin-right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer;" 
                 onclick="openOnboardingProject(${index})" 
                 title="Clique para abrir no navegador"></span>
