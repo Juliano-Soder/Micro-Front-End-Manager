@@ -2642,11 +2642,29 @@
         currentOnboardingProjects = result.projects;
         console.log('[ONBOARDING] ✅ Projetos carregados:', result.projects);
         
+        // Busca versões Java para projetos Java
+        for (const project of currentOnboardingProjects) {
+          if (project.type === 'java') {
+            console.log(`[ONBOARDING] 🔍 Buscando versão Java para ${project.name}...`);
+            try {
+              const javaResult = await ipcRenderer.invoke('get-onboarding-java-version', {
+                projectName: project.name
+              });
+              if (javaResult.success && javaResult.javaVersion) {
+                project.javaVersion = javaResult.javaVersion;
+                console.log(`[ONBOARDING] ✅ Versão Java encontrada: ${javaResult.javaVersion}`);
+              }
+            } catch (error) {
+              console.warn(`[ONBOARDING] ⚠️ Erro ao buscar versão Java para ${project.name}:`, error);
+            }
+          }
+        }
+        
         // Renderiza projetos diretamente no container
-        renderOnboardingProjects(result.projects);
+        renderOnboardingProjects(currentOnboardingProjects);
         
         // Atualiza contador
-        const onboardingCount = result.projects.length;
+        const onboardingCount = currentOnboardingProjects.length;
         const countElement = document.getElementById('onboarding-count');
         if (countElement) {
           countElement.textContent = onboardingCount.toString();
@@ -2670,7 +2688,22 @@
     projects.forEach((project, index) => {
       const div = document.createElement('div');
       div.className = "project-card";
+      
+      // HTML para o ícone Java e versão (se for Java)
+      let javaIconHtml = '';
+      if (project.type === 'java') {
+        const javaVersion = project.javaVersion || project.defaultJavaVersion || '';
+        const versionText = javaVersion ? ` ${javaVersion}` : '';
+        javaIconHtml = `
+          <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 8px;">
+            <img src="assets/java.png" style="width: 20px; height: 20px;" title="Java Backend" alt="Java" />
+            <span style="font-size: 12px; font-weight: bold; color: #666;">Java${versionText}</span>
+          </div>
+        `;
+      }
+      
       div.innerHTML = `
+          ${javaIconHtml}
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <p style="margin: 0;"><strong>${project.name}</strong></p>

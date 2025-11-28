@@ -45,6 +45,26 @@ class OnboardingManager {
           'typescript',
           'react-scripts'
         ]
+      },
+      {
+        name: 'mp-bem-vindo',
+        displayName: 'MP Bem Vindo',
+        url: 'https://github.com/viavarejo-internal/mp-bem-vindo.git',
+        type: 'java',
+        startCommand: 'mvn spring-boot:run',
+        installCommand: 'mvn clean install',
+        port: 8080,
+        description: 'Projeto Backend Java para onboarding - MP Bem Vindo Via Varejo',
+        javaVersion: null, // Será carregado dinamicamente do pom.xml
+        defaultJavaVersion: null, // Será descoberto do GitHub ou arquivo local
+        usePortableNode: false, // Backend Java não usa Node.js
+        cliRequired: false,
+        successPatterns: [
+          /Started.*in.*seconds/i,
+          /Application.*started.*successfully/i,
+          /Tomcat.*started/i
+        ],
+        dependencies: []
       }
     ];
     
@@ -666,7 +686,7 @@ class OnboardingManager {
       // Usa versão configurada, senão a padrão do projeto, senão 16.10.0
       const configuredVersion = nodeConfigs[project.name] || project.defaultNodeVersion || '16.10.0';
       
-      return {
+      const projectStatus = {
         name: project.name,
         displayName: project.displayName,
         type: project.type,
@@ -678,6 +698,14 @@ class OnboardingManager {
         nodeVersion: configuredVersion, // Versão configurada do Node
         defaultVersion: project.defaultNodeVersion || '16.10.0' // Versão padrão
       };
+      
+      // Adiciona javaVersion se for projeto Java
+      if (project.type === 'java') {
+        projectStatus.javaVersion = project.javaVersion;
+        projectStatus.defaultJavaVersion = project.defaultJavaVersion;
+      }
+      
+      return projectStatus;
     });
     
     console.log('[ONBOARDING] 📋 Resultado final getProjectsStatus:', result);
@@ -871,6 +899,129 @@ class OnboardingManager {
       console.error(`[ONBOARDING] ❌ Erro ao salvar configurações Node.js:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Busca versão Java do pom.xml remoto via GitHub Raw
+   * URL: https://raw.githubusercontent.com/viavarejo-internal/mp-bem-vindo/master/pom.xml
+   */
+  async getJavaVersionFromGitHub(projectName) {
+    const project = this.onboardingProjects.find(p => p.name === projectName);
+    if (!project || project.type !== 'java') {
+      console.log(`[ONBOARDING] ⚠️ Projeto ${projectName} não é um projeto Java`);
+      return null;
+    }
+
+    try {
+      console.log(`[ONBOARDING] 🔍 Buscando versão Java para ${projectName} do GitHub...`);
+      
+      // Extrai owner e repo do URL git
+      const urlMatch = project.url.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
+      if (!urlMatch) {
+        console.log(`[ONBOARDING] ⚠️ Não foi possível extrair owner/repo do URL: ${project.url}`);
+        return null;
+      }
+
+      const [, owner, repo] = urlMatch;
+      const rawGitHubUrl = `https://raw.githubusercontent.com/${owner}/${repo}/master/pom.xml`;
+      
+      console.log(`[ONBOARDING] 🌐 Requisitando: ${rawGitHubUrl}`);
+
+      return new Promise((resolve) => {
+        const https = require('https');
+        
+        https.get(rawGitHubUrl, (response) => {
+          let data = '';
+
+          response.on('data', (chunk) => {
+            data += chunk;
+          });
+
+          response.on('end', () => {
+            try {
+              // Extrai a versão Java da tag <java.version>
+              const match = data.match(/<java\.version>([^<]+)<\/java\.version>/);
+              if (match && match[1]) {
+                const javaVersion = match[1].trim();
+                console.log(`[ONBOARDING] ✅ Versão Java encontrada: ${javaVersion}`);
+                
+                // Salva em cache
+                project.javaVersion = javaVersion;
+                project.defaultJavaVersion = javaVersion;
+                
+                resolve(javaVersion);
+              } else {
+                console.log(`[ONBOARDING] ⚠️ Tag <java.version> não encontrada no pom.xml`);
+                resolve(null);
+              }
+            } catch (error) {
+              console.error(`[ONBOARDING] ❌ Erro ao parsear pom.xml:`, error);
+              resolve(null);
+            }
+          });
+        }).on('error', (error) => {
+          console.error(`[ONBOARDING] ❌ Erro ao buscar pom.xml do GitHub:`, error.message);
+          resolve(null);
+        });
+      });
+    } catch (error) {
+      console.error(`[ONBOARDING] ❌ Erro ao buscar versão Java:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Busca versão Java do pom.xml local
+   */
+  getJavaVersionFromLocal(projectName) {
+    const projectPath = this.getProjectPath(projectName);
+    if (!projectPath) {
+      console.log(`[ONBOARDING] ⚠️ Projeto ${projectName} não está clonado ainda`);
+      return null;
+    }
+
+    try {
+      console.log(`[ONBOARDING] 📂 Buscando pom.xml em: ${projectPath}`);
+      
+      const pomPath = path.join(projectPath, 'pom.xml');
+      
+      if (!fs.existsSync(pomPath)) {
+        console.log(`[ONBOARDING] ⚠️ pom.xml não encontrado em ${pomPath}`);
+        return null;
+      }
+
+      const pomContent = fs.readFileSync(pomPath, 'utf-8');
+      const match = pomContent.match(/<java\.version>([^<]+)<\/java\.version>/);
+      
+      if (match && match[1]) {
+        const javaVersion = match[1].trim();
+        console.log(`[ONBOARDING] ✅ Versão Java local encontrada: ${javaVersion}`);
+        return javaVersion;
+      } else {
+        console.log(`[ONBOARDING] ⚠️ Tag <java.version> não encontrada no pom.xml local`);
+        return null;
+      }
+    } catch (error) {
+      console.error(`[ONBOARDING] ❌ Erro ao buscar versão Java local:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Obtém versão Java (tenta local primeiro, depois remoto)
+   */
+  async getJavaVersion(projectName) {
+    // Se projeto já está clonado, tenta local primeiro
+    const projectPath = this.getProjectPath(projectName);
+    if (projectPath) {
+      const localVersion = this.getJavaVersionFromLocal(projectName);
+      if (localVersion) {
+        return localVersion;
+      }
+    }
+
+    // Senão, tenta remoto
+    return await this.getJavaVersionFromGitHub(projectName);
   }
 }
 

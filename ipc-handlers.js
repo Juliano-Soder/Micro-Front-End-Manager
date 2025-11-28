@@ -355,6 +355,24 @@ try {
     }
   });
 
+  // Obter versão do Java para projeto onboarding (busca do pom.xml no GitHub ou local)
+  ipcMain.handle('get-onboarding-java-version', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] 📡 Obtendo versão Java para ${projectName}...`);
+    try {
+      const javaVersion = await onboardingManager.getJavaVersion(projectName);
+      if (javaVersion) {
+        console.log(`[ONBOARDING] ✅ Java v${javaVersion} para ${projectName}`);
+        return { success: true, javaVersion };
+      } else {
+        console.log(`[ONBOARDING] ⚠️ Versão Java não encontrada para ${projectName}`);
+        return { success: true, javaVersion: null };
+      }
+    } catch (error) {
+      console.error(`[ONBOARDING] ❌ Erro ao obter versão Java para ${projectName}:`, error);
+      return { success: false, error: error.message };
+    }
+  });
+
   // Handler para obter projetos de Onboarding para configuração
   ipcMain.handle('get-onboarding-projects', async () => {
     try {
