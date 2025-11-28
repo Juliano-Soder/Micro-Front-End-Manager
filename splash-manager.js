@@ -130,9 +130,10 @@ class SplashManager {
         promises.push(this.preloadProjects());
       }
       
-      if (!this.appCache.onboardingProjects) {
-        promises.push(this.preloadOnboardingProjects());
-      }
+      // SEMPRE carrega projetos onboarding (eles mudam dinamicamente)
+      // Limpa cache anterior para garantir dados atualizados
+      this.appCache.onboardingProjects = null;
+      promises.push(this.preloadOnboardingProjects());
       
       if (!this.appCache.nodePortableInfo) {
         promises.push(this.preloadNodePortableInfo());
@@ -181,12 +182,36 @@ class SplashManager {
   async preloadOnboardingProjects() {
     try {
       console.log('[ONBOARDING] 📋 Pré-carregando projetos de Onboarding...');
+      console.log('[ONBOARDING] global.onboardingManager existe?', !!global.onboardingManager);
       
-      // Usa o OnboardingManager para carregar projetos
-      const OnboardingManager = require('./onboarding-manager');
-      const onboardingManager = new OnboardingManager();
+      // Usa o onboardingManager global ao invés de criar nova instância
+      if (!global.onboardingManager) {
+        console.error('[ONBOARDING] ❌ OnboardingManager global não encontrado!');
+        this.appCache.onboardingProjects = [];
+        return;
+      }
       
-            const onboardingProjects = global.onboardingManager.getProjectsStatus();
+      const onboardingProjects = global.onboardingManager.getProjectsStatus();
+      console.log('[ONBOARDING] Projetos retornados:', onboardingProjects);
+      
+      // Busca versões Java para projetos Java (assíncrono!)
+      for (const project of onboardingProjects) {
+        if (project.type === 'java') {
+          console.log(`[ONBOARDING] 🔍 Buscando versão Java para ${project.name}...`);
+          try {
+            const javaVersion = await global.onboardingManager.getJavaVersion(project.name);
+            if (javaVersion) {
+              project.javaVersion = javaVersion;
+              project.defaultJavaVersion = javaVersion;
+              console.log(`[ONBOARDING] ✅ Versão Java ${javaVersion} encontrada para ${project.name}`);
+            } else {
+              console.log(`[ONBOARDING] ⚠️ Versão Java não encontrada para ${project.name}`);
+            }
+          } catch (error) {
+            console.error(`[ONBOARDING] ❌ Erro ao buscar versão Java para ${project.name}:`, error);
+          }
+        }
+      }
       
       // Salva no cache
       this.appCache.onboardingProjects = onboardingProjects;
@@ -450,7 +475,7 @@ class SplashManager {
               function updateProgress() {
                   if (currentStep < steps.length) {
                       status.textContent = steps[currentStep];
-                      progress = ((currentStep + 1) / steps.length) * 90;
+                      progress = ((currentStep + 1) / steps.length) * 100;
                       progressBar.style.width = progress + '%';
                       currentStep++;
                       setTimeout(updateProgress, 800);

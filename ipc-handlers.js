@@ -130,7 +130,17 @@ try {
 
 // ===== HANDLERS ONBOARDING =====
 const OnboardingManager = require('./onboarding-manager');
-const onboardingManager = new OnboardingManager();
+
+// Reutiliza a instância global criada no main.js, ou cria uma nova se não existir
+const onboardingManager = global.onboardingManager || new OnboardingManager();
+
+// Garante que está disponível globalmente
+if (!global.onboardingManager) {
+  global.onboardingManager = onboardingManager;
+  console.log('[IPC-HANDLERS] OnboardingManager criado e exposto globalmente');
+} else {
+  console.log('[IPC-HANDLERS] Reutilizando OnboardingManager global existente');
+}
 
 try {
   // Carregar projetos onboarding

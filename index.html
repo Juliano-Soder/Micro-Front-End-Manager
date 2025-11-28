@@ -961,6 +961,56 @@
   let onboardingNodeConfigVisible = false;
 
   // =============================================================================
+  // LISTENER PARA PROJETOS ONBOARDING (DEVE SER REGISTRADO CEDO!)
+  // =============================================================================
+  
+  // Listener para projetos onboarding pré-carregados
+  ipcRenderer.on('onboarding-projects-loaded', async (event, projects) => {
+    console.log('[ONBOARDING] 📦 Projetos onboarding recebidos do cache:', projects);
+    currentOnboardingProjects = projects;
+    
+    // Busca versões Java para projetos Java
+    for (const project of currentOnboardingProjects) {
+      if (project.type === 'java') {
+        console.log(`[ONBOARDING] 🔍 Buscando versão Java para ${project.name}...`);
+        try {
+          const javaResult = await ipcRenderer.invoke('get-onboarding-java-version', {
+            projectName: project.name
+          });
+          if (javaResult.success && javaResult.javaVersion) {
+            project.javaVersion = javaResult.javaVersion;
+            console.log(`[ONBOARDING] ✅ Versão Java encontrada: ${javaResult.javaVersion}`);
+          }
+        } catch (error) {
+          console.warn(`[ONBOARDING] ⚠️ Erro ao buscar versão Java para ${project.name}:`, error);
+        }
+      }
+    }
+    
+    // Aguarda o DOM estar pronto antes de renderizar
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        renderOnboardingProjects(currentOnboardingProjects);
+        updateOnboardingCounter();
+      });
+    } else {
+      // DOM já está pronto
+      renderOnboardingProjects(currentOnboardingProjects);
+      updateOnboardingCounter();
+    }
+  });
+  
+  // Função helper para atualizar contador
+  function updateOnboardingCounter() {
+    const onboardingCount = currentOnboardingProjects.length;
+    const countElement = document.getElementById('onboarding-count');
+    if (countElement) {
+      countElement.textContent = onboardingCount.toString();
+      console.log('[ONBOARDING] 🔢 Contador atualizado para:', onboardingCount);
+    }
+  }
+
+  // =============================================================================
   // FUNÇÕES ONBOARDING NODE CONFIGURATION
   // =============================================================================
 
@@ -1861,8 +1911,13 @@
       toggleBtn.classList.remove('expanded');
       togglePampBtn.classList.remove('expanded');
       
-      // Carrega projetos onboarding
-      loadOnboardingProjects();
+      // Se ainda não carregou, carrega agora (fallback)
+      if (currentOnboardingProjects.length === 0) {
+        console.log('[ONBOARDING] ⚠️ Projetos não foram pré-carregados, carregando agora...');
+        loadOnboardingProjects();
+      } else {
+        console.log('[ONBOARDING] ✅ Usando projetos pré-carregados:', currentOnboardingProjects.length);
+      }
     } else {
       console.log('[ONBOARDING] 👁️ Escondendo Onboarding, restaurando PAS e PAMP');
       // Restaura visibilidade anterior dos painéis PAS e PAMP
@@ -1955,8 +2010,8 @@
   console.log('[ONBOARDING] 🔄 Inicializando contador de onboarding...');
   const initialOnboardingCount = document.getElementById('onboarding-count');
   if (initialOnboardingCount) {
-    initialOnboardingCount.textContent = '1'; // mp-site-front
-    console.log('[ONBOARDING] ✅ Contador inicial definido para 1');
+    initialOnboardingCount.textContent = '0'; // Será atualizado ao carregar
+    console.log('[ONBOARDING] ✅ Contador inicial definido para 0 (aguardando carregamento)');
   } else {
     console.error('[ONBOARDING] ❌ Elemento onboarding-count não encontrado!');
   }
@@ -1982,7 +2037,7 @@
       console.log('[ONBOARDING] ✅ Todos os elementos encontrados!');
       // Garante que o botão seja visível
       onbBtn.style.display = 'flex';
-      if (onbCountEl) onbCountEl.textContent = '1';
+      // Contador será atualizado quando loadOnboardingProjects() for chamado
     } else {
       console.error('[ONBOARDING] ❌ Elementos não encontrados!');
     }
@@ -2694,6 +2749,7 @@
       if (project.type === 'java') {
         const javaVersion = project.javaVersion || project.defaultJavaVersion || '';
         const versionText = javaVersion ? ` ${javaVersion}` : '';
+        console.log(`[ONBOARDING] 🔍 Versão Java para ${project.name}:`, javaVersion, 'defaultJavaVersion:', project.defaultJavaVersion);
         javaIconHtml = `
           <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 8px;">
             <img src="assets/java.png" style="width: 20px; height: 20px;" title="Java Backend" alt="Java" />
@@ -2712,9 +2768,11 @@
                 <span id="onb-react-version-${index}" class="version-badge" style="background: #61dafb; color: #000;">
                   <span class="version-text">${project.type.toUpperCase()}</span>
                 </span>
-                <span id="onb-port-badge-${index}" class="version-badge" style="background: #28a745; color: white;">
-                  <span class="version-text">Port: ${project.port}</span>
-                </span>
+                ${project.isRunning ? 
+                  `<span id="onb-port-badge-${index}" class="version-badge" style="background: #28a745; color: white;">
+                    <span class="version-text">Port: ${project.port}</span>
+                  </span>` : ''
+                }
                 ${project.isRunning ? 
                   sharedServices.createStatusBadge('🚀 Rodando', '#007bff') : 
                   ''
@@ -2722,12 +2780,12 @@
               </div>
             </div>
             <div style="display: flex; align-items: center; gap: 5px;">
-              <img id="onb-btn-editor-${index}" src="${sharedServices.getCurrentIDEIcon(currentIDE)}" class="editor-icon" 
+              <img id="onb-btn-editor-${index}" src="${getCurrentIDEIcon()}" class="editor-icon" 
                    style="${!project.path ? 'display: none' : ''}" 
                    title="Abrir projeto no ${currentIDE.name}" 
                    alt="Editor" 
                    onclick="openOnboardingProjectInEditor(${index})" />
-              <img id="onb-btn-terminal-${index}" src="${sharedServices.getTerminalIcon()}" 
+              <img id="onb-btn-terminal-${index}" src="${getTerminalIcon()}" 
                    style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" 
                    title="Abrir terminal na pasta do projeto" 
                    alt="Terminal" />
@@ -2739,9 +2797,9 @@
             <img id="onb-folder-icon-${index}" src="pasta.png" class="folder-icon" title="Procurar projeto existente" alt="Procurar pasta" />
           </div>
           
-          <button id="onb-btn-download-${index}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">📥 Clonar Projeto</button>
-          <button id="onb-btn-install-${index}" style="margin-right: 10px; ${(!project.path || project.isInstalled) ? 'display: none' : ''}">📦 Instalar</button>
-          <button id="onb-btn-start-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}" ${(!project.path || !project.isInstalled) ? 'disabled' : ''}>Iniciar</button>
+          <button id="onb-btn-download-${index}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
+          <button id="onb-btn-install-${index}" style="margin-right: 10px; ${(!project.path || project.isInstalled) ? 'display: none' : ''}">Instalar</button>
+          <button id="onb-btn-start-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}">Iniciar</button>
           <span id="onb-port-${index}" style="display: none; margin-right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer;" 
                 onclick="openOnboardingProject(${index})" 
                 title="Clique para abrir no navegador"></span>
@@ -2880,6 +2938,7 @@
     const elements = {
       download: document.getElementById(`onb-btn-download-${index}`),
       install: document.getElementById(`onb-btn-install-${index}`),
+      start: document.getElementById(`onb-btn-start-${index}`),
       move: document.getElementById(`onb-btn-move-${index}`),
       delete: document.getElementById(`onb-btn-delete-${index}`),
       editor: document.getElementById(`onb-btn-editor-${index}`),
@@ -2888,6 +2947,7 @@
 
     if (path) {
       elements.download.style.display = 'none';
+      elements.start.style.display = 'inline-block';
       elements.editor.style.display = 'inline-block';
       elements.terminal.style.display = 'inline-block';
       
@@ -2912,6 +2972,7 @@
     } else {
       elements.delete.style.display = 'none';
       elements.move.style.display = 'none';
+      elements.start.style.display = 'none';
       elements.download.style.display = 'inline-block';
       elements.editor.style.display = 'none';
       elements.terminal.style.display = 'none';
@@ -2923,12 +2984,19 @@
    */
   function updateOnboardingProjectUI() {
     currentOnboardingProjects.forEach((project, index) => {
+      console.log('[ONBOARDING] UI refresh', project.name, {
+        path: project.path,
+        isInstalled: project.isInstalled,
+        isRunning: project.isRunning
+      });
       const startButton = document.getElementById(`onb-btn-start-${index}`);
       const stopButton = document.getElementById(`onb-btn-stop-${index}`);
       const cancelButton = document.getElementById(`onb-btn-cancel-${index}`);
       const moveButton = document.getElementById(`onb-btn-move-${index}`);
       const deleteButton = document.getElementById(`onb-btn-delete-${index}`);
       const portSpan = document.getElementById(`onb-port-${index}`);
+
+      const trimmedPath = (project.path || '').trim();
 
       if (project.isRunning) {
         // Projeto rodando: mostra botão parar, esconde iniciar e cancelar
@@ -2950,9 +3018,13 @@
       } else {
         // Projeto parado: mostra botão iniciar, esconde parar e cancelar
         if (startButton) {
-          startButton.style.display = 'inline-block';
-          startButton.disabled = false;
-          startButton.innerText = 'Iniciar';
+          if (project.path) {
+            startButton.style.display = 'inline-block';
+            startButton.disabled = false;
+            startButton.innerText = 'Iniciar';
+          } else {
+            startButton.style.display = 'none';
+          }
         }
         if (stopButton) stopButton.style.display = 'none';
         if (cancelButton) cancelButton.style.display = 'none';
@@ -3690,19 +3762,33 @@
             onclick="require('electron').ipcRenderer.send('open-nodes-folder', '${nodesPath.replace(/\\/g, '\\\\')}'); return false;" 
             style="
               position: absolute;
-              right: -110px;
-              top: 50%;
-              transform: translateY(-50%);
-              color: #0066cc;
-              text-decoration: none;
+              if (startButton) {
+                if (project.path && project.path.trim() !== '') {
+                  startButton.style.display = 'inline-block';
+                  startButton.disabled = !project.isInstalled;
+                  startButton.innerText = 'Iniciar';
+                } else {
+                  startButton.style.display = 'none';
+                }
+              }
               font-size: 11px;
               white-space: nowrap;
               opacity: 0;
               pointer-events: none;
-              transition: opacity 0.2s ease;
+              if (project.path && project.path.trim() !== '') {
               background: rgba(0, 0, 0, 0.7);
               padding: 2px 6px;
               border-radius: 4px;
+                if (moveButton) moveButton.style.display = 'none';
+                if (deleteButton) deleteButton.style.display = 'none';
+              }
+        
+              // Se não está instalado, garante disable no botão iniciar
+              if (startButton && project.isInstalled === false) {
+                startButton.disabled = true;
+                startButton.title = 'Instale o projeto antes de iniciar';
+              } else if (startButton) {
+                startButton.title = '';
             "
             title="Abrir pasta das dependências Node.js portáteis"
           >

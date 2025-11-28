@@ -9,19 +9,17 @@ const https = require('https');
 const http = require('http');
 const url = require('url');
 
-// ===== CARREGAR HANDLERS IPC APÓS INICIALIZAÇÃO =====
-// console.log('[MAIN] Carregando handlers IPC...');
-// require('./ipc-handlers');
-// console.log('[MAIN] ✅ Handlers IPC carregados!');
-
-// Registrar handler crítico para debugging
-console.log('[MAIN] INÍCIO: Preparando para registrar handler start-node-installation...');
-
 // Imports para gerenciamento de Node.js portátil
 const NodeInstaller = require('./node-installer');
 const ProjectConfigManager = require('./project-config-manager');
 const OnboardingManager = require('./onboarding-manager');
 const SplashManager = require('./splash-manager');
+
+// ===== INICIALIZA ONBOARDING MANAGER GLOBALMENTE =====
+// Cria instância global ANTES de qualquer operação para garantir disponibilidade no splash
+console.log('[MAIN] Criando OnboardingManager global...');
+global.onboardingManager = new OnboardingManager();
+console.log('[MAIN] ✅ OnboardingManager global criado!');
 
 // Função para ler a versão do package.json
 function getAppVersion() {
@@ -3029,10 +3027,8 @@ async function initializeMainApp() {
     splashManager.loadAppCache();
   }
   
-  // Executa pré-carregamento se necessário
-  if (!splashCache.projects || !splashCache.nodePortableInfo) {
-    await splashManager.preloadCriticalData();
-  }
+  // SEMPRE executa pré-carregamento para garantir dados onboarding atualizados
+  await splashManager.preloadCriticalData();
   
   // Usa dados do cache
   const updatedSplashCache = splashManager.getAppCache();
@@ -3642,6 +3638,15 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
         if (mainWindow && !mainWindow.isDestroyed()) {
           console.log('[UI] Enviando projetos iniciais (sem status Git completo)');
           mainWindow.webContents.send('projects-loaded', projects);
+          
+          // Envia projetos onboarding do cache
+          const splashCache = splashManager ? splashManager.getAppCache() : null;
+          if (splashCache && splashCache.onboardingProjects) {
+            console.log('[UI] Enviando projetos onboarding do cache:', splashCache.onboardingProjects.length);
+            mainWindow.webContents.send('onboarding-projects-loaded', splashCache.onboardingProjects);
+          } else {
+            console.log('[UI] Cache de projetos onboarding não disponível, será carregado sob demanda');
+          }
           
           // INICIA VERIFICAÇÃO GIT EM SEGUNDO PLANO
           startBackgroundGitCheck();

@@ -933,14 +933,29 @@ class OnboardingManager {
         https.get(rawGitHubUrl, (response) => {
           let data = '';
 
+          // Verifica status HTTP
+          if (response.statusCode !== 200) {
+            console.log(`[ONBOARDING] ⚠️ GitHub retornou status ${response.statusCode} - repositório privado ou não encontrado`);
+            console.log(`[ONBOARDING] 💡 Usando versão Java padrão: 21`);
+            
+            // Usa versão padrão se não conseguir acessar
+            const defaultJavaVersion = '21';
+            project.javaVersion = defaultJavaVersion;
+            project.defaultJavaVersion = defaultJavaVersion;
+            resolve(defaultJavaVersion);
+            return;
+          }
+
           response.on('data', (chunk) => {
             data += chunk;
           });
 
           response.on('end', () => {
             try {
-              // Extrai a versão Java da tag <java.version>
-              const match = data.match(/<java\.version>([^<]+)<\/java\.version>/);
+              console.log(`[ONBOARDING] 📄 Conteúdo XML recebido (primeiros 500 chars):`, data.substring(0, 500));
+              
+              // Extrai a versão Java da tag <java.version> (com suporte a espaços e tabulações)
+              const match = data.match(/<java\.version>\s*([^<]+?)\s*<\/java\.version>/i);
               if (match && match[1]) {
                 const javaVersion = match[1].trim();
                 console.log(`[ONBOARDING] ✅ Versão Java encontrada: ${javaVersion}`);
@@ -952,6 +967,29 @@ class OnboardingManager {
                 resolve(javaVersion);
               } else {
                 console.log(`[ONBOARDING] ⚠️ Tag <java.version> não encontrada no pom.xml`);
+                console.log(`[ONBOARDING] 🔍 Tentando buscar em <properties>...`);
+                
+                // Tenta encontrar dentro de <properties>
+                const propsMatch = data.match(/<properties>([\s\S]*?)<\/properties>/i);
+                if (propsMatch) {
+                  const propsContent = propsMatch[1];
+                  console.log(`[ONBOARDING] 📦 Conteúdo de <properties>:`, propsContent);
+                  
+                  // Busca novamente dentro de properties
+                  const javaMatch = propsContent.match(/<java\.version>\s*([^<]+?)\s*<\/java\.version>/i);
+                  if (javaMatch && javaMatch[1]) {
+                    const javaVersion = javaMatch[1].trim();
+                    console.log(`[ONBOARDING] ✅ Versão Java encontrada em properties: ${javaVersion}`);
+                    
+                    project.javaVersion = javaVersion;
+                    project.defaultJavaVersion = javaVersion;
+                    
+                    resolve(javaVersion);
+                    return;
+                  }
+                }
+                
+                console.log(`[ONBOARDING] ❌ Não foi possível encontrar versão Java no pom.xml`);
                 resolve(null);
               }
             } catch (error) {
