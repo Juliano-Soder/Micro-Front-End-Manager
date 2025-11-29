@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { app } = require('electron');
+const JavaInstaller = require('./java-installer');
 
 /**
  * Gerenciador de projetos Onboarding
@@ -13,6 +14,9 @@ class OnboardingManager {
     // Define o arquivo de configuração no AppData (igual aos outros projetos)
     this.userDataPath = app ? app.getPath('userData') : path.join(os.homedir(), 'AppData', 'Roaming', 'micro-front-end-manager');
     this.onboardingFile = path.join(this.userDataPath, 'onboarding-projects.txt');
+    
+    // Inicializa o JavaInstaller
+    this.javaInstaller = new JavaInstaller();
     
     console.log('[ONBOARDING] 📁 Arquivo de configuração:', this.onboardingFile);
     this.onboardingProjects = [
@@ -202,8 +206,12 @@ class OnboardingManager {
       throw new Error(`Projeto ${projectName} não encontrado`);
     }
 
+    // O caminho final será targetPath + nome do projeto
+    const finalPath = path.join(targetPath, projectName);
+    console.log(`[ONBOARDING] 📁 Clonando ${project.url} para ${finalPath}`);
+
     return new Promise((resolve, reject) => {
-      const gitClone = spawn('git', ['clone', project.url, targetPath], {
+      const gitClone = spawn('git', ['clone', project.url, finalPath], {
         stdio: ['ignore', 'pipe', 'pipe']
       });
 
@@ -224,8 +232,9 @@ class OnboardingManager {
 
       gitClone.on('close', (code) => {
         if (code === 0) {
-          this.setProjectPath(projectName, targetPath);
-          resolve({ success: true, output });
+          console.log(`[ONBOARDING] ✅ Projeto clonado em: ${finalPath}`);
+          this.setProjectPath(projectName, finalPath);
+          resolve(finalPath); // Retorna o caminho final
         } else {
           const error = `Erro ao clonar projeto: ${errorOutput}`;
           if (onError) onError(error);
@@ -287,6 +296,241 @@ class OnboardingManager {
         reject(new Error(errorMsg));
       });
     });
+  }
+
+  /**
+   * Executa Maven Install (mvn clean install -DskipTests)
+   */
+  async mavenInstall(projectName, onProgress, onError) {
+    const projectPath = this.getProjectPath(projectName);
+    if (!projectPath) {
+      throw new Error(`Caminho do projeto ${projectName} não encontrado`);
+    }
+
+    console.log(`[ONBOARDING] 🔨 Executando mvn clean install -DskipTests em ${projectPath}...`);
+
+    try {
+      // 1. Garante que Java e Maven estão instalados
+      if (onProgress) onProgress('\n🔍 Verificando dependências Java e Maven...\n');
+      
+      const javaVersion = await this.javaInstaller.ensureJavaAndMaven(projectPath, (msg) => {
+        if (onProgress) onProgress(msg + '\n');
+      });
+
+      // 2. Obtém caminhos dos binários portáteis
+      const { javaHome, mvnBin } = this.javaInstaller.getJavaAndMavenPaths(javaVersion);
+      
+      console.log(`[ONBOARDING] 🔧 Usando Java: ${javaHome}`);
+      console.log(`[ONBOARDING] 🔧 Usando Maven: ${mvnBin}`);
+      
+      if (onProgress) {
+        onProgress(`\n🔧 Java ${javaVersion}: ${javaHome}\n`);
+        onProgress(`🔧 Maven: ${mvnBin}\n`);
+        onProgress('\n🔨 Executando mvn clean install -DskipTests...\n\n');
+      }
+
+      // 3. Executa Maven com Java portátil
+      return new Promise((resolve, reject) => {
+        const env = { ...process.env };
+        env.JAVA_HOME = javaHome;
+        env.PATH = `${path.join(javaHome, 'bin')}${path.delimiter}${env.PATH}`;
+        
+        const mvnInstall = spawn(mvnBin, ['clean', 'install', '-DskipTests'], {
+          cwd: projectPath,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          shell: true,
+          env: env
+        });
+
+        let output = '';
+        let errorOutput = '';
+        let buffer = ''; // Buffer para acumular linhas parciais
+
+        mvnInstall.stdout.on('data', (data) => {
+          const chunk = data.toString();
+          output += chunk;
+          
+          if (onProgress) {
+            // Adiciona ao buffer
+            buffer += chunk;
+            
+            // Processa linhas completas
+            const lines = buffer.split('\n');
+            
+            // Mantém a última linha incompleta no buffer
+            buffer = lines.pop() || '';
+            
+            // Envia cada linha completa com \n
+            lines.forEach(line => {
+              if (line.trim()) {
+                onProgress(line + '\n');
+              }
+            });
+          }
+        });
+
+        mvnInstall.stderr.on('data', (data) => {
+          const chunk = data.toString();
+          errorOutput += chunk;
+          
+          if (onProgress) {
+            // stderr também pode ter múltiplas linhas
+            const lines = chunk.split('\n').filter(l => l.trim());
+            lines.forEach(line => onProgress(line + '\n'));
+          }
+        });
+
+        mvnInstall.on('close', (code) => {
+          console.log(`[ONBOARDING] 🏁 Maven processo finalizado com código: ${code}`);
+          
+          if (code === 0) {
+            const successMsg = '\n✅ BUILD SUCCESS - Maven install concluído!\n';
+            console.log('[ONBOARDING] ✅ Maven install concluído com sucesso');
+            if (onProgress) onProgress(successMsg);
+            resolve({ success: true, output });
+          } else {
+            const error = `Maven install falhou (código ${code})`;
+            const errorMsg = `\n❌ BUILD FAILURE - ${error}\n${errorOutput}\n`;
+            console.error(`[ONBOARDING] ❌ ${error}`);
+            if (onProgress) onProgress(errorMsg);
+            if (onError) onError(error);
+            reject(new Error(error));
+          }
+        });
+
+        mvnInstall.on('error', (error) => {
+          const errorMsg = `Erro ao executar mvn: ${error.message}`;
+          console.error(`[ONBOARDING] ❌ ${errorMsg}`);
+          if (onProgress) onProgress(`\n❌ ${errorMsg}\n`);
+          if (onError) onError(errorMsg);
+          reject(new Error(errorMsg));
+        });
+      });
+    } catch (error) {
+      const errorMsg = `Erro ao preparar ambiente Java: ${error.message}`;
+      console.error(`[ONBOARDING] ❌ ${errorMsg}`);
+      if (onProgress) onProgress(`\n❌ ${errorMsg}\n`);
+      if (onError) onError(errorMsg);
+      throw error;
+    }
+  }
+
+  /**
+   * Executa Maven Tests (mvn test)
+   */
+  async runTests(projectName, onProgress, onError) {
+    const projectPath = this.getProjectPath(projectName);
+    if (!projectPath) {
+      throw new Error(`Caminho do projeto ${projectName} não encontrado`);
+    }
+
+    console.log(`[ONBOARDING] 🧪 Executando mvn test em ${projectPath}...`);
+
+    try {
+      // 1. Garante que Java e Maven estão instalados
+      if (onProgress) onProgress('\n🔍 Verificando dependências Java e Maven...\n');
+      
+      const javaVersion = await this.javaInstaller.ensureJavaAndMaven(projectPath, (msg) => {
+        if (onProgress) onProgress(msg + '\n');
+      });
+
+      // 2. Obtém caminhos dos binários portáteis
+      const { javaHome, mvnBin } = this.javaInstaller.getJavaAndMavenPaths(javaVersion);
+      
+      console.log(`[ONBOARDING] 🔧 Usando Java: ${javaHome}`);
+      console.log(`[ONBOARDING] 🔧 Usando Maven: ${mvnBin}`);
+      
+      if (onProgress) {
+        onProgress(`\n🔧 Java ${javaVersion}: ${javaHome}\n`);
+        onProgress(`🔧 Maven: ${mvnBin}\n\n`);
+        onProgress('🧪 Executando mvn test...\n\n');
+      }
+
+      // 3. Executa Maven com Java portátil
+      return new Promise((resolve, reject) => {
+        const env = { ...process.env };
+        env.JAVA_HOME = javaHome;
+        env.PATH = `${path.join(javaHome, 'bin')}${path.delimiter}${env.PATH}`;
+        
+        const mvnTest = spawn(mvnBin, ['test'], {
+          cwd: projectPath,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          shell: true,
+          env: env
+        });
+
+        let output = '';
+        let errorOutput = '';
+        let buffer = ''; // Buffer para acumular linhas parciais
+
+        mvnTest.stdout.on('data', (data) => {
+          const chunk = data.toString();
+          output += chunk;
+          
+          if (onProgress) {
+            // Adiciona ao buffer
+            buffer += chunk;
+            
+            // Processa linhas completas
+            const lines = buffer.split('\n');
+            
+            // Mantém a última linha incompleta no buffer
+            buffer = lines.pop() || '';
+            
+            // Envia cada linha completa com \n
+            lines.forEach(line => {
+              if (line.trim()) {
+                onProgress(line + '\n');
+              }
+            });
+          }
+        });
+
+        mvnTest.stderr.on('data', (data) => {
+          const chunk = data.toString();
+          errorOutput += chunk;
+          
+          if (onProgress) {
+            // stderr também pode ter múltiplas linhas
+            const lines = chunk.split('\n').filter(l => l.trim());
+            lines.forEach(line => onProgress(line + '\n'));
+          }
+        });
+
+        mvnTest.on('close', (code) => {
+          console.log(`[ONBOARDING] 🏁 Maven test processo finalizado com código: ${code}`);
+          
+          if (code === 0) {
+            const successMsg = '\n✅ TESTS PASSED - Todos os testes passaram!\n';
+            console.log('[ONBOARDING] ✅ Testes executados com sucesso');
+            if (onProgress) onProgress(successMsg);
+            resolve({ success: true, output });
+          } else {
+            const error = `Testes falharam (código ${code})`;
+            const errorMsg = `\n❌ TESTS FAILED - ${error}\n${errorOutput}\n`;
+            console.error(`[ONBOARDING] ❌ ${error}`);
+            if (onProgress) onProgress(errorMsg);
+            if (onError) onError(error);
+            // Não rejeitamos aqui porque testes falhados são um resultado válido
+            resolve({ success: false, output, error });
+          }
+        });
+
+        mvnTest.on('error', (error) => {
+          const errorMsg = `Erro ao executar mvn test: ${error.message}`;
+          console.error(`[ONBOARDING] ❌ ${errorMsg}`);
+          if (onProgress) onProgress(`\n❌ ${errorMsg}\n`);
+          if (onError) onError(errorMsg);
+          reject(new Error(errorMsg));
+        });
+      });
+    } catch (error) {
+      const errorMsg = `Erro ao preparar ambiente Java: ${error.message}`;
+      console.error(`[ONBOARDING] ❌ ${errorMsg}`);
+      if (onProgress) onProgress(`\n❌ ${errorMsg}\n`);
+      if (onError) onError(errorMsg);
+      throw error;
+    }
   }
 
   /**

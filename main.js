@@ -4263,6 +4263,12 @@ function createMainWindow(isLoggedIn, dependenciesInstalled, dependenciesMessage
   ipcMain.on('update-project-path', (event, { index, path }) => {
     projects[index].path = path;
     saveProjects(projects);
+    
+    // FORÇA RECARGA DOS PROJETOS DO ARQUIVO PARA SINCRONIZAR
+    console.log(`📁 [UPDATE-PATH] Caminho atualizado para ${projects[index].name}: ${path}`);
+    console.log(`🔄 [UPDATE-PATH] Recarregando projetos do arquivo...`);
+    projects = loadProjects();
+    console.log(`✅ [UPDATE-PATH] Projetos recarregados! Total: ${projects.length}`);
   });
 
   // Handler para git pull em uma branch específica

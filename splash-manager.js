@@ -356,6 +356,16 @@ class SplashManager {
    * Retorna o HTML da splash screen
    */
   getSplashHTML() {
+    // Carrega o GIF como base64 para usar inline
+    let gifBase64 = '';
+    try {
+      const gifPath = path.join(__dirname, 'assets', 'animated-santa-claus-image-0420.gif');
+      const gifBuffer = fs.readFileSync(gifPath);
+      gifBase64 = gifBuffer.toString('base64');
+    } catch (error) {
+      console.error('Erro ao carregar GIF do Papai Noel:', error);
+    }
+    
     return `
       <!DOCTYPE html>
       <html>
@@ -392,22 +402,17 @@ class SplashManager {
                   -webkit-text-fill-color: transparent;
                   background-clip: text;
               }
+              
+              /* Novo loading - Papai Noel GIF */
               .spinner {
-                  border: 4px solid #333;
-                  border-top: 4px solid #0033C6;
-                  border-radius: 50%;
-                  width: 40px;
-                  height: 40px;
-                  animation: spin 1s linear infinite;
+                  width: 120px;
+                  height: 120px;
                   margin: 20px 0;
-              }
-              body.light-mode .spinner {
-                  border: 4px solid #cccccc;
-                  border-top: 4px solid #0033C6;
-              }
-              @keyframes spin {
-                  0% { transform: rotate(0deg); }
-                  100% { transform: rotate(360deg); }
+                  background-image: url('data:image/gif;base64,${gifBase64}');
+                  background-size: contain;
+                  background-repeat: no-repeat;
+                  background-position: center;
+                  border: none;
               }
               .progress-bar {
                   width: 300px;
@@ -445,7 +450,7 @@ class SplashManager {
       </head>
       <body>
           <div class="logo">Front-End Manager</div>
-          <div class="spinner"></div>
+          <img src="data:image/gif;base64,${gifBase64}" style="width: 220px; height: 120px; margin: 20px 0;" alt="Loading..." />
           <div class="loading-text">Carregando aplicação...</div>
           <div class="progress-bar">
               <div class="progress-fill" id="progress"></div>

@@ -19,8 +19,14 @@
         transition: background-color 0.3s ease, color 0.3s ease;
       }
 
+      /* Container de onboarding com mesmo layout do PAS/PAMP */
       #onboarding-mfes #onboarding-content {
         width: 100% !important;
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: space-evenly;
+        margin-top: 15px;
       }
 
       @media screen and (max-width: 801px) {
@@ -1402,6 +1408,91 @@
       sharedServices.updateButton(buttonId, '📦 Instalar', false);
     }
   }
+
+  /**
+   * Roda Maven Install (mvn clean install -DskipTests)
+   */
+  async function runMavenInstall(projectName, index) {
+    const logElementId = `onb-log-${index}`;
+    const buttonId = `onb-btn-install-${index}`;
+    
+    sharedServices.updateButton(buttonId, '⏳ Maven Install...', true);
+    sharedServices.updateLog(logElementId, '\n🔨 Executando mvn clean install -DskipTests...\n');
+    
+    try {
+      // Listener para progresso
+      const progressListener = (event, data) => {
+        if (data.projectName === projectName) {
+          // Se é mensagem de download (com %), atualiza mesma linha
+          if (data.message.includes('📥') && data.message.includes('%')) {
+            sharedServices.updateLogSameLine(logElementId, data.message);
+          } else {
+            sharedServices.updateLog(logElementId, data.message, true);
+          }
+        }
+      };
+      
+      ipcRenderer.on('maven-install-progress', progressListener);
+      
+      const result = await ipcRenderer.invoke('maven-install-onboarding', { projectName });
+      
+      ipcRenderer.removeListener('maven-install-progress', progressListener);
+      
+      if (result.success) {
+        sharedServices.updateLog(logElementId, '\n✅ PROCESSO CONCLUÍDO COM SUCESSO\n', true);
+        // Não recarrega para não fechar o console
+        // await loadOnboardingProjects();
+      } else {
+        sharedServices.updateLog(logElementId, `\n❌ PROCESSO FALHOU: ${result.error}\n`, true);
+      }
+    } catch (error) {
+      sharedServices.updateLog(logElementId, `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n❌ ERRO: ${error.message}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`, true);
+    } finally {
+      sharedServices.updateButton(buttonId, 'Maven Install', false);
+    }
+  }
+
+  /**
+   * Roda Maven Tests (mvn test)
+   */
+  async function runMavenTests(projectName, index) {
+    const logElementId = `onb-log-${index}`;
+    const buttonId = `onb-btn-test-${index}`;
+    
+    sharedServices.updateButton(buttonId, '⏳ Running Tests...', true);
+    sharedServices.updateLog(logElementId, '\n🧪 Executando mvn test...\n');
+    
+    try {
+      // Listener para progresso
+      const progressListener = (event, data) => {
+        if (data.projectName === projectName) {
+          // Se é mensagem de download (com %), atualiza mesma linha
+          if (data.message.includes('📥') && data.message.includes('%')) {
+            sharedServices.updateLogSameLine(logElementId, data.message);
+          } else {
+            sharedServices.updateLog(logElementId, data.message, true);
+          }
+        }
+      };
+      
+      ipcRenderer.on('maven-test-progress', progressListener);
+      
+      const result = await ipcRenderer.invoke('run-onboarding-tests', { projectName });
+      
+      ipcRenderer.removeListener('maven-test-progress', progressListener);
+      
+      if (result.success) {
+        sharedServices.updateLog(logElementId, '\n✅ TESTES CONCLUÍDOS COM SUCESSO\n', true);
+      } else {
+        sharedServices.updateLog(logElementId, `\n❌ TESTES FALHARAM: ${result.error}\n`, true);
+      }
+    } catch (error) {
+      sharedServices.updateLog(logElementId, `\n❌ ERRO: ${error.message}\n`, true);
+    } finally {
+      sharedServices.updateButton(buttonId, 'Run Tests', false);
+    }
+  }
+
 
   /**
    * Inicia projeto onboarding
@@ -2798,7 +2889,12 @@
           </div>
           
           <button id="onb-btn-download-${index}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
-          <button id="onb-btn-install-${index}" style="margin-right: 10px; ${(!project.path || project.isInstalled) ? 'display: none' : ''}">Instalar</button>
+          ${project.type === 'java' ? `
+            <button id="onb-btn-install-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}">Maven Install</button>
+            <button id="onb-btn-test-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}">Run Tests</button>
+          ` : `
+            <button id="onb-btn-install-${index}" style="margin-right: 10px; ${(!project.path || project.isInstalled) ? 'display: none' : ''}">Instalar</button>
+          `}
           <button id="onb-btn-start-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}">Iniciar</button>
           <span id="onb-port-${index}" style="display: none; margin-right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer;" 
                 onclick="openOnboardingProject(${index})" 
@@ -2808,7 +2904,7 @@
           <button id="onb-btn-move-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #5a6c7d; color: white;">Mover para...</button>
           <button id="onb-btn-delete-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #8b5a5a; color: white;">Deletar</button>
           
-          <div id="onb-log-${index}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
+          <div id="onb-log-${index}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px; white-space: pre-wrap;"></div>
       `;
       onboardingContainer.appendChild(div);
 
@@ -2827,6 +2923,7 @@
     const onbInput = document.getElementById(`onb-input-${index}`);
     const onbDownloadButton = document.getElementById(`onb-btn-download-${index}`);
     const onbInstallButton = document.getElementById(`onb-btn-install-${index}`);
+    const onbTestButton = document.getElementById(`onb-btn-test-${index}`);
     const onbFolderIcon = document.getElementById(`onb-folder-icon-${index}`);
     const onbStartButton = document.getElementById(`onb-btn-start-${index}`);
     const onbStopButton = document.getElementById(`onb-btn-stop-${index}`);
@@ -2841,7 +2938,17 @@
 
     // Botões
     onbDownloadButton.addEventListener('click', () => cloneOnboardingProject(project.name, index));
-    onbInstallButton.addEventListener('click', () => installOnboardingDependencies(project.name, index));
+    
+    // Botão Install - comportamento diferente para Java vs React
+    if (project.type === 'java') {
+      onbInstallButton.addEventListener('click', () => runMavenInstall(project.name, index));
+      if (onbTestButton) {
+        onbTestButton.addEventListener('click', () => runMavenTests(project.name, index));
+      }
+    } else {
+      onbInstallButton.addEventListener('click', () => installOnboardingDependencies(project.name, index));
+    }
+    
     onbFolderIcon.addEventListener('click', () => selectOnboardingFolder(index));
     
     // Botão Mover para... (reutilizando lógica do PAS)

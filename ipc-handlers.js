@@ -158,9 +158,27 @@ try {
 
   // Clonar projeto onboarding
   ipcMain.handle('clone-onboarding-project', async (event, { projectName, targetPath }) => {
-    console.log(`[ONBOARDING] 📡 Clonando projeto ${projectName} para ${targetPath}...`);
+    console.log(`[ONBOARDING] 📡 Clonando projeto ${projectName}...`);
+    
     try {
-      const result = await onboardingManager.cloneProject(
+      // Se targetPath não foi fornecido, abre diálogo para usuário escolher
+      if (!targetPath) {
+        const { dialog } = require('electron');
+        const result = await dialog.showOpenDialog({
+          properties: ['openDirectory'],
+          title: `Selecione onde clonar ${projectName}`,
+          buttonLabel: 'Selecionar Pasta'
+        });
+        
+        if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+          return { success: false, error: 'Operação cancelada pelo usuário' };
+        }
+        
+        targetPath = result.filePaths[0];
+        console.log(`[ONBOARDING] 📁 Pasta selecionada: ${targetPath}`);
+      }
+      
+      const cloneResult = await onboardingManager.cloneProject(
         projectName,
         targetPath,
         (progress) => {
@@ -171,7 +189,7 @@ try {
         }
       );
       console.log('[ONBOARDING] ✅ Projeto clonado com sucesso');
-      return { success: true, result };
+      return { success: true, projectPath: cloneResult };
     } catch (error) {
       console.error('[ONBOARDING] ❌ Erro ao clonar projeto:', error);
       return { success: false, error: error.message };
@@ -195,6 +213,48 @@ try {
       return { success: true, result };
     } catch (error) {
       console.error('[ONBOARDING] ❌ Erro ao instalar dependências:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Maven Install (mvn clean install -DskipTests)
+  ipcMain.handle('maven-install-onboarding', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] 🔨 Executando Maven Install para ${projectName}...`);
+    try {
+      const result = await onboardingManager.mavenInstall(
+        projectName,
+        (message) => {
+          event.sender.send('maven-install-progress', { projectName, message });
+        },
+        (error) => {
+          event.sender.send('maven-install-error', { projectName, error });
+        }
+      );
+      console.log('[ONBOARDING] ✅ Maven Install concluído');
+      return { success: true, result };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro no Maven Install:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Run Maven Tests (mvn test)
+  ipcMain.handle('run-onboarding-tests', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] 🧪 Executando Maven Tests para ${projectName}...`);
+    try {
+      const result = await onboardingManager.runTests(
+        projectName,
+        (message) => {
+          event.sender.send('maven-test-progress', { projectName, message });
+        },
+        (error) => {
+          event.sender.send('maven-test-error', { projectName, error });
+        }
+      );
+      console.log('[ONBOARDING] ✅ Maven Tests concluídos');
+      return { success: true, result };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro nos Maven Tests:', error);
       return { success: false, error: error.message };
     }
   });

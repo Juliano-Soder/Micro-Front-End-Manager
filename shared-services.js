@@ -113,9 +113,42 @@ class SharedServices {
         logElement.style.display = 'block';
       }
       if (message) {
-        logElement.innerHTML += `${message}\n`;
+        // Usa textContent para preservar \n com white-space: pre-wrap
+        const formattedMessage = message.endsWith('\n') ? message : `${message}\n`;
+        logElement.textContent += formattedMessage;
         logElement.scrollTop = logElement.scrollHeight;
       }
+    }
+  }
+
+  /**
+   * Atualiza log na mesma linha (para progresso)
+   * @param {string} logElementId - ID do elemento de log
+   * @param {string} message - Mensagem para substituir a última linha
+   */
+  updateLogSameLine(logElementId, message) {
+    const logElement = document.getElementById(logElementId);
+    if (logElement) {
+      logElement.style.display = 'block';
+      
+      // Divide o conteúdo em linhas e remove linhas vazias do final
+      const lines = logElement.textContent.split('\n');
+      
+      // Remove linhas vazias do final
+      while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+        lines.pop();
+      }
+      
+      // Se a última linha não-vazia começa com emoji de download (📥), substitui
+      // Senão, adiciona nova linha
+      if (lines.length > 0 && lines[lines.length - 1].trim().startsWith('📥')) {
+        lines[lines.length - 1] = message;
+      } else {
+        lines.push(message);
+      }
+      
+      logElement.textContent = lines.join('\n');
+      logElement.scrollTop = logElement.scrollHeight;
     }
   }
 
