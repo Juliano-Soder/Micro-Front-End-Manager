@@ -1508,10 +1508,17 @@
     sharedServices.updateLog(logElementId, '');
     
     try {
-      const result = await ipcRenderer.invoke('start-onboarding-project', { projectName });
+      // Detecta se é projeto Java
+      const project = currentOnboardingProjects.find(p => p.name === projectName);
+      const isJavaProject = project && project.type === 'java';
+      
+      // Escolhe o handler correto baseado no tipo
+      const handler = isJavaProject ? 'start-java-onboarding-project' : 'start-onboarding-project';
+      
+      const result = await ipcRenderer.invoke(handler, { projectName });
       
       if (result.success) {
-        sharedServices.updateLog(logElementId, `✅ Projeto iniciado na porta ${result.port}!`);
+        sharedServices.updateLog(logElementId, `✅ Projeto iniciado${result.port ? ` na porta ${result.port}` : ''}!`);
         // O evento 'onboarding-started' irá atualizar a UI automaticamente
       } else {
         sharedServices.updateLog(logElementId, `❌ Erro: ${result.error}`);
@@ -2849,6 +2856,32 @@
         `;
       }
       
+      // HTML para link do Swagger (somente para projetos Java rodando)
+      let swaggerLinkHtml = '';
+      if (project.type === 'java' && project.isRunning) {
+        swaggerLinkHtml = `
+          <a href="http://localhost:${project.port}/swagger-ui.html" 
+             target="_blank" 
+             style="margin-left: 8px; padding: 2px 8px; background: #85ea2d; color: #000; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold;"
+             title="Abrir Swagger UI">
+            📄 Swagger
+          </a>
+        `;
+      }
+      
+      // HTML para link da porta (para todos os projetos rodando)
+      let portLinkHtml = '';
+      if (project.isRunning) {
+        portLinkHtml = `
+          <a href="http://localhost:${project.port}" 
+             target="_blank" 
+             style="margin-left: 8px; padding: 2px 8px; background: #28a745; color: white; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold;"
+             title="Abrir aplicação na porta ${project.port}">
+            🌐 :${project.port}
+          </a>
+        `;
+      }
+      
       div.innerHTML = `
           ${javaIconHtml}
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
@@ -2859,15 +2892,8 @@
                 <span id="onb-react-version-${index}" class="version-badge" style="background: #61dafb; color: #000;">
                   <span class="version-text">${project.type.toUpperCase()}</span>
                 </span>
-                ${project.isRunning ? 
-                  `<span id="onb-port-badge-${index}" class="version-badge" style="background: #28a745; color: white;">
-                    <span class="version-text">Port: ${project.port}</span>
-                  </span>` : ''
-                }
-                ${project.isRunning ? 
-                  sharedServices.createStatusBadge('🚀 Rodando', '#007bff') : 
-                  ''
-                }
+                ${portLinkHtml}
+                ${swaggerLinkHtml}
               </div>
             </div>
             <div style="display: flex; align-items: center; gap: 5px;">
@@ -2888,21 +2914,18 @@
             <img id="onb-folder-icon-${index}" src="pasta.png" class="folder-icon" title="Procurar projeto existente" alt="Procurar pasta" />
           </div>
           
-          <button id="onb-btn-download-${index}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
+          <button id="onb-btn-download-${index}" style="margin-right: 10px; margin-bottom: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
           ${project.type === 'java' ? `
-            <button id="onb-btn-install-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}">Maven Install</button>
-            <button id="onb-btn-test-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}">Run Tests</button>
+            <button id="onb-btn-install-${index}" style="margin-right: 10px; margin-bottom: 10px; ${!project.path ? 'display: none' : ''}">Maven Install</button>
+            <button id="onb-btn-test-${index}" style="margin-right: 10px; margin-bottom: 10px; ${!project.path ? 'display: none' : ''}">Run Tests</button>
           ` : `
-            <button id="onb-btn-install-${index}" style="margin-right: 10px; ${(!project.path || project.isInstalled) ? 'display: none' : ''}">Instalar</button>
+            <button id="onb-btn-install-${index}" style="margin-right: 10px; margin-bottom: 10px; ${(!project.path || project.isInstalled) ? 'display: none' : ''}">Instalar</button>
           `}
-          <button id="onb-btn-start-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}">Iniciar</button>
-          <span id="onb-port-${index}" style="display: none; margin-right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer;" 
-                onclick="openOnboardingProject(${index})" 
-                title="Clique para abrir no navegador"></span>
-          <button id="onb-btn-cancel-${index}" style="display: none; margin-right: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
-          <button id="onb-btn-stop-${index}" style="display: none;">Parar</button>
-          <button id="onb-btn-move-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #5a6c7d; color: white;">Mover para...</button>
-          <button id="onb-btn-delete-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #8b5a5a; color: white;">Deletar</button>
+          <button id="onb-btn-start-${index}" style="margin-right: 10px; margin-bottom: 10px; ${!project.path ? 'display: none' : ''}">Iniciar</button>
+          <button id="onb-btn-cancel-${index}" style="display: none; margin-right: 10px; margin-bottom: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
+          <button id="onb-btn-stop-${index}" style="display: none; margin-bottom: 10px;">Parar</button>
+          <button id="onb-btn-move-${index}" style="margin-right: 10px; margin-bottom: 10px; ${!project.path ? 'display: none' : ''}; background-color: #5a6c7d; color: white;">Mover para...</button>
+          <button id="onb-btn-delete-${index}" style="margin-right: 10px; margin-bottom: 10px; ${!project.path ? 'display: none' : ''}; background-color: #8b5a5a; color: white;">Deletar</button>
           
           <div id="onb-log-${index}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px; white-space: pre-wrap;"></div>
       `;
@@ -2914,6 +2937,50 @@
 
     // Atualiza interface baseado no status (após todos os projetos renderizados)
     updateOnboardingProjectUI();
+  }
+
+  /**
+   * Atualiza apenas os links (porta e Swagger) de um projeto específico sem destruir o HTML
+   */
+  function updateOnboardingSwaggerLink(projectIndex) {
+    const project = currentOnboardingProjects[projectIndex];
+    if (!project) return;
+    
+    const badgesContainer = document.getElementById(`onb-version-badges-${projectIndex}`);
+    if (!badgesContainer) return;
+    
+    // Remove links existentes (se houver)
+    const existingPort = badgesContainer.querySelector('a[title^="Abrir aplicação na porta"]');
+    if (existingPort) {
+      existingPort.remove();
+    }
+    
+    const existingSwagger = badgesContainer.querySelector('a[title="Abrir Swagger UI"]');
+    if (existingSwagger) {
+      existingSwagger.remove();
+    }
+    
+    // Adiciona link da porta se o projeto está rodando
+    if (project.isRunning) {
+      const portLink = document.createElement('a');
+      portLink.href = `http://localhost:${project.port}`;
+      portLink.target = '_blank';
+      portLink.style.cssText = 'margin-left: 8px; padding: 2px 8px; background: #28a745; color: white; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold;';
+      portLink.title = `Abrir aplicação na porta ${project.port}`;
+      portLink.textContent = `🌐 :${project.port}`;
+      badgesContainer.appendChild(portLink);
+    }
+    
+    // Adiciona link do Swagger se o projeto Java está rodando
+    if (project.type === 'java' && project.isRunning) {
+      const swaggerLink = document.createElement('a');
+      swaggerLink.href = `http://localhost:${project.port}/swagger-ui.html`;
+      swaggerLink.target = '_blank';
+      swaggerLink.style.cssText = 'margin-left: 8px; padding: 2px 8px; background: #85ea2d; color: #000; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold;';
+      swaggerLink.title = 'Abrir Swagger UI';
+      swaggerLink.textContent = '📄 Swagger';
+      badgesContainer.appendChild(swaggerLink);
+    }
   }
 
   /**
@@ -3101,6 +3168,8 @@
       const cancelButton = document.getElementById(`onb-btn-cancel-${index}`);
       const moveButton = document.getElementById(`onb-btn-move-${index}`);
       const deleteButton = document.getElementById(`onb-btn-delete-${index}`);
+      const installButton = document.getElementById(`onb-btn-install-${index}`);
+      const testButton = document.getElementById(`onb-btn-test-${index}`);
       const portSpan = document.getElementById(`onb-port-${index}`);
 
       const trimmedPath = (project.path || '').trim();
@@ -3110,6 +3179,12 @@
         if (startButton) startButton.style.display = 'none';
         if (stopButton) stopButton.style.display = 'inline-block';
         if (cancelButton) cancelButton.style.display = 'none';
+        
+        // Esconde Install e Test quando rodando (somente para Java)
+        if (project.type === 'java') {
+          if (installButton) installButton.style.display = 'none';
+          if (testButton) testButton.style.display = 'none';
+        }
         
         // Esconde mover e deletar quando rodando
         if (moveButton) moveButton.style.display = 'none';
@@ -3135,6 +3210,12 @@
         }
         if (stopButton) stopButton.style.display = 'none';
         if (cancelButton) cancelButton.style.display = 'none';
+        
+        // Mostra Install e Test quando parado (somente para Java com path)
+        if (project.type === 'java' && project.path) {
+          if (installButton) installButton.style.display = 'inline-block';
+          if (testButton) testButton.style.display = 'inline-block';
+        }
         
         // Mostra mover e deletar quando parado (se tem caminho)
         if (project.path || project.persistedPath) {
@@ -3584,12 +3665,11 @@
       console.scrollTop = console.scrollHeight;
     }
     
-    if (success) {
-      const moveButton = document.getElementById(`onb-btn-move-${index}`);
-      if (moveButton) {
-        moveButton.disabled = false;
-        moveButton.innerText = 'Mover para...';
-      }
+    // Sempre restaura o botão (sucesso ou cancelamento)
+    const moveButton = document.getElementById(`onb-btn-move-${index}`);
+    if (moveButton) {
+      moveButton.disabled = false;
+      moveButton.innerText = 'Mover para...';
     }
   });
 
@@ -4547,7 +4627,8 @@
       // Atualizar status do projeto
       currentOnboardingProjects[projectIndex].isRunning = true;
       
-      // Atualizar UI para mostrar botão de parar
+      // Atualizar apenas o link do Swagger sem destruir o HTML
+      updateOnboardingSwaggerLink(projectIndex);
       updateOnboardingProjectUI();
       
       const logDiv = document.getElementById(`onb-log-${projectIndex}`);
@@ -4565,12 +4646,32 @@
       // Atualizar status do projeto
       currentOnboardingProjects[projectIndex].isRunning = false;
       
-      // Atualizar UI para mostrar botão de iniciar
+      // Atualizar apenas o link do Swagger sem destruir o HTML
+      updateOnboardingSwaggerLink(projectIndex);
       updateOnboardingProjectUI();
       
       const logDiv = document.getElementById(`onb-log-${projectIndex}`);
       if (logDiv) {
         logDiv.innerHTML += `<div style="color: #ff9500;">⏹️ Projeto ${projectName} parado!</div>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+    }
+  });
+
+  // Handler para projeto que falhou ao iniciar
+  ipcRenderer.on('onboarding-failed', (event, { projectName, error }) => {
+    const projectIndex = currentOnboardingProjects.findIndex(p => p.name === projectName);
+    if (projectIndex >= 0) {
+      // Atualizar status do projeto
+      currentOnboardingProjects[projectIndex].isRunning = false;
+      
+      // Atualizar apenas o link do Swagger sem destruir o HTML
+      updateOnboardingSwaggerLink(projectIndex);
+      updateOnboardingProjectUI();
+      
+      const logDiv = document.getElementById(`onb-log-${projectIndex}`);
+      if (logDiv) {
+        logDiv.innerHTML += `<div style="color: #ff6b35;">❌ Falha ao iniciar: ${error}</div>`;
         logDiv.scrollTop = logDiv.scrollHeight;
       }
     }

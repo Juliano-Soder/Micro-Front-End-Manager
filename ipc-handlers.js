@@ -270,6 +270,8 @@ try {
         },
         (error) => {
           event.sender.send('onboarding-error', { projectName, error });
+          // Envia evento de falha para resetar UI
+          event.sender.send('onboarding-failed', { projectName, error });
         },
         () => {
           event.sender.send('onboarding-started', { projectName });
@@ -279,6 +281,36 @@ try {
       return { success: true };
     } catch (error) {
       console.error('[ONBOARDING] ❌ Erro ao iniciar projeto:', error);
+      // Envia evento de falha para resetar UI
+      event.sender.send('onboarding-failed', { projectName, error: error.message });
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Iniciar projeto Java (Spring Boot)
+  ipcMain.handle('start-java-onboarding-project', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] ☕ Iniciando projeto Java ${projectName}...`);
+    try {
+      await onboardingManager.startJavaProject(
+        projectName,
+        (output) => {
+          event.sender.send('onboarding-output', { projectName, output });
+        },
+        (error) => {
+          event.sender.send('onboarding-error', { projectName, error });
+          // Envia evento de falha para resetar UI
+          event.sender.send('onboarding-failed', { projectName, error });
+        },
+        () => {
+          event.sender.send('onboarding-started', { projectName });
+        }
+      );
+      console.log('[ONBOARDING] ✅ Projeto Java iniciado com sucesso');
+      return { success: true };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao iniciar projeto Java:', error);
+      // Envia evento de falha para resetar UI
+      event.sender.send('onboarding-failed', { projectName, error: error.message });
       return { success: false, error: error.message };
     }
   });
@@ -306,6 +338,30 @@ try {
     } catch (error) {
       console.error('[ONBOARDING] ❌ Erro ao parar projeto:', error);
       return { success: false, error: error.message };
+    }
+  });
+
+  // Salvar variáveis de ambiente do projeto
+  ipcMain.handle('save-onboarding-env', async (event, { projectName, envVars }) => {
+    console.log(`[ONBOARDING] 💾 Salvando variáveis de ambiente para ${projectName}...`);
+    try {
+      const success = onboardingManager.saveProjectEnv(projectName, envVars);
+      return { success };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao salvar variáveis:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Carregar variáveis de ambiente do projeto
+  ipcMain.handle('load-onboarding-env', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] 📥 Carregando variáveis de ambiente para ${projectName}...`);
+    try {
+      const envVars = onboardingManager.loadProjectEnv(projectName);
+      return { success: true, envVars };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao carregar variáveis:', error);
+      return { success: false, error: error.message, envVars: {} };
     }
   });
 

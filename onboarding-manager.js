@@ -14,11 +14,15 @@ class OnboardingManager {
     // Define o arquivo de configuração no AppData (igual aos outros projetos)
     this.userDataPath = app ? app.getPath('userData') : path.join(os.homedir(), 'AppData', 'Roaming', 'micro-front-end-manager');
     this.onboardingFile = path.join(this.userDataPath, 'onboarding-projects.txt');
+    this.envsFile = path.join(this.userDataPath, 'envs.json'); // Arquivo para variáveis de ambiente customizadas do usuário
+    this.defaultEnvsFile = path.join(process.cwd(), 'padroesDeProjetos.json'); // Arquivo SOMENTE LEITURA com envs padrão
     
     // Inicializa o JavaInstaller
     this.javaInstaller = new JavaInstaller();
     
     console.log('[ONBOARDING] 📁 Arquivo de configuração:', this.onboardingFile);
+    console.log('[ONBOARDING] 🔐 Arquivo de envs customizadas (usuário):', this.envsFile);
+    console.log('[ONBOARDING] 📖 Arquivo de envs padrão (somente leitura):', this.defaultEnvsFile);
     this.onboardingProjects = [
       {
         name: 'mp-site-front',
@@ -57,7 +61,7 @@ class OnboardingManager {
         type: 'java',
         startCommand: 'mvn spring-boot:run',
         installCommand: 'mvn clean install',
-        port: 8080,
+        port: 3001,
         description: 'Projeto Backend Java para onboarding - MP Bem Vindo Via Varejo',
         javaVersion: null, // Será carregado dinamicamente do pom.xml
         defaultJavaVersion: null, // Será descoberto do GitHub ou arquivo local
@@ -168,6 +172,159 @@ class OnboardingManager {
    */
   getProjectPath(projectName) {
     return this.projectPaths.get(projectName) || null;
+  }
+
+  /**
+   * Salva variáveis de ambiente customizadas de um projeto (em base64) no envs.json
+   */
+  saveProjectEnv(projectName, envVars) {
+    try {
+      // Carrega arquivo existente ou cria novo
+      let envData = {};
+      if (fs.existsSync(this.envsFile)) {
+        const fileContent = fs.readFileSync(this.envsFile, 'utf8');
+        envData = JSON.parse(fileContent);
+      }
+
+      // Converte variáveis para base64
+      const envBase64 = Buffer.from(JSON.stringify(envVars)).toString('base64');
+      envData[projectName] = envBase64;
+
+      // Salva arquivo
+      if (!fs.existsSync(this.userDataPath)) {
+        fs.mkdirSync(this.userDataPath, { recursive: true });
+      }
+
+      fs.writeFileSync(this.envsFile, JSON.stringify(envData, null, 2));
+      console.log(`[ONBOARDING] ✅ Variáveis customizadas salvas para ${projectName} em envs.json`);
+      return true;
+    } catch (error) {
+      console.error(`[ONBOARDING] ❌ Erro ao salvar variáveis de ambiente:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Carrega variáveis de ambiente padrão de um projeto do arquivo padroesDeProjetos.json (SOMENTE LEITURA)
+   */
+  loadDefaultEnv(projectName) {
+    try {
+      if (!fs.existsSync(this.defaultEnvsFile)) {
+        console.log(`[ONBOARDING] ⚠️ Arquivo padroesDeProjetos.json não encontrado`);
+        return {};
+      }
+
+      const fileContent = fs.readFileSync(this.defaultEnvsFile, 'utf8');
+      const defaultsData = JSON.parse(fileContent);
+
+      if (!defaultsData[projectName] || !defaultsData[projectName].envVarsBase64) {
+        console.log(`[ONBOARDING] ⚠️ Sem variáveis padrão para ${projectName}`);
+        return {};
+      }
+
+      // Decodifica base64
+      const envVarsBase64 = defaultsData[projectName].envVarsBase64;
+      if (!envVarsBase64 || envVarsBase64.trim() === '') {
+        console.log(`[ONBOARDING] ⚠️ Base64 vazio para ${projectName}`);
+        return {};
+      }
+
+      const envString = Buffer.from(envVarsBase64, 'base64').toString('utf8');
+      
+      // Parseia string semicolon-separated ou JSON
+      let envVars;
+      try {
+        // Tenta JSON primeiro (formato esperado)
+        envVars = JSON.parse(envString);
+      } catch (jsonError) {
+        // Se falhar, assume formato semicolon-separated: "KEY1=val1;KEY2=val2"
+        envVars = {};
+        const pairs = envString.split(';').filter(p => p.trim());
+        pairs.forEach(pair => {
+          const [key, ...valueParts] = pair.split('=');
+          if (key && valueParts.length > 0) {
+            envVars[key.trim()] = valueParts.join('=').trim();
+          }
+        });
+      }
+      
+      console.log(`[ONBOARDING] ✅ Variáveis padrão carregadas para ${projectName}`);
+      return envVars;
+    } catch (error) {
+      console.error(`[ONBOARDING] ❌ Erro ao carregar variáveis padrão:`, error);
+      return {};
+    }
+  }
+
+  /**
+   * Carrega variáveis de ambiente de um projeto (decodifica base64)
+   * Prioridade: 1) envs.json (usuário customizado), 2) padroesDeProjetos.json (somente leitura)
+   */
+  loadProjectEnv(projectName) {
+    try {
+      // Tenta carregar configuração customizada do usuário primeiro (envs.json no AppData)
+      if (fs.existsSync(this.envsFile)) {
+        const fileContent = fs.readFileSync(this.envsFile, 'utf8');
+        const envData = JSON.parse(fileContent);
+
+        if (envData[projectName]) {
+          // Decodifica base64
+          const envString = Buffer.from(envData[projectName], 'base64').toString('utf8');
+          
+          // Parseia string semicolon-separated ou JSON
+          let envVars;
+          try {
+            // Tenta JSON primeiro (formato esperado)
+            envVars = JSON.parse(envString);
+          } catch (jsonError) {
+            // Se falhar, assume formato semicolon-separated: "KEY1=val1;KEY2=val2"
+            envVars = {};
+            const pairs = envString.split(';').filter(p => p.trim());
+            pairs.forEach(pair => {
+              const [key, ...valueParts] = pair.split('=');
+              if (key && valueParts.length > 0) {
+                envVars[key.trim()] = valueParts.join('=').trim();
+              }
+            });
+          }
+          
+          console.log(`[ONBOARDING] ✅ Variáveis customizadas carregadas de envs.json para ${projectName}`);
+          return envVars;
+        }
+      }
+
+      // Se não há configuração customizada, carrega padrões do padroesDeProjetos.json
+      console.log(`[ONBOARDING] ⚠️ Sem variáveis customizadas para ${projectName}, carregando padrões...`);
+      return this.loadDefaultEnv(projectName);
+      
+    } catch (error) {
+      console.error(`[ONBOARDING] ❌ Erro ao carregar variáveis de ambiente:`, error);
+      return {};
+    }
+  }
+
+  /**
+   * Remove variáveis de ambiente customizadas de um projeto (volta a usar padrões)
+   */
+  deleteProjectEnv(projectName) {
+    try {
+      if (!fs.existsSync(this.envsFile)) {
+        console.log(`[ONBOARDING] ⚠️ Arquivo envs.json não existe, nada a remover`);
+        return true;
+      }
+
+      const fileContent = fs.readFileSync(this.envsFile, 'utf8');
+      const envData = JSON.parse(fileContent);
+
+      delete envData[projectName];
+
+      fs.writeFileSync(this.envsFile, JSON.stringify(envData, null, 2));
+      console.log(`[ONBOARDING] ✅ Variáveis customizadas removidas para ${projectName} - voltará a usar padrões`);
+      return true;
+    } catch (error) {
+      console.error(`[ONBOARDING] ❌ Erro ao remover variáveis de ambiente:`, error);
+      return false;
+    }
   }
 
   /**
@@ -528,6 +685,173 @@ class OnboardingManager {
       const errorMsg = `Erro ao preparar ambiente Java: ${error.message}`;
       console.error(`[ONBOARDING] ❌ ${errorMsg}`);
       if (onProgress) onProgress(`\n❌ ${errorMsg}\n`);
+      if (onError) onError(errorMsg);
+      throw error;
+    }
+  }
+
+  /**
+   * Inicia um projeto Java Spring Boot usando Java portátil
+   * Executa: mvn spring-boot:run
+   */
+  async startJavaProject(projectName, onOutput, onError, onSuccess) {
+    const projectPath = this.getProjectPath(projectName);
+    if (!projectPath) {
+      throw new Error(`Caminho do projeto ${projectName} não encontrado`);
+    }
+
+    console.log(`[ONBOARDING] 🚀 Iniciando projeto Java ${projectName}...`);
+
+    // Verifica se já está rodando e para processo anterior (igual ao PAS/PAMP)
+    if (this.activeProcesses.has(projectName)) {
+      console.log(`[ONBOARDING] ⚠️ Projeto ${projectName} já está rodando - matando processo anterior...`);
+      if (onOutput) onOutput('\n⚠️ Projeto já rodando - parando processo anterior...\n');
+      
+      // Obtém porta do projeto
+      const project = this.onboardingProjects.find(p => p.name === projectName);
+      const port = project ? project.port : null;
+      
+      // Para o processo anterior
+      await this.stopProject(projectName, port);
+      
+      // Aguarda 1 segundo para garantir que o processo foi encerrado
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    // Obtém porta do projeto e mata qualquer processo usando ela
+    const project = this.onboardingProjects.find(p => p.name === projectName);
+    if (project && project.port) {
+      console.log(`[ONBOARDING] 🔌 Verificando se porta ${project.port} está livre...`);
+      if (onOutput) onOutput(`\n🔌 Verificando porta ${project.port}...\n`);
+      
+      await this.killPortBeforeStart(project.port, onOutput);
+      
+      // Aguarda 1 segundo para garantir que a porta foi liberada
+      console.log(`[ONBOARDING] ⏳ Aguardando 1 segundo para garantir liberação da porta...`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    try {
+      // 1. Garante que Java e Maven estão instalados
+      if (onOutput) onOutput('\n🔍 Verificando dependências Java e Maven...\n');
+      
+      const javaVersion = await this.javaInstaller.ensureJavaAndMaven(projectPath, (msg) => {
+        if (onOutput) onOutput(msg);
+      });
+
+      // 2. Obtém caminhos dos binários portáteis
+      const { javaHome, mvnBin } = this.javaInstaller.getJavaAndMavenPaths(javaVersion);
+      
+      console.log(`[ONBOARDING] 🔧 Usando Java: ${javaHome}`);
+      console.log(`[ONBOARDING] 🔧 Usando Maven: ${mvnBin}`);
+      
+      // Carrega variáveis de ambiente do projeto
+      const projectEnv = this.loadProjectEnv(projectName);
+      const hasEnvVars = Object.keys(projectEnv).length > 0;
+      
+      if (onOutput) {
+        onOutput(`\n🔧 Java ${javaVersion}: ${javaHome}\n`);
+        onOutput(`🔧 Maven: ${mvnBin}\n`);
+        if (hasEnvVars) {
+          onOutput(`🔐 Variáveis de ambiente: ${Object.keys(projectEnv).length} configuradas\n`);
+        } else {
+          onOutput(`⚠️ Nenhuma variável de ambiente configurada\n`);
+        }
+        onOutput('\n🚀 Executando mvn spring-boot:run...\n\n');
+      }
+
+      // 3. Executa Spring Boot com Java portátil e variáveis de ambiente
+      const env = { ...process.env };
+      env.JAVA_HOME = javaHome;
+      env.PATH = `${path.join(javaHome, 'bin')}${path.delimiter}${env.PATH}`;
+      
+      // Adiciona variáveis de ambiente do projeto
+      Object.assign(env, projectEnv);
+      
+      const springBootProcess = spawn(mvnBin, ['spring-boot:run'], {
+        cwd: projectPath,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: true,
+        env: env
+      });
+
+      // Registra o processo como ativo
+      this.activeProcesses.set(projectName, springBootProcess);
+      console.log(`[ONBOARDING] ✅ Processo ${projectName} registrado como ativo`);
+
+      let buffer = ''; // Buffer para acumular linhas parciais
+
+      springBootProcess.stdout.on('data', (data) => {
+        const chunk = data.toString();
+        
+        if (onOutput) {
+          // Adiciona ao buffer
+          buffer += chunk;
+          
+          // Processa linhas completas
+          const lines = buffer.split('\n');
+          
+          // Mantém a última linha incompleta no buffer
+          buffer = lines.pop() || '';
+          
+          // Envia cada linha completa com \n
+          lines.forEach(line => {
+            if (line.trim()) {
+              onOutput(line + '\n');
+            }
+          });
+        }
+
+        // Detecta quando a aplicação está pronta
+        if (chunk.includes('Started') || chunk.includes('Application startup')) {
+          console.log(`[ONBOARDING] ✅ Aplicação ${projectName} iniciada com sucesso`);
+          if (onSuccess) onSuccess();
+        }
+      });
+
+      springBootProcess.stderr.on('data', (data) => {
+        const chunk = data.toString();
+        
+        if (onOutput) {
+          // stderr também pode ter múltiplas linhas
+          const lines = chunk.split('\n').filter(l => l.trim());
+          lines.forEach(line => onOutput(line + '\n'));
+        }
+      });
+
+      springBootProcess.on('close', (code) => {
+        console.log(`[ONBOARDING] 🏁 Processo Java finalizado com código: ${code}`);
+        
+        // Remove do registro de processos ativos
+        this.activeProcesses.delete(projectName);
+        
+        if (code !== 0 && code !== null) {
+          const errorMsg = `\n❌ Aplicação encerrada com erro (código ${code})\n`;
+          console.error(`[ONBOARDING] ${errorMsg}`);
+          if (onOutput) onOutput(errorMsg);
+          if (onError) onError(`Processo encerrado com código ${code}`);
+        } else {
+          const msg = '\n⏹️ Aplicação encerrada\n';
+          console.log(`[ONBOARDING] ${msg}`);
+          if (onOutput) onOutput(msg);
+        }
+      });
+
+      springBootProcess.on('error', (error) => {
+        const errorMsg = `Erro ao executar Spring Boot: ${error.message}`;
+        console.error(`[ONBOARDING] ❌ ${errorMsg}`);
+        
+        // Remove do registro de processos ativos
+        this.activeProcesses.delete(projectName);
+        
+        if (onOutput) onOutput(`\n❌ ${errorMsg}\n`);
+        if (onError) onError(errorMsg);
+      });
+
+    } catch (error) {
+      const errorMsg = `Erro ao preparar ambiente Java: ${error.message}`;
+      console.error(`[ONBOARDING] ❌ ${errorMsg}`);
+      if (onOutput) onOutput(`\n❌ ${errorMsg}\n`);
       if (onError) onError(errorMsg);
       throw error;
     }
@@ -1069,35 +1393,14 @@ class OnboardingManager {
    * Libera porta antes de iniciar projeto (igual ao PAS)
    */
   async killPortBeforeStart(port, onOutput) {
-    return new Promise((resolve) => {
-      console.log(`[ONBOARDING] 🔌 Verificando e liberando porta ${port}...`);
-      
-      if (onOutput) {
-        onOutput(`🔌 Liberando porta ${port} se estiver em uso...`);
-      }
-      
-      const { exec } = require('child_process');
-      
-      exec(`npx kill-port ${port}`, (err, stdout, stderr) => {
-        if (err) {
-          console.log(`[ONBOARDING] ⚠️ Erro ao liberar porta ${port}:`, err.message);
-          if (onOutput) {
-            onOutput(`⚠️ Porta ${port} pode não estar em uso ou erro ao liberar: ${err.message}`);
-          }
-        } else {
-          console.log(`[ONBOARDING] ✅ Porta ${port} liberada com sucesso`);
-          if (onOutput) {
-            onOutput(`✅ Porta ${port} liberada com sucesso!`);
-          }
-        }
-        
-        // Aguarda um pouco para garantir que a porta foi liberada
-        setTimeout(() => {
-          console.log(`[ONBOARDING] ⏱️ Aguardando liberação da porta ${port}...`);
-          resolve();
-        }, 1000);
-      });
-    });
+    console.log(`[ONBOARDING] 🔌 Verificando e liberando porta ${port}...`);
+    
+    if (onOutput) {
+      onOutput(`🔌 Liberando porta ${port} se estiver em uso...\n`);
+    }
+    
+    // Usa killProcessByPort que funciona com netstat/taskkill nativos
+    return this.killProcessByPort(port, onOutput);
   }
 
   /**
