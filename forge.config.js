@@ -7,10 +7,24 @@ module.exports = {
     icon: './OIP',
     // Output para caminho mais curto para evitar erro de path
     out: 'C:\\temp\\mfe-build',
-    // Removido: pasta nodes não deve ser empacotada - usuário baixa via app
-    // extraResource: [
-    //   './nodes'
-    // ],
+    // Ignorar pastas grandes que são baixadas sob demanda
+    ignore: [
+      /^\/nodes\/windows\/node-v.*/,
+      /^\/nodes\/linux\/node-v.*/,
+      /^\/nodes\/mac\/node-v.*/,
+      /^\/java\/.*/,
+      /^\/undefined\/.*/,
+      /^\/\.git/,
+      /^\/out/,
+      /^\/dist/,
+      /.*\.md$/,
+      /^\/BUILD.*\.md$/,
+      /^\/RELEASE-NOTES.*\.md$/,
+      /^\/CHANGELOG.*\.md$/,
+      /build-.*\.js$/,
+      /build-.*\.bat$/,
+      /build-.*\.ps1$/,
+    ],
     win32metadata: {
       CompanyName: "Grupo Casas Bahia",
       FileDescription: "Gerenciador de Micro Front-Ends",
