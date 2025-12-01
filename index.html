@@ -1822,6 +1822,140 @@
     }, 3000);
   }
 
+  // ===== FUNÇÕES PARA TOOLTIP DO ONBOARDING =====
+  const onboardingTooltipTimeouts = {};
+
+  function showOnboardingTooltip(event, projectIndex) {
+    // Cancela qualquer timeout pendente
+    if (onboardingTooltipTimeouts[projectIndex]) {
+      clearTimeout(onboardingTooltipTimeouts[projectIndex]);
+      delete onboardingTooltipTimeouts[projectIndex];
+    }
+
+    const tooltip = document.getElementById(`onb-tooltip-${projectIndex}`);
+    if (!tooltip) return;
+
+    // Atualiza o link do tooltip baseado no mp-site-front
+    updateOnboardingTooltipLink(projectIndex);
+
+    // Posiciona tooltip próximo ao ícone
+    const rect = event.target.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    
+    let left = rect.left - tooltipRect.width - 10;
+    let top = rect.top;
+    
+    if (left < 0) {
+      left = rect.right + 10;
+    }
+    
+    if (top + tooltipRect.height > window.innerHeight) {
+      top = window.innerHeight - tooltipRect.height - 10;
+    }
+
+    tooltip.style.left = Math.max(10, left) + 'px';
+    tooltip.style.top = Math.max(10, top) + 'px';
+    tooltip.classList.add('show');
+  }
+
+  function hideOnboardingTooltip(projectIndex) {
+    onboardingTooltipTimeouts[projectIndex] = setTimeout(() => {
+      const tooltip = document.getElementById(`onb-tooltip-${projectIndex}`);
+      if (tooltip) {
+        tooltip.classList.remove('show');
+      }
+      delete onboardingTooltipTimeouts[projectIndex];
+    }, 200);
+  }
+
+  function keepOnboardingTooltipVisible(projectIndex) {
+    if (onboardingTooltipTimeouts[projectIndex]) {
+      clearTimeout(onboardingTooltipTimeouts[projectIndex]);
+      delete onboardingTooltipTimeouts[projectIndex];
+    }
+  }
+
+  function hideOnboardingTooltipDelayed(projectIndex) {
+    onboardingTooltipTimeouts[projectIndex] = setTimeout(() => {
+      const tooltip = document.getElementById(`onb-tooltip-${projectIndex}`);
+      if (tooltip) {
+        tooltip.classList.remove('show');
+      }
+      delete onboardingTooltipTimeouts[projectIndex];
+    }, 300);
+  }
+
+  function updateOnboardingTooltipLink(projectIndex) {
+    const linkElement = document.getElementById(`onb-tooltip-link-${projectIndex}`);
+    if (!linkElement) return;
+
+    // Busca o projeto mp-site-front na lista de projetos onboarding
+    const siteFrontProject = currentOnboardingProjects.find(p => p.name === 'mp-site-front');
+    
+    if (siteFrontProject && siteFrontProject.path) {
+      // Site front encontrado - habilita o link
+      linkElement.style.opacity = '1';
+      linkElement.style.pointerEvents = 'auto';
+      linkElement.style.cursor = 'pointer';
+      linkElement.innerHTML = '🔗 Abrir arquivo .env';
+      linkElement.onclick = () => openSiteFrontEnvFile(siteFrontProject.path);
+    } else {
+      // Site front não encontrado - desabilita o link
+      linkElement.style.opacity = '0.5';
+      linkElement.style.pointerEvents = 'none';
+      linkElement.style.cursor = 'not-allowed';
+      linkElement.innerHTML = '🔗 Abrir arquivo .env (mp-site-front não encontrado)';
+      linkElement.onclick = null;
+    }
+  }
+
+  function openSiteFrontEnvFile(siteFrontPath) {
+    if (window.openingSiteFrontEnvFile) {
+      console.log('Já está abrindo arquivo .env, aguarde...');
+      return;
+    }
+
+    window.openingSiteFrontEnvFile = true;
+
+    // Desabilita o link do tooltip
+    const linkElement = document.getElementById(`onb-tooltip-link-0`); // mp-bem-vindo é sempre index 0
+    if (linkElement) {
+      linkElement.style.opacity = '0.5';
+      linkElement.style.cursor = 'not-allowed';
+      linkElement.style.pointerEvents = 'none';
+      linkElement.innerHTML = '⏳ Abrindo arquivo...';
+    }
+
+    // Constrói o caminho do arquivo .env
+    let envFilePath;
+    if (siteFrontPath.includes('\\')) {
+      // Windows
+      envFilePath = siteFrontPath + '\\.env';
+    } else {
+      // Linux/macOS
+      envFilePath = siteFrontPath + '/.env';
+    }
+
+    console.log(`[ONBOARDING] Abrindo arquivo .env: ${envFilePath}`);
+
+    // Envia comando para abrir o arquivo
+    ipcRenderer.send('open-environment-file', { 
+      filePath: envFilePath,
+      mpPampPath: siteFrontPath // Compatibilidade com handler existente
+    });
+
+    // Reabilita o link após 3 segundos
+    setTimeout(() => {
+      window.openingSiteFrontEnvFile = false;
+      if (linkElement) {
+        linkElement.style.opacity = '1';
+        linkElement.style.cursor = 'pointer';
+        linkElement.style.pointerEvents = 'auto';
+        linkElement.innerHTML = '🔗 Abrir arquivo .env';
+      }
+    }, 3000);
+  }
+
   // ===== FUNÇÃO PARA ATUALIZAR BRANCH (GIT PULL) =====
   function handleUpdateBranch(projectIndex, projectName, projectPath, isPamp) {
     console.log(`[DEBUG] handleUpdateBranch chamada:`, { projectIndex, projectName, projectPath, isPamp });
@@ -2873,10 +3007,10 @@
       let portLinkHtml = '';
       if (project.isRunning) {
         portLinkHtml = `
-          <a href="http://localhost:${project.port}" 
-             target="_blank" 
-             style="margin-left: 8px; padding: 2px 8px; background: #28a745; color: white; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold;"
-             title="Abrir aplicação na porta ${project.port}">
+          <a href="#" 
+             onclick="require('electron').shell.openExternal('http://localhost:${project.port}'); return false;"
+             style="margin-left: 8px; padding: 2px 8px; background: #28a745; color: white; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold; cursor: pointer;"
+             title="Abrir aplicação na porta ${project.port} no navegador">
             🌐 :${project.port}
           </a>
         `;
@@ -2906,6 +3040,22 @@
                    style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" 
                    title="Abrir terminal na pasta do projeto" 
                    alt="Terminal" />
+              ${project.name === 'mp-bem-vindo' ? `
+              <div class="tooltip" onmouseenter="showOnboardingTooltip(event, ${index})" onmouseleave="hideOnboardingTooltip(${index})">
+                <span class="help-icon" title="Clique para ajuda sobre configuração do Front-End">ⓘ</span>
+                <span class="tooltiptext" id="onb-tooltip-${index}" onmouseenter="keepOnboardingTooltipVisible(${index})" onmouseleave="hideOnboardingTooltipDelayed(${index})">
+                  <strong>🔧 Configuração para desenvolvimento local:</strong><br><br>
+                  Para que o <strong>mp-site-front</strong> consiga se conectar ao <strong>mp-bem-vindo</strong> localmente, você precisa alterar a URL da API.<br><br>
+                  <strong>📍 Caminho:</strong> <code>mp-site-front/.env</code><br><br>
+                  <strong>📝 Como alterar:</strong><br>
+                  1. Abra o arquivo <code>.env</code> na raiz do projeto mp-site-front<br>
+                  2. Encontre a variável: <code>REACT_APP_API_BASE_URL_MP_BEM_VINDO</code><br>
+                  3. Substitua o valor atual por: <code>http://localhost:3001</code><br>
+                  4. Salve o arquivo e reinicie o mp-site-front<br><br>
+                  <span class="tooltip-link" id="onb-tooltip-link-${index}" style="opacity: 0.5; pointer-events: none;">🔗 Abrir arquivo .env (mp-site-front não encontrado)</span>
+                </span>
+              </div>
+              ` : ''}
             </div>
           </div>
           
@@ -2963,10 +3113,14 @@
     // Adiciona link da porta se o projeto está rodando
     if (project.isRunning) {
       const portLink = document.createElement('a');
-      portLink.href = `http://localhost:${project.port}`;
-      portLink.target = '_blank';
-      portLink.style.cssText = 'margin-left: 8px; padding: 2px 8px; background: #28a745; color: white; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold;';
-      portLink.title = `Abrir aplicação na porta ${project.port}`;
+      portLink.href = '#';
+      portLink.onclick = (e) => {
+        e.preventDefault();
+        require('electron').shell.openExternal(`http://localhost:${project.port}`);
+        return false;
+      };
+      portLink.style.cssText = 'margin-left: 8px; padding: 2px 8px; background: #28a745; color: white; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold; cursor: pointer;';
+      portLink.title = `Abrir aplicação na porta ${project.port} no navegador`;
       portLink.textContent = `🌐 :${project.port}`;
       badgesContainer.appendChild(portLink);
     }
@@ -3001,6 +3155,14 @@
     // Input blur
     onbInput.addEventListener('blur', () => {
       handleOnboardingPathChange(project, index, onbInput.value.trim());
+      
+      // Se for o mp-site-front, atualiza o tooltip do mp-bem-vindo
+      if (project.name === 'mp-site-front') {
+        const bemVindoIndex = currentOnboardingProjects.findIndex(p => p.name === 'mp-bem-vindo');
+        if (bemVindoIndex >= 0) {
+          updateOnboardingTooltipLink(bemVindoIndex);
+        }
+      }
     });
 
     // Botões
