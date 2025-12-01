@@ -1,7 +1,7 @@
 {
   "name": "micro-front-end-manager",
-  "version": "0.0.12",
-  "description": "Front-end Manager para projetos internos do Grupo Casas Bahia.",
+  "version": "0.0.13",
+  "description": "Gerenciador de Projetos para projetos internos do Grupo Casas Bahia.",
   "main": "main.js",
   "scripts": {
     "start": "electron-forge start",
