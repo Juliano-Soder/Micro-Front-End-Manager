@@ -1,10 +1,60 @@
-# Front-End Manager
+# Gerenciador de Projetos
 
-**Front-End Manager** é um aplicativo desenvolvido em Electron para gerenciar projetos de micro front-ends. Ele permite clonar, iniciar, parar e excluir projetos de forma simples e eficiente, além de verificar dependências como Node.js e Angular CLI.
+**Gerenciador de Projetos** é um aplicativo desenvolvido em Electron para gerenciar projetos de desenvolvimento. Ele permite clonar, iniciar, parar e excluir projetos de forma simples e eficiente, além de verificar dependências como Node.js, Angular CLI, Java e Maven.
 
 ---
 
 ## 📝 Notas de Versão
+
+### Versão 0.0.13 - Dezembro 2025
+
+**🚀 Sistema de Onboarding Completo para Java e React:**
+- **Variáveis de Ambiente para Java**: Sistema dual-file com padrões e customizações
+  * Arquivo padrão: `padroesDeProjetos.json` (read-only, no diretório do app)
+  * Arquivo customizado: `envs.json` (editável, em AppData do usuário)
+  * Suporte a formato base64 e semicolon-separated
+  * Sistema de prioridade: customizações > padrões
+  * 200+ variáveis pré-configuradas para mp-bem-vindo (Spring Boot)
+
+**🔗 Links Dinâmicos e Navegação Inteligente:**
+- **Badge de Porta**: Link clicável (🌐 :porta) abre aplicação no navegador padrão
+- **Badge Swagger**: Link para documentação API (apenas projetos Java)
+- **Links Retráteis**: Aparecem/desaparecem com setas › ‹ junto com outros badges
+- **Navegação Externa**: Usa `shell.openExternal()` para melhor UX
+
+**ℹ️ Tooltip Informativo de Configuração:**
+- **Para mp-bem-vindo**: Guia de configuração do mp-site-front
+  * Explica como conectar front-end ao back-end local
+  * Instruções para alterar `REACT_APP_API_BASE_URL_MP_BEM_VINDO` no arquivo `.env`
+  * Link inteligente: habilita automaticamente quando mp-site-front está configurado
+  * Abre arquivo `.env` no VS Code com um clique
+  * Ícone ⓘ no canto direito (mesmo padrão do PAMP)
+
+**🐛 Correções Críticas de UX:**
+- **Consoles Preservados**: Logs não fecham mais ao atualizar estado de outros projetos
+  * Substituído re-render completo por atualização cirúrgica de elementos
+  * Função `updateOnboardingSwaggerLink()` atualiza apenas links específicos
+  * Mantém histórico de logs durante todo ciclo de vida dos projetos
+  
+**🔧 Melhorias de Port Management:**
+- **Port Killing Nativo**: Usa comandos Windows (netstat + taskkill) ao invés de npx
+- **Correção de Porta**: mp-bem-vindo agora usa porta 3001 (antes 8080)
+- **Evento de Falha**: `onboarding-failed` para resetar UI corretamente em erros
+- **Delay Otimizado**: 1000ms para liberação de porta antes de iniciar
+
+**🎨 Refinamentos Visuais:**
+- Removido badge "🚀 Rodando" redundante
+- Removido badge de porta duplicado
+- Badge de porta substituído por link clicável
+- Swagger link posicionado após badge de tipo de projeto
+- Margem inferior de 10px em todos botões de onboarding
+
+**📛 Rebranding:**
+- Nome atualizado: "Front-End Manager" → "Gerenciador de Projetos"
+- Mantém compatibilidade total com configurações existentes
+- Paths internos inalterados para não quebrar dados do usuário
+
+---
 
 ### Versão 0.0.12 - Novembro 2025
 
