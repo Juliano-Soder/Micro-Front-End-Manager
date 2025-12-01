@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Front-end Manager</title>
+    <title>Gerenciador de Projetos</title>
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
       /* Aplica a fonte Fira Code em todo o app */
@@ -19,8 +19,14 @@
         transition: background-color 0.3s ease, color 0.3s ease;
       }
 
+      /* Container de onboarding com mesmo layout do PAS/PAMP */
       #onboarding-mfes #onboarding-content {
         width: 100% !important;
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: space-evenly;
+        margin-top: 15px;
       }
 
       @media screen and (max-width: 801px) {
@@ -625,7 +631,7 @@
 </head>
 <body>
   <div class="main-title">
-    Front-end Manager <span style="font-size: 14px; color: #666;">v0.0.12</span>
+    Gerenciador de Projetos <span style="font-size: 14px; color: #666;">v0.0.12</span>
     <span id="dependencies-status" style="font-size: 12px; margin-left: 10px;"></span>
     <span style="font-size: 10px; margin-left: 20px; color: #666; font-style: italic;" title="Atalhos para reiniciar">
       💡 Ctrl+R ou F5 = Reiniciar
@@ -959,6 +965,56 @@
   // Estado de visibilidade do onboarding
   let onboardingVisible = false;
   let onboardingNodeConfigVisible = false;
+
+  // =============================================================================
+  // LISTENER PARA PROJETOS ONBOARDING (DEVE SER REGISTRADO CEDO!)
+  // =============================================================================
+  
+  // Listener para projetos onboarding pré-carregados
+  ipcRenderer.on('onboarding-projects-loaded', async (event, projects) => {
+    console.log('[ONBOARDING] 📦 Projetos onboarding recebidos do cache:', projects);
+    currentOnboardingProjects = projects;
+    
+    // Busca versões Java para projetos Java
+    for (const project of currentOnboardingProjects) {
+      if (project.type === 'java') {
+        console.log(`[ONBOARDING] 🔍 Buscando versão Java para ${project.name}...`);
+        try {
+          const javaResult = await ipcRenderer.invoke('get-onboarding-java-version', {
+            projectName: project.name
+          });
+          if (javaResult.success && javaResult.javaVersion) {
+            project.javaVersion = javaResult.javaVersion;
+            console.log(`[ONBOARDING] ✅ Versão Java encontrada: ${javaResult.javaVersion}`);
+          }
+        } catch (error) {
+          console.warn(`[ONBOARDING] ⚠️ Erro ao buscar versão Java para ${project.name}:`, error);
+        }
+      }
+    }
+    
+    // Aguarda o DOM estar pronto antes de renderizar
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        renderOnboardingProjects(currentOnboardingProjects);
+        updateOnboardingCounter();
+      });
+    } else {
+      // DOM já está pronto
+      renderOnboardingProjects(currentOnboardingProjects);
+      updateOnboardingCounter();
+    }
+  });
+  
+  // Função helper para atualizar contador
+  function updateOnboardingCounter() {
+    const onboardingCount = currentOnboardingProjects.length;
+    const countElement = document.getElementById('onboarding-count');
+    if (countElement) {
+      countElement.textContent = onboardingCount.toString();
+      console.log('[ONBOARDING] 🔢 Contador atualizado para:', onboardingCount);
+    }
+  }
 
   // =============================================================================
   // FUNÇÕES ONBOARDING NODE CONFIGURATION
@@ -1354,6 +1410,91 @@
   }
 
   /**
+   * Roda Maven Install (mvn clean install -DskipTests)
+   */
+  async function runMavenInstall(projectName, index) {
+    const logElementId = `onb-log-${index}`;
+    const buttonId = `onb-btn-install-${index}`;
+    
+    sharedServices.updateButton(buttonId, '⏳ Maven Install...', true);
+    sharedServices.updateLog(logElementId, '\n🔨 Executando mvn clean install -DskipTests...\n');
+    
+    try {
+      // Listener para progresso
+      const progressListener = (event, data) => {
+        if (data.projectName === projectName) {
+          // Se é mensagem de download (com %), atualiza mesma linha
+          if (data.message.includes('📥') && data.message.includes('%')) {
+            sharedServices.updateLogSameLine(logElementId, data.message);
+          } else {
+            sharedServices.updateLog(logElementId, data.message, true);
+          }
+        }
+      };
+      
+      ipcRenderer.on('maven-install-progress', progressListener);
+      
+      const result = await ipcRenderer.invoke('maven-install-onboarding', { projectName });
+      
+      ipcRenderer.removeListener('maven-install-progress', progressListener);
+      
+      if (result.success) {
+        sharedServices.updateLog(logElementId, '\n✅ PROCESSO CONCLUÍDO COM SUCESSO\n', true);
+        // Não recarrega para não fechar o console
+        // await loadOnboardingProjects();
+      } else {
+        sharedServices.updateLog(logElementId, `\n❌ PROCESSO FALHOU: ${result.error}\n`, true);
+      }
+    } catch (error) {
+      sharedServices.updateLog(logElementId, `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n❌ ERRO: ${error.message}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`, true);
+    } finally {
+      sharedServices.updateButton(buttonId, 'Maven Install', false);
+    }
+  }
+
+  /**
+   * Roda Maven Tests (mvn test)
+   */
+  async function runMavenTests(projectName, index) {
+    const logElementId = `onb-log-${index}`;
+    const buttonId = `onb-btn-test-${index}`;
+    
+    sharedServices.updateButton(buttonId, '⏳ Running Tests...', true);
+    sharedServices.updateLog(logElementId, '\n🧪 Executando mvn test...\n');
+    
+    try {
+      // Listener para progresso
+      const progressListener = (event, data) => {
+        if (data.projectName === projectName) {
+          // Se é mensagem de download (com %), atualiza mesma linha
+          if (data.message.includes('📥') && data.message.includes('%')) {
+            sharedServices.updateLogSameLine(logElementId, data.message);
+          } else {
+            sharedServices.updateLog(logElementId, data.message, true);
+          }
+        }
+      };
+      
+      ipcRenderer.on('maven-test-progress', progressListener);
+      
+      const result = await ipcRenderer.invoke('run-onboarding-tests', { projectName });
+      
+      ipcRenderer.removeListener('maven-test-progress', progressListener);
+      
+      if (result.success) {
+        sharedServices.updateLog(logElementId, '\n✅ TESTES CONCLUÍDOS COM SUCESSO\n', true);
+      } else {
+        sharedServices.updateLog(logElementId, `\n❌ TESTES FALHARAM: ${result.error}\n`, true);
+      }
+    } catch (error) {
+      sharedServices.updateLog(logElementId, `\n❌ ERRO: ${error.message}\n`, true);
+    } finally {
+      sharedServices.updateButton(buttonId, 'Run Tests', false);
+    }
+  }
+
+
+  /**
    * Inicia projeto onboarding
    */
   async function startOnboardingProject(projectName, index) {
@@ -1367,10 +1508,17 @@
     sharedServices.updateLog(logElementId, '');
     
     try {
-      const result = await ipcRenderer.invoke('start-onboarding-project', { projectName });
+      // Detecta se é projeto Java
+      const project = currentOnboardingProjects.find(p => p.name === projectName);
+      const isJavaProject = project && project.type === 'java';
+      
+      // Escolhe o handler correto baseado no tipo
+      const handler = isJavaProject ? 'start-java-onboarding-project' : 'start-onboarding-project';
+      
+      const result = await ipcRenderer.invoke(handler, { projectName });
       
       if (result.success) {
-        sharedServices.updateLog(logElementId, `✅ Projeto iniciado na porta ${result.port}!`);
+        sharedServices.updateLog(logElementId, `✅ Projeto iniciado${result.port ? ` na porta ${result.port}` : ''}!`);
         // O evento 'onboarding-started' irá atualizar a UI automaticamente
       } else {
         sharedServices.updateLog(logElementId, `❌ Erro: ${result.error}`);
@@ -1674,6 +1822,140 @@
     }, 3000);
   }
 
+  // ===== FUNÇÕES PARA TOOLTIP DO ONBOARDING =====
+  const onboardingTooltipTimeouts = {};
+
+  function showOnboardingTooltip(event, projectIndex) {
+    // Cancela qualquer timeout pendente
+    if (onboardingTooltipTimeouts[projectIndex]) {
+      clearTimeout(onboardingTooltipTimeouts[projectIndex]);
+      delete onboardingTooltipTimeouts[projectIndex];
+    }
+
+    const tooltip = document.getElementById(`onb-tooltip-${projectIndex}`);
+    if (!tooltip) return;
+
+    // Atualiza o link do tooltip baseado no mp-site-front
+    updateOnboardingTooltipLink(projectIndex);
+
+    // Posiciona tooltip próximo ao ícone
+    const rect = event.target.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    
+    let left = rect.left - tooltipRect.width - 10;
+    let top = rect.top;
+    
+    if (left < 0) {
+      left = rect.right + 10;
+    }
+    
+    if (top + tooltipRect.height > window.innerHeight) {
+      top = window.innerHeight - tooltipRect.height - 10;
+    }
+
+    tooltip.style.left = Math.max(10, left) + 'px';
+    tooltip.style.top = Math.max(10, top) + 'px';
+    tooltip.classList.add('show');
+  }
+
+  function hideOnboardingTooltip(projectIndex) {
+    onboardingTooltipTimeouts[projectIndex] = setTimeout(() => {
+      const tooltip = document.getElementById(`onb-tooltip-${projectIndex}`);
+      if (tooltip) {
+        tooltip.classList.remove('show');
+      }
+      delete onboardingTooltipTimeouts[projectIndex];
+    }, 200);
+  }
+
+  function keepOnboardingTooltipVisible(projectIndex) {
+    if (onboardingTooltipTimeouts[projectIndex]) {
+      clearTimeout(onboardingTooltipTimeouts[projectIndex]);
+      delete onboardingTooltipTimeouts[projectIndex];
+    }
+  }
+
+  function hideOnboardingTooltipDelayed(projectIndex) {
+    onboardingTooltipTimeouts[projectIndex] = setTimeout(() => {
+      const tooltip = document.getElementById(`onb-tooltip-${projectIndex}`);
+      if (tooltip) {
+        tooltip.classList.remove('show');
+      }
+      delete onboardingTooltipTimeouts[projectIndex];
+    }, 300);
+  }
+
+  function updateOnboardingTooltipLink(projectIndex) {
+    const linkElement = document.getElementById(`onb-tooltip-link-${projectIndex}`);
+    if (!linkElement) return;
+
+    // Busca o projeto mp-site-front na lista de projetos onboarding
+    const siteFrontProject = currentOnboardingProjects.find(p => p.name === 'mp-site-front');
+    
+    if (siteFrontProject && siteFrontProject.path) {
+      // Site front encontrado - habilita o link
+      linkElement.style.opacity = '1';
+      linkElement.style.pointerEvents = 'auto';
+      linkElement.style.cursor = 'pointer';
+      linkElement.innerHTML = '🔗 Abrir arquivo .env';
+      linkElement.onclick = () => openSiteFrontEnvFile(siteFrontProject.path);
+    } else {
+      // Site front não encontrado - desabilita o link
+      linkElement.style.opacity = '0.5';
+      linkElement.style.pointerEvents = 'none';
+      linkElement.style.cursor = 'not-allowed';
+      linkElement.innerHTML = '🔗 Abrir arquivo .env (mp-site-front não encontrado)';
+      linkElement.onclick = null;
+    }
+  }
+
+  function openSiteFrontEnvFile(siteFrontPath) {
+    if (window.openingSiteFrontEnvFile) {
+      console.log('Já está abrindo arquivo .env, aguarde...');
+      return;
+    }
+
+    window.openingSiteFrontEnvFile = true;
+
+    // Desabilita o link do tooltip
+    const linkElement = document.getElementById(`onb-tooltip-link-0`); // mp-bem-vindo é sempre index 0
+    if (linkElement) {
+      linkElement.style.opacity = '0.5';
+      linkElement.style.cursor = 'not-allowed';
+      linkElement.style.pointerEvents = 'none';
+      linkElement.innerHTML = '⏳ Abrindo arquivo...';
+    }
+
+    // Constrói o caminho do arquivo .env
+    let envFilePath;
+    if (siteFrontPath.includes('\\')) {
+      // Windows
+      envFilePath = siteFrontPath + '\\.env';
+    } else {
+      // Linux/macOS
+      envFilePath = siteFrontPath + '/.env';
+    }
+
+    console.log(`[ONBOARDING] Abrindo arquivo .env: ${envFilePath}`);
+
+    // Envia comando para abrir o arquivo
+    ipcRenderer.send('open-environment-file', { 
+      filePath: envFilePath,
+      mpPampPath: siteFrontPath // Compatibilidade com handler existente
+    });
+
+    // Reabilita o link após 3 segundos
+    setTimeout(() => {
+      window.openingSiteFrontEnvFile = false;
+      if (linkElement) {
+        linkElement.style.opacity = '1';
+        linkElement.style.cursor = 'pointer';
+        linkElement.style.pointerEvents = 'auto';
+        linkElement.innerHTML = '🔗 Abrir arquivo .env';
+      }
+    }, 3000);
+  }
+
   // ===== FUNÇÃO PARA ATUALIZAR BRANCH (GIT PULL) =====
   function handleUpdateBranch(projectIndex, projectName, projectPath, isPamp) {
     console.log(`[DEBUG] handleUpdateBranch chamada:`, { projectIndex, projectName, projectPath, isPamp });
@@ -1861,8 +2143,13 @@
       toggleBtn.classList.remove('expanded');
       togglePampBtn.classList.remove('expanded');
       
-      // Carrega projetos onboarding
-      loadOnboardingProjects();
+      // Se ainda não carregou, carrega agora (fallback)
+      if (currentOnboardingProjects.length === 0) {
+        console.log('[ONBOARDING] ⚠️ Projetos não foram pré-carregados, carregando agora...');
+        loadOnboardingProjects();
+      } else {
+        console.log('[ONBOARDING] ✅ Usando projetos pré-carregados:', currentOnboardingProjects.length);
+      }
     } else {
       console.log('[ONBOARDING] 👁️ Escondendo Onboarding, restaurando PAS e PAMP');
       // Restaura visibilidade anterior dos painéis PAS e PAMP
@@ -1955,8 +2242,8 @@
   console.log('[ONBOARDING] 🔄 Inicializando contador de onboarding...');
   const initialOnboardingCount = document.getElementById('onboarding-count');
   if (initialOnboardingCount) {
-    initialOnboardingCount.textContent = '1'; // mp-site-front
-    console.log('[ONBOARDING] ✅ Contador inicial definido para 1');
+    initialOnboardingCount.textContent = '0'; // Será atualizado ao carregar
+    console.log('[ONBOARDING] ✅ Contador inicial definido para 0 (aguardando carregamento)');
   } else {
     console.error('[ONBOARDING] ❌ Elemento onboarding-count não encontrado!');
   }
@@ -1982,7 +2269,7 @@
       console.log('[ONBOARDING] ✅ Todos os elementos encontrados!');
       // Garante que o botão seja visível
       onbBtn.style.display = 'flex';
-      if (onbCountEl) onbCountEl.textContent = '1';
+      // Contador será atualizado quando loadOnboardingProjects() for chamado
     } else {
       console.error('[ONBOARDING] ❌ Elementos não encontrados!');
     }
@@ -2642,11 +2929,29 @@
         currentOnboardingProjects = result.projects;
         console.log('[ONBOARDING] ✅ Projetos carregados:', result.projects);
         
+        // Busca versões Java para projetos Java
+        for (const project of currentOnboardingProjects) {
+          if (project.type === 'java') {
+            console.log(`[ONBOARDING] 🔍 Buscando versão Java para ${project.name}...`);
+            try {
+              const javaResult = await ipcRenderer.invoke('get-onboarding-java-version', {
+                projectName: project.name
+              });
+              if (javaResult.success && javaResult.javaVersion) {
+                project.javaVersion = javaResult.javaVersion;
+                console.log(`[ONBOARDING] ✅ Versão Java encontrada: ${javaResult.javaVersion}`);
+              }
+            } catch (error) {
+              console.warn(`[ONBOARDING] ⚠️ Erro ao buscar versão Java para ${project.name}:`, error);
+            }
+          }
+        }
+        
         // Renderiza projetos diretamente no container
-        renderOnboardingProjects(result.projects);
+        renderOnboardingProjects(currentOnboardingProjects);
         
         // Atualiza contador
-        const onboardingCount = result.projects.length;
+        const onboardingCount = currentOnboardingProjects.length;
         const countElement = document.getElementById('onboarding-count');
         if (countElement) {
           countElement.textContent = onboardingCount.toString();
@@ -2670,7 +2975,49 @@
     projects.forEach((project, index) => {
       const div = document.createElement('div');
       div.className = "project-card";
+      
+      // HTML para o ícone Java e versão (se for Java)
+      let javaIconHtml = '';
+      if (project.type === 'java') {
+        const javaVersion = project.javaVersion || project.defaultJavaVersion || '';
+        const versionText = javaVersion ? ` ${javaVersion}` : '';
+        console.log(`[ONBOARDING] 🔍 Versão Java para ${project.name}:`, javaVersion, 'defaultJavaVersion:', project.defaultJavaVersion);
+        javaIconHtml = `
+          <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 8px;">
+            <img src="assets/java.png" style="width: 20px; height: 20px;" title="Java Backend" alt="Java" />
+            <span style="font-size: 12px; font-weight: bold; color: #666;">Java${versionText}</span>
+          </div>
+        `;
+      }
+      
+      // HTML para link do Swagger (somente para projetos Java rodando)
+      let swaggerLinkHtml = '';
+      if (project.type === 'java' && project.isRunning) {
+        swaggerLinkHtml = `
+          <a href="http://localhost:${project.port}/swagger-ui.html" 
+             target="_blank" 
+             style="margin-left: 8px; padding: 2px 8px; background: #85ea2d; color: #000; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold;"
+             title="Abrir Swagger UI">
+            📄 Swagger
+          </a>
+        `;
+      }
+      
+      // HTML para link da porta (para todos os projetos rodando)
+      let portLinkHtml = '';
+      if (project.isRunning) {
+        portLinkHtml = `
+          <a href="#" 
+             onclick="require('electron').shell.openExternal('http://localhost:${project.port}'); return false;"
+             style="margin-left: 8px; padding: 2px 8px; background: #28a745; color: white; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold; cursor: pointer;"
+             title="Abrir aplicação na porta ${project.port} no navegador">
+            🌐 :${project.port}
+          </a>
+        `;
+      }
+      
       div.innerHTML = `
+          ${javaIconHtml}
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <p style="margin: 0;"><strong>${project.name}</strong></p>
@@ -2679,25 +3026,36 @@
                 <span id="onb-react-version-${index}" class="version-badge" style="background: #61dafb; color: #000;">
                   <span class="version-text">${project.type.toUpperCase()}</span>
                 </span>
-                <span id="onb-port-badge-${index}" class="version-badge" style="background: #28a745; color: white;">
-                  <span class="version-text">Port: ${project.port}</span>
-                </span>
-                ${project.isRunning ? 
-                  sharedServices.createStatusBadge('🚀 Rodando', '#007bff') : 
-                  ''
-                }
+                ${portLinkHtml}
+                ${swaggerLinkHtml}
               </div>
             </div>
             <div style="display: flex; align-items: center; gap: 5px;">
-              <img id="onb-btn-editor-${index}" src="${sharedServices.getCurrentIDEIcon(currentIDE)}" class="editor-icon" 
+              <img id="onb-btn-editor-${index}" src="${getCurrentIDEIcon()}" class="editor-icon" 
                    style="${!project.path ? 'display: none' : ''}" 
                    title="Abrir projeto no ${currentIDE.name}" 
                    alt="Editor" 
                    onclick="openOnboardingProjectInEditor(${index})" />
-              <img id="onb-btn-terminal-${index}" src="${sharedServices.getTerminalIcon()}" 
+              <img id="onb-btn-terminal-${index}" src="${getTerminalIcon()}" 
                    style="width: 24px; height: 24px; cursor: pointer; ${!project.path ? 'display: none' : ''}" 
                    title="Abrir terminal na pasta do projeto" 
                    alt="Terminal" />
+              ${project.name === 'mp-bem-vindo' ? `
+              <div class="tooltip" onmouseenter="showOnboardingTooltip(event, ${index})" onmouseleave="hideOnboardingTooltip(${index})">
+                <span class="help-icon" title="Clique para ajuda sobre configuração do Front-End">ⓘ</span>
+                <span class="tooltiptext" id="onb-tooltip-${index}" onmouseenter="keepOnboardingTooltipVisible(${index})" onmouseleave="hideOnboardingTooltipDelayed(${index})">
+                  <strong>🔧 Configuração para desenvolvimento local:</strong><br><br>
+                  Para que o <strong>mp-site-front</strong> consiga se conectar ao <strong>mp-bem-vindo</strong> localmente, você precisa alterar a URL da API.<br><br>
+                  <strong>📍 Caminho:</strong> <code>mp-site-front/.env</code><br><br>
+                  <strong>📝 Como alterar:</strong><br>
+                  1. Abra o arquivo <code>.env</code> na raiz do projeto mp-site-front<br>
+                  2. Encontre a variável: <code>REACT_APP_API_BASE_URL_MP_BEM_VINDO</code><br>
+                  3. Substitua o valor atual por: <code>http://localhost:3001</code><br>
+                  4. Salve o arquivo e reinicie o mp-site-front<br><br>
+                  <span class="tooltip-link" id="onb-tooltip-link-${index}" style="opacity: 0.5; pointer-events: none;">🔗 Abrir arquivo .env (mp-site-front não encontrado)</span>
+                </span>
+              </div>
+              ` : ''}
             </div>
           </div>
           
@@ -2706,18 +3064,20 @@
             <img id="onb-folder-icon-${index}" src="pasta.png" class="folder-icon" title="Procurar projeto existente" alt="Procurar pasta" />
           </div>
           
-          <button id="onb-btn-download-${index}" style="margin-right: 10px; ${project.path ? 'display: none' : ''}">📥 Clonar Projeto</button>
-          <button id="onb-btn-install-${index}" style="margin-right: 10px; ${(!project.path || project.isInstalled) ? 'display: none' : ''}">📦 Instalar</button>
-          <button id="onb-btn-start-${index}" style="margin-right: 10px;" ${(!project.path || !project.isInstalled) ? 'disabled' : ''}>Iniciar</button>
-          <span id="onb-port-${index}" style="display: none; margin-right: 10px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer;" 
-                onclick="openOnboardingProject(${index})" 
-                title="Clique para abrir no navegador"></span>
-          <button id="onb-btn-cancel-${index}" style="display: none; margin-right: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
-          <button id="onb-btn-stop-${index}" style="display: none;">Parar</button>
-          <button id="onb-btn-move-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #5a6c7d; color: white;">Mover para...</button>
-          <button id="onb-btn-delete-${index}" style="margin-right: 10px; ${!project.path ? 'display: none' : ''}; background-color: #8b5a5a; color: white;">Deletar</button>
+          <button id="onb-btn-download-${index}" style="margin-right: 10px; margin-bottom: 10px; ${project.path ? 'display: none' : ''}">Baixar Projeto</button>
+          ${project.type === 'java' ? `
+            <button id="onb-btn-install-${index}" style="margin-right: 10px; margin-bottom: 10px; ${!project.path ? 'display: none' : ''}">Maven Install</button>
+            <button id="onb-btn-test-${index}" style="margin-right: 10px; margin-bottom: 10px; ${!project.path ? 'display: none' : ''}">Run Tests</button>
+          ` : `
+            <button id="onb-btn-install-${index}" style="margin-right: 10px; margin-bottom: 10px; ${(!project.path || project.isInstalled) ? 'display: none' : ''}">Instalar</button>
+          `}
+          <button id="onb-btn-start-${index}" style="margin-right: 10px; margin-bottom: 10px; ${!project.path ? 'display: none' : ''}">Iniciar</button>
+          <button id="onb-btn-cancel-${index}" style="display: none; margin-right: 10px; margin-bottom: 10px; background-color: #dc3545; color: white;" title="Cancelar inicialização">✕ Cancelar</button>
+          <button id="onb-btn-stop-${index}" style="display: none; margin-bottom: 10px;">Parar</button>
+          <button id="onb-btn-move-${index}" style="margin-right: 10px; margin-bottom: 10px; ${!project.path ? 'display: none' : ''}; background-color: #5a6c7d; color: white;">Mover para...</button>
+          <button id="onb-btn-delete-${index}" style="margin-right: 10px; margin-bottom: 10px; ${!project.path ? 'display: none' : ''}; background-color: #8b5a5a; color: white;">Deletar</button>
           
-          <div id="onb-log-${index}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px;"></div>
+          <div id="onb-log-${index}" style="display: none; background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 5px; margin-top: 10px; white-space: pre-wrap;"></div>
       `;
       onboardingContainer.appendChild(div);
 
@@ -2730,12 +3090,61 @@
   }
 
   /**
+   * Atualiza apenas os links (porta e Swagger) de um projeto específico sem destruir o HTML
+   */
+  function updateOnboardingSwaggerLink(projectIndex) {
+    const project = currentOnboardingProjects[projectIndex];
+    if (!project) return;
+    
+    const badgesContainer = document.getElementById(`onb-version-badges-${projectIndex}`);
+    if (!badgesContainer) return;
+    
+    // Remove links existentes (se houver)
+    const existingPort = badgesContainer.querySelector('a[title^="Abrir aplicação na porta"]');
+    if (existingPort) {
+      existingPort.remove();
+    }
+    
+    const existingSwagger = badgesContainer.querySelector('a[title="Abrir Swagger UI"]');
+    if (existingSwagger) {
+      existingSwagger.remove();
+    }
+    
+    // Adiciona link da porta se o projeto está rodando
+    if (project.isRunning) {
+      const portLink = document.createElement('a');
+      portLink.href = '#';
+      portLink.onclick = (e) => {
+        e.preventDefault();
+        require('electron').shell.openExternal(`http://localhost:${project.port}`);
+        return false;
+      };
+      portLink.style.cssText = 'margin-left: 8px; padding: 2px 8px; background: #28a745; color: white; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold; cursor: pointer;';
+      portLink.title = `Abrir aplicação na porta ${project.port} no navegador`;
+      portLink.textContent = `🌐 :${project.port}`;
+      badgesContainer.appendChild(portLink);
+    }
+    
+    // Adiciona link do Swagger se o projeto Java está rodando
+    if (project.type === 'java' && project.isRunning) {
+      const swaggerLink = document.createElement('a');
+      swaggerLink.href = `http://localhost:${project.port}/swagger-ui.html`;
+      swaggerLink.target = '_blank';
+      swaggerLink.style.cssText = 'margin-left: 8px; padding: 2px 8px; background: #85ea2d; color: #000; border-radius: 4px; text-decoration: none; font-size: 11px; font-weight: bold;';
+      swaggerLink.title = 'Abrir Swagger UI';
+      swaggerLink.textContent = '📄 Swagger';
+      badgesContainer.appendChild(swaggerLink);
+    }
+  }
+
+  /**
    * Configura event listeners para projetos onboarding
    */
   function setupOnboardingEventListeners(project, index) {
     const onbInput = document.getElementById(`onb-input-${index}`);
     const onbDownloadButton = document.getElementById(`onb-btn-download-${index}`);
     const onbInstallButton = document.getElementById(`onb-btn-install-${index}`);
+    const onbTestButton = document.getElementById(`onb-btn-test-${index}`);
     const onbFolderIcon = document.getElementById(`onb-folder-icon-${index}`);
     const onbStartButton = document.getElementById(`onb-btn-start-${index}`);
     const onbStopButton = document.getElementById(`onb-btn-stop-${index}`);
@@ -2746,11 +3155,29 @@
     // Input blur
     onbInput.addEventListener('blur', () => {
       handleOnboardingPathChange(project, index, onbInput.value.trim());
+      
+      // Se for o mp-site-front, atualiza o tooltip do mp-bem-vindo
+      if (project.name === 'mp-site-front') {
+        const bemVindoIndex = currentOnboardingProjects.findIndex(p => p.name === 'mp-bem-vindo');
+        if (bemVindoIndex >= 0) {
+          updateOnboardingTooltipLink(bemVindoIndex);
+        }
+      }
     });
 
     // Botões
     onbDownloadButton.addEventListener('click', () => cloneOnboardingProject(project.name, index));
-    onbInstallButton.addEventListener('click', () => installOnboardingDependencies(project.name, index));
+    
+    // Botão Install - comportamento diferente para Java vs React
+    if (project.type === 'java') {
+      onbInstallButton.addEventListener('click', () => runMavenInstall(project.name, index));
+      if (onbTestButton) {
+        onbTestButton.addEventListener('click', () => runMavenTests(project.name, index));
+      }
+    } else {
+      onbInstallButton.addEventListener('click', () => installOnboardingDependencies(project.name, index));
+    }
+    
     onbFolderIcon.addEventListener('click', () => selectOnboardingFolder(index));
     
     // Botão Mover para... (reutilizando lógica do PAS)
@@ -2847,6 +3274,7 @@
     const elements = {
       download: document.getElementById(`onb-btn-download-${index}`),
       install: document.getElementById(`onb-btn-install-${index}`),
+      start: document.getElementById(`onb-btn-start-${index}`),
       move: document.getElementById(`onb-btn-move-${index}`),
       delete: document.getElementById(`onb-btn-delete-${index}`),
       editor: document.getElementById(`onb-btn-editor-${index}`),
@@ -2855,6 +3283,7 @@
 
     if (path) {
       elements.download.style.display = 'none';
+      elements.start.style.display = 'inline-block';
       elements.editor.style.display = 'inline-block';
       elements.terminal.style.display = 'inline-block';
       
@@ -2879,6 +3308,7 @@
     } else {
       elements.delete.style.display = 'none';
       elements.move.style.display = 'none';
+      elements.start.style.display = 'none';
       elements.download.style.display = 'inline-block';
       elements.editor.style.display = 'none';
       elements.terminal.style.display = 'none';
@@ -2890,18 +3320,33 @@
    */
   function updateOnboardingProjectUI() {
     currentOnboardingProjects.forEach((project, index) => {
+      console.log('[ONBOARDING] UI refresh', project.name, {
+        path: project.path,
+        isInstalled: project.isInstalled,
+        isRunning: project.isRunning
+      });
       const startButton = document.getElementById(`onb-btn-start-${index}`);
       const stopButton = document.getElementById(`onb-btn-stop-${index}`);
       const cancelButton = document.getElementById(`onb-btn-cancel-${index}`);
       const moveButton = document.getElementById(`onb-btn-move-${index}`);
       const deleteButton = document.getElementById(`onb-btn-delete-${index}`);
+      const installButton = document.getElementById(`onb-btn-install-${index}`);
+      const testButton = document.getElementById(`onb-btn-test-${index}`);
       const portSpan = document.getElementById(`onb-port-${index}`);
+
+      const trimmedPath = (project.path || '').trim();
 
       if (project.isRunning) {
         // Projeto rodando: mostra botão parar, esconde iniciar e cancelar
         if (startButton) startButton.style.display = 'none';
         if (stopButton) stopButton.style.display = 'inline-block';
         if (cancelButton) cancelButton.style.display = 'none';
+        
+        // Esconde Install e Test quando rodando (somente para Java)
+        if (project.type === 'java') {
+          if (installButton) installButton.style.display = 'none';
+          if (testButton) testButton.style.display = 'none';
+        }
         
         // Esconde mover e deletar quando rodando
         if (moveButton) moveButton.style.display = 'none';
@@ -2917,12 +3362,22 @@
       } else {
         // Projeto parado: mostra botão iniciar, esconde parar e cancelar
         if (startButton) {
-          startButton.style.display = 'inline-block';
-          startButton.disabled = false;
-          startButton.innerText = 'Iniciar';
+          if (project.path) {
+            startButton.style.display = 'inline-block';
+            startButton.disabled = false;
+            startButton.innerText = 'Iniciar';
+          } else {
+            startButton.style.display = 'none';
+          }
         }
         if (stopButton) stopButton.style.display = 'none';
         if (cancelButton) cancelButton.style.display = 'none';
+        
+        // Mostra Install e Test quando parado (somente para Java com path)
+        if (project.type === 'java' && project.path) {
+          if (installButton) installButton.style.display = 'inline-block';
+          if (testButton) testButton.style.display = 'inline-block';
+        }
         
         // Mostra mover e deletar quando parado (se tem caminho)
         if (project.path || project.persistedPath) {
@@ -3372,12 +3827,11 @@
       console.scrollTop = console.scrollHeight;
     }
     
-    if (success) {
-      const moveButton = document.getElementById(`onb-btn-move-${index}`);
-      if (moveButton) {
-        moveButton.disabled = false;
-        moveButton.innerText = 'Mover para...';
-      }
+    // Sempre restaura o botão (sucesso ou cancelamento)
+    const moveButton = document.getElementById(`onb-btn-move-${index}`);
+    if (moveButton) {
+      moveButton.disabled = false;
+      moveButton.innerText = 'Mover para...';
     }
   });
 
@@ -3657,19 +4111,33 @@
             onclick="require('electron').ipcRenderer.send('open-nodes-folder', '${nodesPath.replace(/\\/g, '\\\\')}'); return false;" 
             style="
               position: absolute;
-              right: -110px;
-              top: 50%;
-              transform: translateY(-50%);
-              color: #0066cc;
-              text-decoration: none;
+              if (startButton) {
+                if (project.path && project.path.trim() !== '') {
+                  startButton.style.display = 'inline-block';
+                  startButton.disabled = !project.isInstalled;
+                  startButton.innerText = 'Iniciar';
+                } else {
+                  startButton.style.display = 'none';
+                }
+              }
               font-size: 11px;
               white-space: nowrap;
               opacity: 0;
               pointer-events: none;
-              transition: opacity 0.2s ease;
+              if (project.path && project.path.trim() !== '') {
               background: rgba(0, 0, 0, 0.7);
               padding: 2px 6px;
               border-radius: 4px;
+                if (moveButton) moveButton.style.display = 'none';
+                if (deleteButton) deleteButton.style.display = 'none';
+              }
+        
+              // Se não está instalado, garante disable no botão iniciar
+              if (startButton && project.isInstalled === false) {
+                startButton.disabled = true;
+                startButton.title = 'Instale o projeto antes de iniciar';
+              } else if (startButton) {
+                startButton.title = '';
             "
             title="Abrir pasta das dependências Node.js portáteis"
           >
@@ -4321,7 +4789,8 @@
       // Atualizar status do projeto
       currentOnboardingProjects[projectIndex].isRunning = true;
       
-      // Atualizar UI para mostrar botão de parar
+      // Atualizar apenas o link do Swagger sem destruir o HTML
+      updateOnboardingSwaggerLink(projectIndex);
       updateOnboardingProjectUI();
       
       const logDiv = document.getElementById(`onb-log-${projectIndex}`);
@@ -4339,12 +4808,32 @@
       // Atualizar status do projeto
       currentOnboardingProjects[projectIndex].isRunning = false;
       
-      // Atualizar UI para mostrar botão de iniciar
+      // Atualizar apenas o link do Swagger sem destruir o HTML
+      updateOnboardingSwaggerLink(projectIndex);
       updateOnboardingProjectUI();
       
       const logDiv = document.getElementById(`onb-log-${projectIndex}`);
       if (logDiv) {
         logDiv.innerHTML += `<div style="color: #ff9500;">⏹️ Projeto ${projectName} parado!</div>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+    }
+  });
+
+  // Handler para projeto que falhou ao iniciar
+  ipcRenderer.on('onboarding-failed', (event, { projectName, error }) => {
+    const projectIndex = currentOnboardingProjects.findIndex(p => p.name === projectName);
+    if (projectIndex >= 0) {
+      // Atualizar status do projeto
+      currentOnboardingProjects[projectIndex].isRunning = false;
+      
+      // Atualizar apenas o link do Swagger sem destruir o HTML
+      updateOnboardingSwaggerLink(projectIndex);
+      updateOnboardingProjectUI();
+      
+      const logDiv = document.getElementById(`onb-log-${projectIndex}`);
+      if (logDiv) {
+        logDiv.innerHTML += `<div style="color: #ff6b35;">❌ Falha ao iniciar: ${error}</div>`;
         logDiv.scrollTop = logDiv.scrollHeight;
       }
     }

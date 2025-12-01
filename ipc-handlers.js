@@ -130,7 +130,17 @@ try {
 
 // ===== HANDLERS ONBOARDING =====
 const OnboardingManager = require('./onboarding-manager');
-const onboardingManager = new OnboardingManager();
+
+// Reutiliza a instância global criada no main.js, ou cria uma nova se não existir
+const onboardingManager = global.onboardingManager || new OnboardingManager();
+
+// Garante que está disponível globalmente
+if (!global.onboardingManager) {
+  global.onboardingManager = onboardingManager;
+  console.log('[IPC-HANDLERS] OnboardingManager criado e exposto globalmente');
+} else {
+  console.log('[IPC-HANDLERS] Reutilizando OnboardingManager global existente');
+}
 
 try {
   // Carregar projetos onboarding
@@ -148,9 +158,27 @@ try {
 
   // Clonar projeto onboarding
   ipcMain.handle('clone-onboarding-project', async (event, { projectName, targetPath }) => {
-    console.log(`[ONBOARDING] 📡 Clonando projeto ${projectName} para ${targetPath}...`);
+    console.log(`[ONBOARDING] 📡 Clonando projeto ${projectName}...`);
+    
     try {
-      const result = await onboardingManager.cloneProject(
+      // Se targetPath não foi fornecido, abre diálogo para usuário escolher
+      if (!targetPath) {
+        const { dialog } = require('electron');
+        const result = await dialog.showOpenDialog({
+          properties: ['openDirectory'],
+          title: `Selecione onde clonar ${projectName}`,
+          buttonLabel: 'Selecionar Pasta'
+        });
+        
+        if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+          return { success: false, error: 'Operação cancelada pelo usuário' };
+        }
+        
+        targetPath = result.filePaths[0];
+        console.log(`[ONBOARDING] 📁 Pasta selecionada: ${targetPath}`);
+      }
+      
+      const cloneResult = await onboardingManager.cloneProject(
         projectName,
         targetPath,
         (progress) => {
@@ -161,7 +189,7 @@ try {
         }
       );
       console.log('[ONBOARDING] ✅ Projeto clonado com sucesso');
-      return { success: true, result };
+      return { success: true, projectPath: cloneResult };
     } catch (error) {
       console.error('[ONBOARDING] ❌ Erro ao clonar projeto:', error);
       return { success: false, error: error.message };
@@ -189,6 +217,48 @@ try {
     }
   });
 
+  // Maven Install (mvn clean install -DskipTests)
+  ipcMain.handle('maven-install-onboarding', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] 🔨 Executando Maven Install para ${projectName}...`);
+    try {
+      const result = await onboardingManager.mavenInstall(
+        projectName,
+        (message) => {
+          event.sender.send('maven-install-progress', { projectName, message });
+        },
+        (error) => {
+          event.sender.send('maven-install-error', { projectName, error });
+        }
+      );
+      console.log('[ONBOARDING] ✅ Maven Install concluído');
+      return { success: true, result };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro no Maven Install:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Run Maven Tests (mvn test)
+  ipcMain.handle('run-onboarding-tests', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] 🧪 Executando Maven Tests para ${projectName}...`);
+    try {
+      const result = await onboardingManager.runTests(
+        projectName,
+        (message) => {
+          event.sender.send('maven-test-progress', { projectName, message });
+        },
+        (error) => {
+          event.sender.send('maven-test-error', { projectName, error });
+        }
+      );
+      console.log('[ONBOARDING] ✅ Maven Tests concluídos');
+      return { success: true, result };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro nos Maven Tests:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   // Iniciar projeto onboarding
   ipcMain.handle('start-onboarding-project', async (event, { projectName }) => {
     console.log(`[ONBOARDING] 📡 Iniciando projeto ${projectName}...`);
@@ -200,6 +270,8 @@ try {
         },
         (error) => {
           event.sender.send('onboarding-error', { projectName, error });
+          // Envia evento de falha para resetar UI
+          event.sender.send('onboarding-failed', { projectName, error });
         },
         () => {
           event.sender.send('onboarding-started', { projectName });
@@ -209,6 +281,36 @@ try {
       return { success: true };
     } catch (error) {
       console.error('[ONBOARDING] ❌ Erro ao iniciar projeto:', error);
+      // Envia evento de falha para resetar UI
+      event.sender.send('onboarding-failed', { projectName, error: error.message });
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Iniciar projeto Java (Spring Boot)
+  ipcMain.handle('start-java-onboarding-project', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] ☕ Iniciando projeto Java ${projectName}...`);
+    try {
+      await onboardingManager.startJavaProject(
+        projectName,
+        (output) => {
+          event.sender.send('onboarding-output', { projectName, output });
+        },
+        (error) => {
+          event.sender.send('onboarding-error', { projectName, error });
+          // Envia evento de falha para resetar UI
+          event.sender.send('onboarding-failed', { projectName, error });
+        },
+        () => {
+          event.sender.send('onboarding-started', { projectName });
+        }
+      );
+      console.log('[ONBOARDING] ✅ Projeto Java iniciado com sucesso');
+      return { success: true };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao iniciar projeto Java:', error);
+      // Envia evento de falha para resetar UI
+      event.sender.send('onboarding-failed', { projectName, error: error.message });
       return { success: false, error: error.message };
     }
   });
@@ -236,6 +338,30 @@ try {
     } catch (error) {
       console.error('[ONBOARDING] ❌ Erro ao parar projeto:', error);
       return { success: false, error: error.message };
+    }
+  });
+
+  // Salvar variáveis de ambiente do projeto
+  ipcMain.handle('save-onboarding-env', async (event, { projectName, envVars }) => {
+    console.log(`[ONBOARDING] 💾 Salvando variáveis de ambiente para ${projectName}...`);
+    try {
+      const success = onboardingManager.saveProjectEnv(projectName, envVars);
+      return { success };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao salvar variáveis:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Carregar variáveis de ambiente do projeto
+  ipcMain.handle('load-onboarding-env', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] 📥 Carregando variáveis de ambiente para ${projectName}...`);
+    try {
+      const envVars = onboardingManager.loadProjectEnv(projectName);
+      return { success: true, envVars };
+    } catch (error) {
+      console.error('[ONBOARDING] ❌ Erro ao carregar variáveis:', error);
+      return { success: false, error: error.message, envVars: {} };
     }
   });
 
@@ -351,6 +477,24 @@ try {
       return { success: true, nodeVersion };
     } catch (error) {
       console.error(`[ONBOARDING] ❌ Erro ao obter versão Node.js para ${projectName}:`, error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Obter versão do Java para projeto onboarding (busca do pom.xml no GitHub ou local)
+  ipcMain.handle('get-onboarding-java-version', async (event, { projectName }) => {
+    console.log(`[ONBOARDING] 📡 Obtendo versão Java para ${projectName}...`);
+    try {
+      const javaVersion = await onboardingManager.getJavaVersion(projectName);
+      if (javaVersion) {
+        console.log(`[ONBOARDING] ✅ Java v${javaVersion} para ${projectName}`);
+        return { success: true, javaVersion };
+      } else {
+        console.log(`[ONBOARDING] ⚠️ Versão Java não encontrada para ${projectName}`);
+        return { success: true, javaVersion: null };
+      }
+    } catch (error) {
+      console.error(`[ONBOARDING] ❌ Erro ao obter versão Java para ${projectName}:`, error);
       return { success: false, error: error.message };
     }
   });
