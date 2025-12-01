@@ -449,7 +449,7 @@ class SplashManager {
           </style>
       </head>
       <body>
-          <div class="logo">Front-End Manager</div>
+          <div class="logo">Gerenciador de Projetos</div>
           <img src="data:image/gif;base64,${gifBase64}" style="width: 220px; height: 120px; margin: 20px 0;" alt="Loading..." />
           <div class="loading-text">Carregando aplicação...</div>
           <div class="progress-bar">
